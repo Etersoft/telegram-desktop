@@ -5,7 +5,7 @@
 
 Name: telegram-desktop
 Version: 1.1.7
-Release: alt1
+Release: alt2
 
 Summary: Telegram is a messaging app with a focus on speed and security
 
@@ -140,6 +140,12 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Mon Jun 12 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.7-alt2
+- use correct executable path (fix restart)
+- open localized FAQ for ru/uk/be
+- get initial language name and country name from QLocale
+- fix crash in video player seeking (66662e02a)
+
 * Mon Jun 12 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.7-alt1
 - new version (1.1.7) with rpmgs script
 
