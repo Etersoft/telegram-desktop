@@ -1,0 +1,116 @@
+--- /dev/null
++++ b/Telegram/cmake/FindBreakpad.cmake
+@@ -0,0 +1,20 @@
++
++find_path(BREAKPAD_INCLUDE_DIRS
++    NAMES client/linux/handler/exception_handler.h
++    PATHS
++    ${BREAKPAD_INCLUDE_DIR})
++
++find_library(BREAKPAD_CLIENT_LIBRARY
++    NAMES breakpad_client
++    PATHS
++    ${BREAKPAD_LIBRARY_DIR}
++)
++
++find_package_handle_standard_args(Breakpad DEFAULT_MSG
++    BREAKPAD_CLIENT_LIBRARY BREAKPAD_INCLUDE_DIRS)
++
++add_library(breakpad STATIC IMPORTED)
++add_dependencies(breakpad breakpad_build)
++
++set_property(TARGET breakpad PROPERTY IMPORTED_LOCATION ${BREAKPAD_CLIENT_LIBRARY})
++set_property(TARGET breakpad PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${BREAKPAD_INCLUDE_DIRS})
+--- /dev/null
++++ b/Telegram/cmake/TelegramCodegen.cmake
+@@ -0,0 +1,63 @@
++
++set(TELEGRAM_GENERATED_SOURCES)
++
++add_custom_command(
++    OUTPUT ${GENERATED_DIR}/scheme.h ${GENERATED_DIR}/scheme.cpp
++    COMMAND python ${TELEGRAM_SOURCES_DIR}/codegen/scheme/codegen_scheme.py -o${GENERATED_DIR} ${TELEGRAM_RESOURCES_DIR}/scheme.tl
++    DEPENDS ${CMAKE_SOURCE_DIR}/Resources/scheme.tl
++    COMMENT "Codegen scheme.tl"
++)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/scheme.h)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/scheme.cpp)
++
++file(GLOB_RECURSE STYLES ${TELEGRAM_RESOURCES_DIR}/*.palette ${TELEGRAM_RESOURCES_DIR}/*.style ${TELEGRAM_SOURCES_DIR}/*.style)
++set(GENERATED_STYLES)
++foreach(STYLE ${STYLES})
++    get_filename_component(STYLE_FILENAME ${STYLE} NAME)
++    get_filename_component(STYLE_NAME ${STYLE} NAME_WE)
++    if (${STYLE} MATCHES \\.palette$)
++        set(THIS_GENERATED_STYLES ${GENERATED_DIR}/styles/palette.h ${GENERATED_DIR}/styles/palette.cpp)
++    else()
++        set(THIS_GENERATED_STYLES ${GENERATED_DIR}/styles/style_${STYLE_NAME}.h ${GENERATED_DIR}/styles/style_${STYLE_NAME}.cpp)
++    endif()
++
++    # style generator does not like '-' in file path, so let's use relative paths...
++    add_custom_command(
++        OUTPUT ${THIS_GENERATED_STYLES}
++        COMMAND ${CMAKE_BINARY_DIR}/codegen_style -IResources -ISourceFiles -o${GENERATED_DIR}/styles ${STYLE}
++        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
++        DEPENDS codegen_style ${STYLE}
++        COMMENT "Codegen style ${STYLE_FILENAME}"
++    )
++    set(GENERATED_STYLES ${GENERATED_STYLES} ${THIS_GENERATED_STYLES})
++endforeach()
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_STYLES})
++
++add_custom_command(
++    OUTPUT ${GENERATED_DIR}/emoji.h ${GENERATED_DIR}/emoji.cpp
++    COMMAND ${CMAKE_BINARY_DIR}/codegen_emoji -o${GENERATED_DIR}
++    DEPENDS codegen_emoji
++    COMMENT "Codegen emoji"
++)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/emoji.h)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/emoji.cpp)
++
++add_custom_command(
++    OUTPUT ${GENERATED_DIR}/lang_auto.h ${GENERATED_DIR}/lang_auto.cpp
++    COMMAND ${CMAKE_BINARY_DIR}/codegen_lang -o${GENERATED_DIR} ${TELEGRAM_RESOURCES_DIR}/langs/lang.strings
++    DEPENDS codegen_lang
++    COMMENT "Codegen lang"
++)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/lang_auto.h)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/lang_auto.cpp)
++
++add_custom_command(
++    OUTPUT ${GENERATED_DIR}/numbers.h ${GENERATED_DIR}/numbers.cpp
++    COMMAND ${CMAKE_BINARY_DIR}/codegen_numbers -o${GENERATED_DIR} ${TELEGRAM_RESOURCES_DIR}/numbers.txt
++    DEPENDS codegen_numbers
++    COMMENT "Codegen numbers"
++)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/numbers.h)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/numbers.cpp)
++
++add_custom_target(telegram_codegen DEPENDS ${TELEGRAM_GENERATED_SOURCES})
+--- /dev/null
++++ b/Telegram/cmake/TelegramCodegenTools.cmake
+@@ -0,0 +1,13 @@
++
++file(GLOB CODEGEN_COMMON_SOURCES
++    ${TELEGRAM_SOURCES_DIR}/codegen/common/*.h ${TELEGRAM_SOURCES_DIR}/codegen/common/*.cpp)
++add_library(codegen_common OBJECT ${CODEGEN_COMMON_SOURCES})
++target_include_directories(codegen_common PUBLIC $<TARGET_PROPERTY:Qt5::Core,INTERFACE_INCLUDE_DIRECTORIES>)
++target_compile_options(codegen_common PUBLIC $<TARGET_PROPERTY:Qt5::Core,INTERFACE_COMPILE_OPTIONS>)
++
++foreach(TOOL emoji lang numbers style)
++    file(GLOB CODEGEN_${TOOL}_SOURCES
++        ${TELEGRAM_SOURCES_DIR}/codegen/${TOOL}/*.h ${TELEGRAM_SOURCES_DIR}/codegen/${TOOL}/*.cpp)
++    add_executable(codegen_${TOOL} ${CODEGEN_${TOOL}_SOURCES} $<TARGET_OBJECTS:codegen_common>)
++    target_link_libraries(codegen_${TOOL} Qt5::Core Qt5::Gui)
++endforeach()
+--- a/Telegram/gyp/PrecompiledHeader.cmake
++++ b/Telegram/gyp/PrecompiledHeader.cmake
+@@ -123,7 +123,7 @@ function(add_precompiled_header _target _input)
+       set(_compiler_FLAGS "@${_pch_cpp_flags_file}")
+       add_custom_command(
+         OUTPUT "${_output_cxx}"
+-        COMMAND "${CMAKE_CXX_COMPILER}" ${_compiler_FLAGS} -x c++-header -o "${_output_cxx}" -c "${_pchfile}"
++        COMMAND "${CMAKE_CXX_COMPILER}" ${_compiler_FLAGS} -std=c++14 -x c++-header -o "${_output_cxx}" -c "${_pchfile}"
+         DEPENDS "${_pchfile}" "${_pch_cpp_flags_file}"
+         IMPLICIT_DEPENDS CXX "${_pch_header}"
+         COMMENT "Precompiling ${_name} for ${_target} (C++)")
