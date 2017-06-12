@@ -26,6 +26,7 @@ Patch6: 0006_fix-static-qt-functions.patch
 Patch8: 0008_add_locales.patch
 Patch9: 0001-use-correct-executable-path.patch
 Patch14: 0014-get-language-name-and-country-name-from-QLocale.patch
+Patch21: 0001-Fix-crash-in-video-player-seeking.patch
 
 BuildRequires(pre): rpm-build-licenses rpm-macros-qt5 rpm-macros-cmake
 BuildRequires(pre): rpm-macros-kde-common-devel
@@ -97,6 +98,7 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 %patch8 -p1
 %patch9 -p1
 %patch14 -p1
+%patch21 -p1
 
 cp %SOURCE2 Telegram/
 # MacOS things will conflicts with binary name
