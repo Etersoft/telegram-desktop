@@ -1,0 +1,39 @@
+From 398731de1f7c10891aeb090bfc5997c1ce230f22 Mon Sep 17 00:00:00 2001
+From: Vitaly Lipatov <lav@etersoft.ru>
+Date: Tue, 13 Jun 2017 00:09:17 +0300
+Subject: [PATCH] use correct executable path
+To: wine-patches <wine-patches@winehq.org>
+
+---
+ tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp b/tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp
+index 5d4bf61..07db738 100644
+--- a/Telegram/SourceFiles/platform/linux/specific_linux.cpp
++++ b/Telegram/SourceFiles/platform/linux/specific_linux.cpp
+@@ -332,6 +332,8 @@ QString psCurrentExeDirectory(int argc, char *argv[]) {
+ 
+ QString psCurrentExeName(int argc, char *argv[]) {
+ 	QString first = argc ? QFile::decodeName(argv[0]) : QString();
++	// set correct executable path
++	first = QString("/usr/bin/telegram-desktop");
+ 	if (!first.isEmpty()) {
+ 		QFileInfo info(first);
+ 		if (info.isSymLink()) {
+-- 
+2.10.3
+
+diff --git a/tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp b/tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp
+index 5d4bf61..0d06ade 100644
+--- a/Telegram/SourceFiles/platform/linux/specific_linux.cpp
++++ b/Telegram/SourceFiles/platform/linux/specific_linux.cpp
+@@ -318,6 +318,8 @@ QString psDownloadPath() {
+ 
+ QString psCurrentExeDirectory(int argc, char *argv[]) {
+ 	QString first = argc ? QFile::decodeName(argv[0]) : QString();
++	// set correct executable path
++	first = QString("/usr/bin/telegram-desktop");
+ 	if (!first.isEmpty()) {
+ 		QFileInfo info(first);
+ 		if (info.isSymLink()) {

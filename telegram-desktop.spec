@@ -24,6 +24,7 @@ Patch3: 0003_qt-plugins.patch
 Patch4: 0004_API-ID.patch
 Patch6: 0006_fix-static-qt-functions.patch
 Patch8: 0008_add_locales.patch
+Patch9: 0001-use-correct-executable-path.patch
 Patch14: 0014-get-language-name-and-country-name-from-QLocale.patch
 
 BuildRequires(pre): rpm-build-licenses rpm-macros-qt5 rpm-macros-cmake
@@ -94,6 +95,7 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 %patch4 -p1
 %patch6 -p1
 %patch8 -p1
+%patch9 -p1
 %patch14 -p1
 
 cp %SOURCE2 Telegram/
