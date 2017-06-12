@@ -1,0 +1,42 @@
+From 3c834baed6fc82a648083e58089d22423503396c Mon Sep 17 00:00:00 2001
+From: Vitaly Lipatov <lav@etersoft.ru>
+Date: Mon, 12 Jun 2017 23:37:22 +0300
+Subject: [PATCH] get language name and country name from QLocale
+To: wine-patches <wine-patches@winehq.org>
+
+---
+ tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp b/tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp
+index 5b7bad1..ae86e9f 100644
+--- a/Telegram/SourceFiles/platform/linux/specific_linux.cpp
++++ b/Telegram/SourceFiles/platform/linux/specific_linux.cpp
+@@ -35,6 +35,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
+ 
+ #include <iostream>
+ 
++#include <QLocale>
++
+ #include <qpa/qplatformnativeinterface.h>
+ 
+ using namespace Platform;
+@@ -280,11 +282,15 @@ void psActivateProcess(uint64 pid) {
+ 
+ QString psCurrentCountry() {
+ 	QString country;// = objc_currentCountry();
++	QLocale locale;
++	country = QLocale::countryToString(locale.country());
+ 	return country.isEmpty() ? QString::fromLatin1(DefaultCountry) : country;
+ }
+ 
+ QString psCurrentLanguage() {
+ 	QString lng;// = objc_currentLang();
++	QLocale locale;
++	lng = locale.name();
+ 	return lng.isEmpty() ? QString::fromLatin1(DefaultLanguage) : lng;
+ }
+ 
+-- 
+2.10.3
+
