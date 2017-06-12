@@ -1,0 +1,187 @@
+/*
+This file is part of Telegram Desktop,
+the official desktop version of Telegram messaging app, see https://telegram.org
+
+Telegram Desktop is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+It is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+In addition, as a special exception, the copyright holders give permission
+to link the code of portions of this program with the OpenSSL library.
+
+Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
+Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
+*/
+#include "window/window_main_menu.h"
+
+#include "styles/style_window.h"
+#include "styles/style_dialogs.h"
+#include "profile/profile_userpic_button.h"
+#include "ui/widgets/buttons.h"
+#include "ui/widgets/labels.h"
+#include "ui/widgets/menu.h"
+#include "mainwindow.h"
+#include "boxes/contacts_box.h"
+#include "boxes/about_box.h"
+#include "boxes/peer_list_box.h"
+#include "calls/calls_box_controller.h"
+#include "lang.h"
+#include "core/click_handler_types.h"
+#include "observer_peer.h"
+#include "auth_session.h"
+#include "mainwidget.h"
+
+namespace Window {
+
+MainMenu::MainMenu(QWidget *parent) : TWidget(parent)
+, _menu(this, st::mainMenu)
+, _telegram(this, st::mainMenuTelegramLabel)
+, _version(this, st::mainMenuVersionLabel) {
+	setAttribute(Qt::WA_OpaquePaintEvent);
+
+	subscribe(Global::RefSelfChanged(), [this] {
+		checkSelf();
+	});
+	checkSelf();
+
+	resize(st::mainMenuWidth, parentWidget()->height());
+	_menu->setTriggeredCallback([](QAction *action, int actionTop, Ui::Menu::TriggeredSource source) {
+		emit action->triggered();
+	});
+	refreshMenu();
+
+	_telegram->setRichText(textcmdLink(1, qsl("Telegram Desktop")));
+	_telegram->setLink(1, MakeShared<UrlClickHandler>(qsl("https://desktop.telegram.org")));
+	_version->setRichText(textcmdLink(1, lng_settings_current_version(lt_version, currentVersionText())) + QChar(' ') + QChar(8211) + QChar(' ') + textcmdLink(2, lang(lng_menu_about)));
+	_version->setLink(1, MakeShared<UrlClickHandler>(qsl("https://desktop.telegram.org/changelog")));
+	_version->setLink(2, MakeShared<LambdaClickHandler>([] { Ui::show(Box<AboutBox>()); }));
+
+	subscribe(AuthSession::CurrentDownloaderTaskFinished(), [this] { update(); });
+	subscribe(AuthSession::CurrentDownloaderTaskFinished(), [this] { update(); });
+	subscribe(Notify::PeerUpdated(), Notify::PeerUpdatedHandler(Notify::PeerUpdate::Flag::UserPhoneChanged, [this](const Notify::PeerUpdate &update) {
+		if (update.peer->isSelf()) {
+			updatePhone();
+		}
+	}));
+	subscribe(Global::RefPhoneCallsEnabledChanged(), [this] { refreshMenu(); });
+	updatePhone();
+}
+
+void MainMenu::refreshMenu() {
+	_menu->clearActions();
+	_menu->addAction(lang(lng_create_group_title), [] {
+		App::wnd()->onShowNewGroup();
+	}, &st::mainMenuNewGroup, &st::mainMenuNewGroupOver);
+	_menu->addAction(lang(lng_create_channel_title), [] {
+		App::wnd()->onShowNewChannel();
+	}, &st::mainMenuNewChannel, &st::mainMenuNewChannelOver);
+	_menu->addAction(lang(lng_menu_contacts), [] {
+		Ui::show(Box<ContactsBox>());
+	}, &st::mainMenuContacts, &st::mainMenuContactsOver);
+	if (Global::PhoneCallsEnabled()) {
+		_menu->addAction(lang(lng_menu_calls), [] {
+			Ui::show(Box<PeerListBox>(std::make_unique<Calls::BoxController>()));
+		}, &st::mainMenuCalls, &st::mainMenuCallsOver);
+	}
+	_menu->addAction(lang(lng_menu_settings), [] {
+		App::wnd()->showSettings();
+	}, &st::mainMenuSettings, &st::mainMenuSettingsOver);
+	_menu->addAction(lang(lng_settings_faq), [] {
+		QDesktopServices::openUrl(telegramFaqLink());
+	}, &st::mainMenuHelp, &st::mainMenuHelpOver);
+
+	updatePhone();
+}
+
+void MainMenu::checkSelf() {
+	if (auto self = App::self()) {
+		auto showSelfChat = [] {
+			if (auto self = App::self()) {
+				App::main()->choosePeer(self->id, ShowAtUnreadMsgId);
+			}
+		};
+		_userpicButton.create(this, self, st::mainMenuUserpicSize);
+		_userpicButton->setClickedCallback(showSelfChat);
+		_userpicButton->show();
+		_cloudButton.create(this, st::mainMenuCloudButton);
+		_cloudButton->setClickedCallback(showSelfChat);
+		_cloudButton->show();
+		update();
+		updateControlsGeometry();
+		if (_showFinished) {
+			_userpicButton->showFinished();
+		}
+	} else {
+		_userpicButton.destroy();
+		_cloudButton.destroy();
+	}
+}
+
+void MainMenu::showFinished() {
+	_showFinished = true;
+	if (_userpicButton) {
+		_userpicButton->showFinished();
+	}
+}
+
+void MainMenu::resizeEvent(QResizeEvent *e) {
+	updateControlsGeometry();
+}
+
+void MainMenu::updateControlsGeometry() {
+	if (_userpicButton) {
+		_userpicButton->moveToLeft(st::mainMenuUserpicLeft, st::mainMenuUserpicTop);
+	}
+	if (_cloudButton) {
+		_cloudButton->moveToRight(0, st::mainMenuCoverHeight - _cloudButton->height());
+	}
+	_menu->setGeometry(0, st::mainMenuCoverHeight + st::mainMenuSkip, width(), _menu->height());
+	_telegram->moveToLeft(st::mainMenuFooterLeft, height() - st::mainMenuTelegramBottom - _telegram->height());
+	_version->moveToLeft(st::mainMenuFooterLeft, height() - st::mainMenuVersionBottom - _version->height());
+}
+
+void MainMenu::updatePhone() {
+	if (auto self = App::self()) {
+		_phoneText = App::formatPhone(self->phone());
+	} else {
+		_phoneText = QString();
+	}
+	update();
+}
+
+void MainMenu::paintEvent(QPaintEvent *e) {
+	Painter p(this);
+	auto clip = e->rect();
+	auto cover = QRect(0, 0, width(), st::mainMenuCoverHeight).intersected(clip);
+	if (!cover.isEmpty()) {
+		p.fillRect(cover, st::mainMenuCoverBg);
+		p.setPen(st::mainMenuCoverFg);
+		p.setFont(st::semiboldFont);
+		if (auto self = App::self()) {
+			self->nameText.drawLeftElided(p, st::mainMenuCoverTextLeft, st::mainMenuCoverNameTop, width() - 2 * st::mainMenuCoverTextLeft, width());
+			p.setFont(st::normalFont);
+			p.drawTextLeft(st::mainMenuCoverTextLeft, st::mainMenuCoverStatusTop, width(), _phoneText);
+		}
+		if (_cloudButton) {
+			PainterHighQualityEnabler hq(p);
+			p.setPen(Qt::NoPen);
+			p.setBrush(st::mainMenuCloudBg);
+			auto cloudBg = QRect(_cloudButton->x() + (_cloudButton->width() - st::mainMenuCloudSize) / 2,
+				_cloudButton->y() + (_cloudButton->height() - st::mainMenuCloudSize) / 2,
+				st::mainMenuCloudSize, st::mainMenuCloudSize);
+			p.drawEllipse(cloudBg);
+		}
+	}
+	auto other = QRect(0, st::mainMenuCoverHeight, width(), height() - st::mainMenuCoverHeight).intersected(clip);
+	if (!other.isEmpty()) {
+		p.fillRect(other, st::mainMenuBg);
+	}
+}
+
+} // namespace Window

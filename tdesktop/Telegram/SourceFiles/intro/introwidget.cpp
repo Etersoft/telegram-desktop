@@ -1,0 +1,759 @@
+/*
+This file is part of Telegram Desktop,
+the official desktop version of Telegram messaging app, see https://telegram.org
+
+Telegram Desktop is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+It is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+In addition, as a special exception, the copyright holders give permission
+to link the code of portions of this program with the OpenSSL library.
+
+Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
+Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
+*/
+#include "intro/introwidget.h"
+
+#include "lang.h"
+#include "storage/localstorage.h"
+#include "langloaderplain.h"
+#include "intro/introstart.h"
+#include "intro/introphone.h"
+#include "intro/introcode.h"
+#include "intro/introsignup.h"
+#include "intro/intropwdcheck.h"
+#include "mainwidget.h"
+#include "mainwindow.h"
+#include "messenger.h"
+#include "application.h"
+#include "boxes/confirm_box.h"
+#include "ui/text/text.h"
+#include "ui/widgets/buttons.h"
+#include "ui/widgets/labels.h"
+#include "ui/effects/widget_fade_wrap.h"
+#include "ui/effects/slide_animation.h"
+#include "autoupdater.h"
+#include "window/window_slide_animation.h"
+#include "styles/style_boxes.h"
+#include "styles/style_intro.h"
+#include "styles/style_window.h"
+#include "window/themes/window_theme.h"
+#include "auth_session.h"
+
+namespace Intro {
+
+Widget::Widget(QWidget *parent) : TWidget(parent)
+, _back(this, object_ptr<Ui::IconButton>(this, st::introBackButton), st::introSlideDuration)
+, _settings(this, object_ptr<Ui::RoundButton>(this, lang(lng_menu_settings), st::defaultBoxButton), st::introCoverDuration)
+, _next(this, QString(), st::introNextButton) {
+	getData()->country = psCurrentCountry();
+
+	_back->entity()->setClickedCallback([this] { historyMove(Direction::Back); });
+	_back->hideFast();
+
+	_next->setClickedCallback([this] { getStep()->submit(); });
+
+	_settings->entity()->setClickedCallback([] { App::wnd()->showSettings(); });
+
+	if (cLang() == languageDefault) {
+		auto systemLangId = Sandbox::LangSystem();
+		if (systemLangId != languageDefault) {
+			LangLoaderPlain loader(qsl(":/langs/lang_") + LanguageCodes[systemLangId].c_str() + qsl(".strings"), langLoaderRequest(lng_switch_to_this));
+			QString text = loader.found().value(lng_switch_to_this);
+			if (!text.isEmpty()) {
+				_changeLanguage.create(this, object_ptr<Ui::LinkButton>(this, text), st::introCoverDuration);
+				_changeLanguage->entity()->setClickedCallback([this, systemLangId] { changeLanguage(systemLangId); });
+			}
+		}
+	} else {
+		_changeLanguage.create(this, object_ptr<Ui::LinkButton>(this, langOriginal(lng_switch_to_this)), st::introCoverDuration);
+		_changeLanguage->entity()->setClickedCallback([this] { changeLanguage(languageDefault); });
+	}
+
+	MTP::send(MTPhelp_GetNearestDc(), rpcDone(&Widget::gotNearestDC));
+
+	appendStep(new StartWidget(this, getData()));
+	fixOrder();
+
+	show();
+	showControls();
+	getStep()->showFast();
+
+	cSetPasswordRecovered(false);
+
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+	Sandbox::connect(SIGNAL(updateLatest()), this, SLOT(onCheckUpdateStatus()));
+	Sandbox::connect(SIGNAL(updateFailed()), this, SLOT(onCheckUpdateStatus()));
+	Sandbox::connect(SIGNAL(updateReady()), this, SLOT(onCheckUpdateStatus()));
+	Sandbox::startUpdateCheck();
+	onCheckUpdateStatus();
+#endif // !TDESKTOP_DISABLE_AUTOUPDATE
+}
+
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+void Widget::onCheckUpdateStatus() {
+	if (Sandbox::updatingState() == Application::UpdatingReady) {
+		if (_update) return;
+		_update.create(this, object_ptr<Ui::RoundButton>(this, lang(lng_menu_update).toUpper(), st::defaultBoxButton), st::introCoverDuration);
+		if (!_a_show.animating()) _update->show();
+		_update->entity()->setClickedCallback([] {
+			checkReadyUpdate();
+			App::restart();
+		});
+	} else {
+		if (!_update) return;
+		_update.destroy();
+	}
+	updateControlsGeometry();
+}
+#endif // TDESKTOP_DISABLE_AUTOUPDATE
+
+void Widget::changeLanguage(int32 languageId) {
+	cSetLang(languageId);
+	Local::writeSettings();
+	App::restart();
+}
+
+void Widget::setInnerFocus() {
+	if (getStep()->animating()) {
+		setFocus();
+	} else {
+		getStep()->setInnerFocus();
+	}
+}
+
+void Widget::historyMove(Direction direction) {
+	if (getStep()->animating()) return;
+
+	t_assert(_stepHistory.size() > 1);
+
+	auto wasStep = getStep((direction == Direction::Back) ? 0 : 1);
+	if (direction == Direction::Back) {
+		_stepHistory.pop_back();
+		wasStep->cancelled();
+	} else if (direction == Direction::Replace) {
+		_stepHistory.removeAt(_stepHistory.size() - 2);
+	}
+	getStep()->prepareShowAnimated(wasStep);
+	if (wasStep->hasCover() != getStep()->hasCover()) {
+		_nextTopFrom = wasStep->contentTop() + st::introStepHeight;
+		_controlsTopFrom = wasStep->hasCover() ? st::introCoverHeight : 0;
+		_coverShownAnimation.start([this] { updateControlsGeometry(); }, 0., 1., st::introCoverDuration, wasStep->hasCover() ? anim::linear : anim::easeOutCirc);
+	}
+
+	if (direction == Direction::Forward || direction == Direction::Replace) {
+		wasStep->finished();
+	}
+	if (direction == Direction::Back || direction == Direction::Replace) {
+		delete base::take(wasStep);
+	}
+	_back->toggleAnimated(getStep()->hasBack());
+
+	auto stepHasCover = getStep()->hasCover();
+	_settings->toggleAnimated(!stepHasCover);
+	if (_update) _update->toggleAnimated(!stepHasCover);
+	if (_changeLanguage) _changeLanguage->toggleAnimated(stepHasCover);
+	_next->setText(getStep()->nextButtonText());
+	if (_resetAccount) _resetAccount->hideAnimated();
+	getStep()->showAnimated(direction);
+	fixOrder();
+}
+
+void Widget::fixOrder() {
+	_next->raise();
+	if (_update) _update->raise();
+	_settings->raise();
+	_back->raise();
+}
+
+void Widget::moveToStep(Step *step, Direction direction) {
+	appendStep(step);
+	_back->raise();
+	_settings->raise();
+	if (_update) {
+		_update->raise();
+	}
+
+	historyMove(direction);
+}
+
+void Widget::appendStep(Step *step) {
+	_stepHistory.push_back(step);
+	step->setGeometry(calculateStepRect());
+	step->setGoCallback([this](Step *step, Direction direction) {
+		if (direction == Direction::Back) {
+			historyMove(direction);
+		} else {
+			moveToStep(step, direction);
+		}
+	});
+	step->setShowResetCallback([this] {
+		showResetButton();
+	});
+}
+
+void Widget::showResetButton() {
+	if (!_resetAccount) {
+		auto entity = object_ptr<Ui::RoundButton>(this, lang(lng_signin_reset_account), st::introResetButton);
+		_resetAccount.create(this, std::move(entity), st::introErrorDuration);
+		_resetAccount->hideFast();
+		_resetAccount->entity()->setClickedCallback([this] { resetAccount(); });
+		updateControlsGeometry();
+	}
+	_resetAccount->showAnimated();
+}
+
+void Widget::resetAccount() {
+	if (_resetRequest) return;
+
+	Ui::show(Box<ConfirmBox>(lang(lng_signin_sure_reset), lang(lng_signin_reset), st::attentionBoxButton, base::lambda_guarded(this, [this] {
+		if (_resetRequest) return;
+		_resetRequest = MTP::send(MTPaccount_DeleteAccount(MTP_string("Forgot password")), rpcDone(&Widget::resetDone), rpcFail(&Widget::resetFail));
+	})));
+}
+
+void Widget::resetDone(const MTPBool &result) {
+	Ui::hideLayer();
+	moveToStep(new SignupWidget(this, getData()), Direction::Replace);
+}
+
+bool Widget::resetFail(const RPCError &error) {
+	if (MTP::isDefaultHandledError(error)) return false;
+
+	_resetRequest = 0;
+
+	auto type = error.type();
+	if (type.startsWith(qstr("2FA_CONFIRM_WAIT_"))) {
+		int seconds = type.mid(qstr("2FA_CONFIRM_WAIT_").size()).toInt();
+		int days = (seconds + 59) / 86400;
+		int hours = ((seconds + 59) % 86400) / 3600;
+		int minutes = ((seconds + 59) % 3600) / 60;
+		QString when;
+		if (days > 0) {
+			when = lng_signin_reset_in_days(lt_count_days, days, lt_count_hours, hours, lt_count_minutes, minutes);
+		} else if (hours > 0) {
+			when = lng_signin_reset_in_hours(lt_count_hours, hours, lt_count_minutes, minutes);
+		} else {
+			when = lng_signin_reset_in_minutes(lt_count_minutes, minutes);
+		}
+		Ui::show(Box<InformBox>(lng_signin_reset_wait(lt_phone_number, App::formatPhone(getData()->phone), lt_when, when)));
+	} else if (type == qstr("2FA_RECENT_CONFIRM")) {
+		Ui::show(Box<InformBox>(lang(lng_signin_reset_cancelled)));
+	} else {
+		Ui::hideLayer();
+		getStep()->showError(lang(lng_server_error));
+	}
+	return true;
+}
+
+void Widget::gotNearestDC(const MTPNearestDc &result) {
+	auto &nearest = result.c_nearestDc();
+	DEBUG_LOG(("Got nearest dc, country: %1, nearest: %2, this: %3").arg(qs(nearest.vcountry)).arg(nearest.vnearest_dc.v).arg(nearest.vthis_dc.v));
+	Messenger::Instance().suggestMainDcId(nearest.vnearest_dc.v);
+	auto nearestCountry = qs(nearest.vcountry);
+	if (getData()->country != nearestCountry) {
+		getData()->country = nearestCountry;
+		getData()->updated.notify();
+	}
+}
+
+void Widget::showControls() {
+	getStep()->show();
+	_next->show();
+	_next->setText(getStep()->nextButtonText());
+	auto hasCover = getStep()->hasCover();
+	_settings->toggleFast(!hasCover);
+	if (_update) _update->toggleFast(!hasCover);
+	if (_changeLanguage) _changeLanguage->toggleFast(hasCover);
+	_back->toggleFast(getStep()->hasBack());
+}
+
+void Widget::hideControls() {
+	getStep()->hide();
+	_next->hide();
+	_settings->hideFast();
+	if (_update) _update->hideFast();
+	if (_changeLanguage) _changeLanguage->hideFast();
+	_back->hideFast();
+}
+
+void Widget::showAnimated(const QPixmap &bgAnimCache, bool back) {
+	_showBack = back;
+
+	(_showBack ? _cacheOver : _cacheUnder) = bgAnimCache;
+
+	_a_show.finish();
+	showControls();
+	(_showBack ? _cacheUnder : _cacheOver) = myGrab(this);
+	hideControls();
+
+	_a_show.start([this] { animationCallback(); }, 0., 1., st::slideDuration, Window::SlideAnimation::transition());
+
+	show();
+}
+
+void Widget::animationCallback() {
+	update();
+	if (!_a_show.animating()) {
+		_cacheUnder = _cacheOver = QPixmap();
+
+		showControls();
+		getStep()->activate();
+	}
+}
+
+void Widget::paintEvent(QPaintEvent *e) {
+	bool trivial = (rect() == e->rect());
+	setMouseTracking(true);
+
+	if (_coverShownAnimation.animating()) {
+		_coverShownAnimation.step(getms());
+	}
+
+	QPainter p(this);
+	if (!trivial) {
+		p.setClipRect(e->rect());
+	}
+	p.fillRect(e->rect(), st::windowBg);
+	auto progress = _a_show.current(getms(), 1.);
+	if (_a_show.animating()) {
+		auto coordUnder = _showBack ? anim::interpolate(-st::slideShift, 0, progress) : anim::interpolate(0, -st::slideShift, progress);
+		auto coordOver = _showBack ? anim::interpolate(0, width(), progress) : anim::interpolate(width(), 0, progress);
+		auto shadow = _showBack ? (1. - progress) : progress;
+		if (coordOver > 0) {
+			p.drawPixmap(QRect(0, 0, coordOver, height()), _cacheUnder, QRect(-coordUnder * cRetinaFactor(), 0, coordOver * cRetinaFactor(), height() * cRetinaFactor()));
+			p.setOpacity(shadow);
+			p.fillRect(0, 0, coordOver, height(), st::slideFadeOutBg);
+			p.setOpacity(1);
+		}
+		p.drawPixmap(coordOver, 0, _cacheOver);
+		p.setOpacity(shadow);
+		st::slideShadow.fill(p, QRect(coordOver - st::slideShadow.width(), 0, st::slideShadow.width(), height()));
+	}
+}
+
+QRect Widget::calculateStepRect() const {
+	auto stepInnerTop = (height() - st::introHeight) / 2;
+	accumulate_max(stepInnerTop, st::introStepTopMin);
+	auto nextTop = stepInnerTop + st::introStepHeight;
+	auto additionalHeight = st::introStepHeightAdd;
+	auto stepWidth = width();
+	auto stepHeight = nextTop + additionalHeight;
+	return QRect(0, 0, stepWidth, stepHeight);
+}
+
+void Widget::resizeEvent(QResizeEvent *e) {
+	auto stepRect = calculateStepRect();
+	for_const (auto step, _stepHistory) {
+		step->setGeometry(stepRect);
+	}
+
+	updateControlsGeometry();
+}
+
+void Widget::moveControls() {
+}
+
+void Widget::updateControlsGeometry() {
+	auto shown = _coverShownAnimation.current(1.);
+
+	auto controlsTopTo = getStep()->hasCover() ? st::introCoverHeight : 0;
+	auto controlsTop = anim::interpolate(_controlsTopFrom, controlsTopTo, shown);
+	_settings->moveToRight(st::introSettingsSkip, controlsTop + st::introSettingsSkip);
+	if (_update) {
+		_update->moveToRight(st::introSettingsSkip + _settings->width() + st::introSettingsSkip, _settings->y());
+	}
+	_back->moveToLeft(0, controlsTop);
+
+	auto nextTopTo = getStep()->contentTop() + st::introStepHeight;
+	auto nextTop = anim::interpolate(_nextTopFrom, nextTopTo, shown);
+	_next->moveToLeft((width() - _next->width()) / 2, nextTop);
+	if (_changeLanguage) {
+		_changeLanguage->moveToLeft((width() - _changeLanguage->width()) / 2, _next->y() + _next->height() + _changeLanguage->height());
+	}
+	if (_resetAccount) {
+		_resetAccount->moveToLeft((width() - _resetAccount->width()) / 2, height() - st::introResetBottom - _resetAccount->height());
+	}
+}
+
+
+void Widget::keyPressEvent(QKeyEvent *e) {
+	if (_a_show.animating() || getStep()->animating()) return;
+
+	if (e->key() == Qt::Key_Escape) {
+		if (getStep()->hasBack()) {
+			historyMove(Direction::Back);
+		}
+	} else if (e->key() == Qt::Key_Enter || e->key() == Qt::Key_Return || e->key() == Qt::Key_Space) {
+		getStep()->submit();
+	}
+}
+
+Widget::~Widget() {
+	for (auto step : base::take(_stepHistory)) {
+		delete step;
+	}
+	if (App::wnd()) App::wnd()->noIntro(this);
+}
+
+QString Widget::Step::nextButtonText() const {
+	return lang(lng_intro_next);
+}
+
+void Widget::Step::finish(const MTPUser &user, QImage photo) {
+	if (user.type() != mtpc_user || !user.c_user().is_self()) {
+		// No idea what to do here.
+		// We could've reset intro and MTP, but this really should not happen.
+		Ui::show(Box<InformBox>("Internal error: bad user.is_self() after sign in."));
+		return;
+	}
+
+	Messenger::Instance().authSessionCreate(user.c_user().vid.v);
+	Local::writeMtpData();
+	App::wnd()->setupMain(&user);
+
+	// "this" is already deleted here by creating the main widget.
+	if (!photo.isNull()) {
+		App::app()->uploadProfilePhoto(photo, AuthSession::CurrentUserId());
+	}
+}
+
+void Widget::Step::paintEvent(QPaintEvent *e) {
+	Painter p(this);
+	paintAnimated(p, e->rect());
+}
+
+void Widget::Step::resizeEvent(QResizeEvent *e) {
+	updateLabelsPosition();
+}
+
+void Widget::Step::updateLabelsPosition() {
+	myEnsureResized(_description->entity());
+	if (hasCover()) {
+		_title->moveToLeft((width() - _title->width()) / 2, contentTop() + st::introCoverTitleTop);
+		_description->moveToLeft((width() - _description->width()) / 2, contentTop() + st::introCoverDescriptionTop);
+	} else {
+		_title->moveToLeft(contentLeft() + st::buttonRadius, contentTop() + st::introTitleTop);
+		_description->moveToLeft(contentLeft() + st::buttonRadius, contentTop() + st::introDescriptionTop);
+	}
+	if (_error) {
+		if (_errorCentered) {
+			_error->entity()->resizeToWidth(width());
+		}
+		myEnsureResized(_error->entity());
+		auto errorLeft = _errorCentered ? 0 : (contentLeft() + st::buttonRadius);
+		auto errorTop = contentTop() + (_errorBelowLink ? st::introErrorBelowLinkTop : st::introErrorTop);
+		_error->moveToLeft(errorLeft, errorTop);
+	}
+}
+
+void Widget::Step::setTitleText(QString richText) {
+	_title->setRichText(richText);
+	updateLabelsPosition();
+}
+
+void Widget::Step::setDescriptionText(QString richText) {
+	_description->entity()->setRichText(richText);
+	updateLabelsPosition();
+}
+
+void Widget::Step::showFinished() {
+	_a_show.finish();
+	_coverAnimation = CoverAnimation();
+	_slideAnimation.reset();
+	prepareCoverMask();
+	activate();
+}
+
+bool Widget::Step::paintAnimated(Painter &p, QRect clip) {
+	if (_slideAnimation) {
+		_slideAnimation->paintFrame(p, (width() - st::introStepWidth) / 2, contentTop(), width(), getms());
+		if (!_slideAnimation->animating()) {
+			showFinished();
+			return false;
+		}
+		return true;
+	}
+
+	auto guard = base::scope_guard([this, &p] {
+		if (hasCover()) paintCover(p, 0);
+	});
+
+	auto dt = _a_show.current(getms(), 1.);
+	if (!_a_show.animating()) {
+		if (_coverAnimation.title) {
+			showFinished();
+		}
+		if (!QRect(0, contentTop(), width(), st::introStepHeight).intersects(clip)) {
+			return true;
+		}
+		return false;
+	}
+
+	auto progress = (hasCover() ? anim::easeOutCirc(1., dt) : anim::linear(1., dt));
+	auto arrivingAlpha = progress;
+	auto departingAlpha = 1. - progress;
+	auto showCoverMethod = progress;
+	auto hideCoverMethod = progress;
+	auto coverTop = (hasCover() ? anim::interpolate(-st::introCoverHeight, 0, showCoverMethod) : anim::interpolate(0, -st::introCoverHeight, hideCoverMethod));
+
+	paintCover(p, coverTop);
+	guard.dismiss();
+
+	auto positionReady = hasCover() ? showCoverMethod : hideCoverMethod;
+	_coverAnimation.title->paintFrame(p, positionReady, departingAlpha, arrivingAlpha);
+	_coverAnimation.description->paintFrame(p, positionReady, departingAlpha, arrivingAlpha);
+
+	paintContentSnapshot(p, _coverAnimation.contentSnapshotWas, departingAlpha, showCoverMethod);
+	paintContentSnapshot(p, _coverAnimation.contentSnapshotNow, arrivingAlpha, 1. - hideCoverMethod);
+
+	return true;
+}
+
+void Widget::Step::fillSentCodeData(const MTPauth_SentCodeType &type) {
+	switch (type.type()) {
+	case mtpc_auth_sentCodeTypeApp: {
+		getData()->codeByTelegram = true;
+		getData()->codeLength = type.c_auth_sentCodeTypeApp().vlength.v;
+	} break;
+	case mtpc_auth_sentCodeTypeSms: {
+		getData()->codeByTelegram = false;
+		getData()->codeLength = type.c_auth_sentCodeTypeSms().vlength.v;
+	} break;
+	case mtpc_auth_sentCodeTypeCall: {
+		getData()->codeByTelegram = false;
+		getData()->codeLength = type.c_auth_sentCodeTypeCall().vlength.v;
+	} break;
+	case mtpc_auth_sentCodeTypeFlashCall: LOG(("Error: should not be flashcall!")); break;
+	}
+}
+
+void Widget::Step::showDescription() {
+	_description->showAnimated();
+}
+
+void Widget::Step::hideDescription() {
+	_description->hideAnimated();
+}
+
+void Widget::Step::paintContentSnapshot(Painter &p, const QPixmap &snapshot, float64 alpha, float64 howMuchHidden) {
+	if (!snapshot.isNull()) {
+		auto contentTop = anim::interpolate(height() - (snapshot.height() / cIntRetinaFactor()), height(), howMuchHidden);
+		if (contentTop < height()) {
+			p.setOpacity(alpha);
+			p.drawPixmap(QPoint(contentLeft(), contentTop), snapshot, QRect(0, 0, snapshot.width(), (height() - contentTop) * cIntRetinaFactor()));
+		}
+	}
+}
+
+void Widget::Step::prepareCoverMask() {
+	if (!_coverMask.isNull()) return;
+
+	auto maskWidth = cIntRetinaFactor();
+	auto maskHeight = st::introCoverHeight * cIntRetinaFactor();
+	auto mask = QImage(maskWidth, maskHeight, QImage::Format_ARGB32_Premultiplied);
+	auto maskInts = reinterpret_cast<uint32*>(mask.bits());
+	t_assert(mask.depth() == (sizeof(uint32) << 3));
+	auto maskIntsPerLineAdded = (mask.bytesPerLine() >> 2) - maskWidth;
+	t_assert(maskIntsPerLineAdded >= 0);
+	auto realHeight = static_cast<float64>(maskHeight - 1);
+	for (auto y = 0; y != maskHeight; ++y) {
+		auto color = anim::color(st::introCoverTopBg, st::introCoverBottomBg, y / realHeight);
+		auto colorInt = anim::getPremultiplied(color);
+		for (auto x = 0; x != maskWidth; ++x) {
+			*maskInts++ = colorInt;
+		}
+		maskInts += maskIntsPerLineAdded;
+	}
+	_coverMask = App::pixmapFromImageInPlace(std::move(mask));
+}
+
+void Widget::Step::paintCover(Painter &p, int top) {
+	auto coverHeight = top + st::introCoverHeight;
+	if (coverHeight > 0) {
+		p.drawPixmap(QRect(0, 0, width(), coverHeight), _coverMask, QRect(0, -top * cIntRetinaFactor(), _coverMask.width(), coverHeight * cIntRetinaFactor()));
+	}
+
+	auto left = 0;
+	auto right = 0;
+	if (width() < st::introCoverMaxWidth) {
+		auto iconsMaxSkip = st::introCoverMaxWidth - st::introCoverLeft.width() - st::introCoverRight.width();
+		auto iconsSkip = st::introCoverIconsMinSkip + (iconsMaxSkip - st::introCoverIconsMinSkip) * (width() - st::introStepWidth) / (st::introCoverMaxWidth - st::introStepWidth);
+		auto outside = iconsSkip + st::introCoverLeft.width() + st::introCoverRight.width() - width();
+		left = -outside / 2;
+		right = -outside - left;
+	}
+	if (top < 0) {
+		auto shown = float64(coverHeight) / st::introCoverHeight;
+		auto leftShown = qRound(shown * (left + st::introCoverLeft.width()));
+		left = leftShown - st::introCoverLeft.width();
+		auto rightShown = qRound(shown * (right + st::introCoverRight.width()));
+		right = rightShown - st::introCoverRight.width();
+	}
+	st::introCoverLeft.paint(p, left, coverHeight - st::introCoverLeft.height(), width());
+	st::introCoverRight.paint(p, width() - right - st::introCoverRight.width(), coverHeight - st::introCoverRight.height(), width());
+
+	auto planeLeft = (width() - st::introCoverIcon.width()) / 2 - st::introCoverIconLeft;
+	auto planeTop = top + st::introCoverIconTop;
+	if (top < 0 && !_hasCover) {
+		auto deltaLeft = -qRound(float64(st::introPlaneWidth / st::introPlaneHeight) * top);
+//		auto deltaTop = top;
+		planeLeft += deltaLeft;
+	//	planeTop += top;
+	}
+	st::introCoverIcon.paint(p, planeLeft, planeTop, width());
+}
+
+int Widget::Step::contentLeft() const {
+	return (width() - st::introNextButton.width) / 2;
+}
+
+int Widget::Step::contentTop() const {
+	auto result = height() - st::introStepHeight - st::introStepHeightAdd;
+	if (_hasCover) {
+		auto added = 1. - snap(float64(height() - st::windowMinHeight) / (st::introStepHeightFull - st::windowMinHeight), 0., 1.);
+		result += qRound(added * st::introStepHeightAdd);
+	}
+	return result;
+}
+
+void Widget::Step::setErrorCentered(bool centered) {
+	_errorCentered = centered;
+	_error.destroy();
+}
+
+void Widget::Step::setErrorBelowLink(bool below) {
+	_errorBelowLink = below;
+	if (_error) {
+		updateLabelsPosition();
+	}
+}
+
+void Widget::Step::showError(const QString &text) {
+	_errorText = text;
+	if (_errorText.isEmpty()) {
+		if (_error) _error->hideAnimated();
+	} else {
+		if (!_error) {
+			_error.create(this, object_ptr<Ui::FlatLabel>(this, _errorCentered ? st::introErrorCentered : st::introError), st::introErrorDuration);
+			_error->hideFast();
+		}
+		_error->entity()->setText(text);
+		updateLabelsPosition();
+		_error->showAnimated();
+	}
+}
+
+Widget::Step::Step(QWidget *parent, Data *data, bool hasCover) : TWidget(parent)
+, _data(data)
+, _hasCover(hasCover)
+, _title(this, _hasCover ? st::introCoverTitle : st::introTitle)
+, _description(this, object_ptr<Ui::FlatLabel>(this, _hasCover ? st::introCoverDescription : st::introDescription), st::introErrorDuration) {
+	hide();
+	subscribe(Window::Theme::Background(), [this](const Window::Theme::BackgroundUpdate &update) {
+		if (update.paletteChanged()) {
+			if (!_coverMask.isNull()) {
+				_coverMask = QPixmap();
+				prepareCoverMask();
+			}
+		}
+	});
+}
+
+void Widget::Step::prepareShowAnimated(Step *after) {
+	setInnerFocus();
+	if (hasCover() || after->hasCover()) {
+		_coverAnimation = prepareCoverAnimation(after);
+		prepareCoverMask();
+	} else {
+		auto leftSnapshot = after->prepareSlideAnimation();
+		auto rightSnapshot = prepareSlideAnimation();
+		_slideAnimation = std::make_unique<Ui::SlideAnimation>();
+		_slideAnimation->setSnapshots(std::move(leftSnapshot), std::move(rightSnapshot));
+		_slideAnimation->setOverflowHidden(false);
+	}
+}
+
+Widget::Step::CoverAnimation Widget::Step::prepareCoverAnimation(Step *after) {
+	auto result = CoverAnimation();
+	result.title = Ui::FlatLabel::CrossFade(after->_title, _title, st::introBg);
+	result.description = Ui::FlatLabel::CrossFade(after->_description->entity(), _description->entity(), st::introBg, after->_description->pos(), _description->pos());
+	result.contentSnapshotWas = after->prepareContentSnapshot();
+	result.contentSnapshotNow = prepareContentSnapshot();
+	return result;
+}
+
+QPixmap Widget::Step::prepareContentSnapshot() {
+	auto otherTop = _description->y() + _description->height();
+	auto otherRect = myrtlrect(contentLeft(), otherTop, st::introStepWidth, height() - otherTop);
+	return myGrab(this, otherRect);
+}
+
+QPixmap Widget::Step::prepareSlideAnimation() {
+	auto grabLeft = (width() - st::introStepWidth) / 2;
+	auto grabTop = contentTop();
+	return myGrab(this, QRect(grabLeft, grabTop, st::introStepWidth, st::introStepHeight));
+}
+
+void Widget::Step::showAnimated(Direction direction) {
+	show();
+	hideChildren();
+	if (_slideAnimation) {
+		auto slideLeft = (direction == Direction::Back);
+		_slideAnimation->start(slideLeft, [this] { update(0, contentTop(), width(), st::introStepHeight); }, st::introSlideDuration);
+	} else {
+		_a_show.start([this] { update(); }, 0., 1., st::introCoverDuration);
+	}
+}
+
+void Widget::Step::setGoCallback(base::lambda<void(Step *step, Direction direction)> callback) {
+	_goCallback = std::move(callback);
+}
+
+void Widget::Step::setShowResetCallback(base::lambda<void()> callback) {
+	_showResetCallback = std::move(callback);
+}
+
+void Widget::Step::showFast() {
+	show();
+	showFinished();
+}
+
+bool Widget::Step::animating() const {
+	return (_slideAnimation && _slideAnimation->animating()) || _a_show.animating();
+}
+
+bool Widget::Step::hasCover() const {
+	return _hasCover;
+}
+
+bool Widget::Step::hasBack() const {
+	return false;
+}
+
+void Widget::Step::activate() {
+	_title->show();
+	_description->show();
+	if (!_errorText.isEmpty()) {
+		_error->showFast();
+	}
+}
+
+void Widget::Step::cancelled() {
+}
+
+void Widget::Step::finished() {
+	hide();
+}
+
+Widget::Step::CoverAnimation::~CoverAnimation() = default;
+
+Widget::Step::~Step() = default;
+
+} // namespace Intro
