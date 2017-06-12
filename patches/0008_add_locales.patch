@@ -75,3 +75,16 @@ index f935b93..93621e7 100644
 -- 
 2.9.3
 
+diff --git a/tdesktop/Telegram/SourceFiles/boxes/about_box.cpp b/tdesktop/Telegram/SourceFiles/boxes/about_box.cpp
+index 5f216e6..02b754b 100644
+--- a/Telegram/SourceFiles/boxes/about_box.cpp
++++ b/Telegram/SourceFiles/boxes/about_box.cpp
+@@ -93,6 +93,8 @@ QString telegramFaqLink() {
+ 		const char *code = LanguageCodes[cLang()].c_str();
+ 		if (qstr("de") == code || qstr("es") == code || qstr("it") == code || qstr("ko") == code) {
+ 			result += qsl("/") + code;
++		} else if (qstr("ru") == code || qstr("be") == code || qstr("uk") == code ) {
++			result = qsl("https://tlgrm.ru/faq");
+ 		} else if (qstr("pt_BR") == code) {
+ 			result += qsl("/br");
+ 		}
