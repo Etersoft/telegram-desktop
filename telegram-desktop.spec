@@ -22,6 +22,7 @@ Source2: CMakeLists.txt
 Patch1: 0001_add-cmake.patch
 Patch3: 0003_qt-plugins.patch
 Patch4: 0004_API-ID.patch
+Patch5: 0005_Downgrade-Qt-version.patch
 Patch6: 0006_fix-static-qt-functions.patch
 Patch8: 0008_add_locales.patch
 Patch9: 0001-use-correct-executable-path.patch
@@ -93,7 +94,7 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 %setup -a1
 %patch1 -p1
 %patch3 -p1
-%patch4 -p1
+%patch5 -p1
 %patch6 -p1
 %patch8 -p1
 %patch9 -p1
