@@ -56,11 +56,12 @@ index 111f5c7..f2cb3d1 100644
 +    <file alias="lang_cz.strings">../langs/lang_cz.strings</file>
    </qresource>
  </RCC>
-diff --git a/Telegram/SourceFiles/lang.h b/Telegram/SourceFiles/lang.h
-index f935b93..93621e7 100644
---- a/Telegram/SourceFiles/lang.h
-+++ b/Telegram/SourceFiles/lang.h
-@@ -30,6 +30,11 @@ constexpr const str_const LanguageCodes[] = {
+
+diff --git a/tdesktop/Telegram/SourceFiles/lang/lang_instance.h b/tdesktop/Telegram/SourceFiles/lang/lang_instance.h
+index 2bd5a00..f5859f7 100644
+--- a/Telegram/SourceFiles/lang/lang_instance.h
++++ b/Telegram/SourceFiles/lang/lang_instance.h
+@@ -37,6 +37,11 @@ constexpr str_const kLegacyLanguages[] = {
  	"nl",
  	"pt_BR",
  	"ko",
@@ -70,21 +71,21 @@ index f935b93..93621e7 100644
 +	"tu",
 +	"cz",
  };
- constexpr const int languageTest = -1, languageDefault = 0, languageCount = base::array_size(LanguageCodes);
  
--- 
-2.9.3
+ inline QString ConvertLegacyLanguageId(const QString &languageId) {
 
-diff --git a/tdesktop/Telegram/SourceFiles/boxes/about_box.cpp b/tdesktop/Telegram/SourceFiles/boxes/about_box.cpp
-index 5f216e6..02b754b 100644
---- a/Telegram/SourceFiles/boxes/about_box.cpp
-+++ b/Telegram/SourceFiles/boxes/about_box.cpp
-@@ -93,6 +93,8 @@ QString telegramFaqLink() {
- 		const char *code = LanguageCodes[cLang()].c_str();
- 		if (qstr("de") == code || qstr("es") == code || qstr("it") == code || qstr("ko") == code) {
- 			result += qsl("/") + code;
-+		} else if (qstr("ru") == code || qstr("be") == code || qstr("uk") == code ) {
-+			result = qsl("https://tlgrm.ru/faq");
- 		} else if (qstr("pt_BR") == code) {
- 			result += qsl("/br");
+
+--- a/Telegram/SourceFiles/boxes/about_box.cpp.orig	2017-07-21 23:04:49.282353831 +0300
++++ b/Telegram/SourceFiles/boxes/about_box.cpp	2017-07-21 23:08:23.914256369 +0300
+@@ -96,6 +96,11 @@
+ 			result.append('/').append(faqLanguage);
  		}
+ 	}
++	for (auto faqLanguage : { "ru", "be", "uk" }) {
++		if (language.startsWith(QLatin1String(faqLanguage))) {
++			result = qsl("https://tlgrm.ru/faq");
++		}
++	}
+ 	return result;
+ }
+ 
