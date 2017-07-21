@@ -4,8 +4,8 @@
 %def_with ffmpeg
 
 Name: telegram-desktop
-Version: 1.1.7
-Release: alt2
+Version: 1.1.14
+Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
 
@@ -47,7 +47,7 @@ BuildRequires: libgtk+3-devel libappindicator-gtk3-devel
 BuildRequires: libopenal-devel >= 1.17.2 libopus-devel libportaudio2-devel
 BuildRequires: libwebp-devel libva-devel libdrm-devel 
 
-BuildRequires: libtgvoip-devel >= 0.4.1
+BuildRequires: libtgvoip-devel >= 0.4.1.1
 # C++ sugar
 BuildRequires: libmicrosoft-gsl-devel libvariant-devel
 
@@ -102,7 +102,7 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 %patch15 -p1
 
 cp %SOURCE2 Telegram/
-# MacOS things will conflicts with binary name
+# MacOS things will conflicts with binary name, so delete Telegram dir
 rm -rf Telegram/Telegram/
 
 # set App ID
@@ -150,6 +150,12 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Fri Jul 21 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.14-alt1
+- new version 1.1.14 (with rpmrb script)
+- build with custom API ID
+- update translations
+- language list now downloading from cloud
+
 * Mon Jun 12 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.7-alt2
 - use correct executable path (fix restart)
 - open localized FAQ for ru/uk/be

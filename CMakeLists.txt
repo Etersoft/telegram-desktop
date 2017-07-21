@@ -71,9 +71,10 @@ set(QRC_FILES
     Resources/qrc/telegram.qrc
     Resources/qrc/telegram_emoji.qrc
     Resources/qrc/telegram_emoji_large.qrc
+    Resources/qrc/telegram_sounds.qrc
     # This only disables system plugin search path
     # We do not want this behavior for system build
-    #Resources/qrc/telegram_linux.qrc
+    Resources/qrc/telegram_linux.qrc
 )
 
 file(GLOB FLAT_SOURCE_FILES SourceFiles/*.cpp SourceFiles/*.h)
@@ -92,6 +93,7 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/history/*.cpp SourceFiles/history/*.h
     SourceFiles/inline_bots/*.cpp SourceFiles/inline_bots/*.h
     SourceFiles/intro/*.cpp SourceFiles/intro/*.h
+    SourceFiles/lang/*.cpp SourceFiles/lang/*.h
     SourceFiles/media/*.cpp SourceFiles/media/*.h
     SourceFiles/mtproto/*.cpp SourceFiles/mtproto/*.h
     SourceFiles/overview/*.cpp SourceFiles/overview/*.h
