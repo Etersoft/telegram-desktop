@@ -32,12 +32,13 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/input_fields.h"
 #include "window/top_bar_widget.h"
 #include "window/themes/window_theme.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "overviewwidget.h"
 #include "application.h"
 #include "overview/overview_layout.h"
+#include "history/history_message.h"
 #include "history/history_media_types.h"
 #include "history/history_service_layout.h"
 #include "media/media_audio.h"
@@ -58,7 +59,7 @@ OverviewInner::OverviewInner(OverviewWidget *overview, Ui::ScrollArea *scroll, P
 , _history(App::history(_peer->id))
 , _channel(peerToChannel(_peer->id))
 , _rowWidth(st::msgMinWidth)
-, _search(this, st::overviewFilter, lang(lng_dlg_filter))
+, _search(this, st::overviewFilter, langFactory(lng_dlg_filter))
 , _cancelSearch(this, st::dialogsCancelSearch)
 , _itemsToBeLoaded(LinksOverviewPerPage * 2)
 , _width(st::windowMinWidth) {
@@ -91,6 +92,9 @@ OverviewInner::OverviewInner(OverviewWidget *overview, Ui::ScrollArea *scroll, P
 		if (update.paletteChanged()) {
 			invalidateCache();
 		}
+	});
+	subscribe(App::wnd()->dragFinished(), [this] {
+		dragActionUpdate(QCursor::pos());
 	});
 
 	if (_type == OverviewLinks || _type == OverviewFiles) {
@@ -469,8 +473,8 @@ void OverviewInner::dragActionStart(const QPoint &screenPos, Qt::MouseButton but
 	_dragItem = _mousedItem;
 	_dragItemIndex = _mousedItemIndex;
 	_dragStartPos = mapMouseToItem(mapFromGlobal(screenPos), _dragItem, _dragItemIndex);
-	_dragWasInactive = App::wnd()->inactivePress();
-	if (_dragWasInactive) App::wnd()->inactivePress(false);
+	_dragWasInactive = App::wnd()->wasInactivePress();
+	if (_dragWasInactive) App::wnd()->setInactivePress(false);
 	if (ClickHandler::getPressed() && _selected.isEmpty()) {
 		_dragAction = PrepareDrag;
 	} else if (!_selected.isEmpty()) {
@@ -564,7 +568,7 @@ void OverviewInner::dragActionFinish(const QPoint &screenPos, Qt::MouseButton bu
 	_overview->updateTopBarSelection();
 }
 
-void OverviewInner::onDragExec() {
+void OverviewInner::performDrag() {
 	if (_dragAction != Dragging) return;
 
 	bool uponSelected = false;
@@ -596,25 +600,20 @@ void OverviewInner::onDragExec() {
 		updateDragSelection(0, -1, 0, -1, false);
 		_overview->noSelectingScroll();
 
-		QDrag *drag = new QDrag(App::wnd());
-		QMimeData *mimeData = new QMimeData;
-
+		auto mimeData = std::make_unique<QMimeData>();
 		if (!sel.isEmpty()) mimeData->setText(sel);
 		if (!urls.isEmpty()) mimeData->setUrls(urls);
 		if (forwardSelected) {
 			mimeData->setData(qsl("application/x-td-forward-selected"), "1");
 		}
-		drag->setMimeData(mimeData);
-		drag->exec(Qt::CopyAction);
 
-		// We don't receive mouseReleaseEvent when drag is finished.
-		ClickHandler::unpressed();
-		if (App::main()) App::main()->updateAfterDrag();
+		// This call enters event loop and can destroy any QObject.
+		App::wnd()->launchDrag(std::move(mimeData));
 		return;
 	} else {
 		QString forwardMimeType;
 		HistoryMedia *pressedMedia = nullptr;
-		if (HistoryItem *pressedLnkItem = App::pressedLinkItem()) {
+		if (auto pressedLnkItem = App::pressedLinkItem()) {
 			if ((pressedMedia = pressedLnkItem->getMedia())) {
 				if (forwardMimeType.isEmpty() && pressedMedia->dragItemByHandler(pressedHandler)) {
 					forwardMimeType = qsl("application/x-td-forward-pressed-link");
@@ -622,12 +621,10 @@ void OverviewInner::onDragExec() {
 			}
 		}
 		if (!forwardMimeType.isEmpty()) {
-			QDrag *drag = new QDrag(App::wnd());
-			QMimeData *mimeData = new QMimeData;
-
+			auto mimeData = std::make_unique<QMimeData>();
 			mimeData->setData(qsl("application/x-td-forward-pressed-link"), "1");
-			if (DocumentData *document = (pressedMedia ? pressedMedia->getDocument() : nullptr)) {
-				QString filepath = document->filepath(DocumentData::FilePathResolveChecked);
+			if (auto document = (pressedMedia ? pressedMedia->getDocument() : nullptr)) {
+				auto filepath = document->filepath(DocumentData::FilePathResolveChecked);
 				if (!filepath.isEmpty()) {
 					QList<QUrl> urls;
 					urls.push_back(QUrl::fromLocalFile(filepath));
@@ -635,12 +632,8 @@ void OverviewInner::onDragExec() {
 				}
 			}
 
-			drag->setMimeData(mimeData);
-			drag->exec(Qt::CopyAction);
-
-			// We don't receive mouseReleaseEvent when drag is finished.
-			ClickHandler::unpressed();
-			if (App::main()) App::main()->updateAfterDrag();
+			// This call enters event loop and can destroy any QObject.
+			App::wnd()->launchDrag(std::move(mimeData));
 			return;
 		}
 	}
@@ -748,12 +741,12 @@ void OverviewInner::preloadMore() {
 		if (!_searchRequest) {
 			MTPmessagesFilter filter = (_type == OverviewLinks) ? MTP_inputMessagesFilterUrl() : MTP_inputMessagesFilterDocument();
 			if (!_searchFull) {
-				_searchRequest = MTP::send(MTPmessages_Search(MTP_flags(0), _history->peer->input, MTP_string(_searchQuery), filter, MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(_lastSearchId), MTP_int(SearchPerPage)), rpcDone(&OverviewInner::searchReceived, _lastSearchId ? SearchFromOffset : SearchFromStart), rpcFail(&OverviewInner::searchFailed, _lastSearchId ? SearchFromOffset : SearchFromStart));
+				_searchRequest = MTP::send(MTPmessages_Search(MTP_flags(0), _history->peer->input, MTP_string(_searchQuery), MTP_inputUserEmpty(), filter, MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(_lastSearchId), MTP_int(SearchPerPage)), rpcDone(&OverviewInner::searchReceived, _lastSearchId ? SearchFromOffset : SearchFromStart), rpcFail(&OverviewInner::searchFailed, _lastSearchId ? SearchFromOffset : SearchFromStart));
 				if (!_lastSearchId) {
 					_searchQueries.insert(_searchRequest, _searchQuery);
 				}
 			} else if (_migrated && !_searchFullMigrated) {
-				_searchRequest = MTP::send(MTPmessages_Search(MTP_flags(0), _migrated->peer->input, MTP_string(_searchQuery), filter, MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(_lastSearchMigratedId), MTP_int(SearchPerPage)), rpcDone(&OverviewInner::searchReceived, _lastSearchMigratedId ? SearchMigratedFromOffset : SearchMigratedFromStart), rpcFail(&OverviewInner::searchFailed, _lastSearchMigratedId ? SearchMigratedFromOffset : SearchMigratedFromStart));
+				_searchRequest = MTP::send(MTPmessages_Search(MTP_flags(0), _migrated->peer->input, MTP_string(_searchQuery), MTP_inputUserEmpty(), filter, MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(_lastSearchMigratedId), MTP_int(SearchPerPage)), rpcDone(&OverviewInner::searchReceived, _lastSearchMigratedId ? SearchMigratedFromOffset : SearchMigratedFromStart), rpcFail(&OverviewInner::searchFailed, _lastSearchMigratedId ? SearchMigratedFromOffset : SearchMigratedFromStart));
 			}
 		}
 	} else if (App::main()) {
@@ -810,7 +803,7 @@ void OverviewInner::paintEvent(QPaintEvent *e) {
 	} else if (_inSearch && _searchResults.isEmpty() && _searchFull && (!_migrated || _searchFullMigrated) && !_searchTimer.isActive()) {
 		p.setFont(st::noContactsFont->f);
 		p.setPen(st::noContactsColor->p);
-		p.drawText(QRect(_rowsLeft, _marginTop, _rowWidth, _marginTop), lng_search_found_results(lt_count, 0), style::al_center);
+		p.drawText(QRect(_rowsLeft, _marginTop, _rowWidth, _marginTop), lang(lng_search_no_results), style::al_center);
 		return;
 	}
 
@@ -904,7 +897,7 @@ void OverviewInner::onUpdateSelected() {
 				item = media->getItem();
 				index = i;
 				if (upon) {
-					media->getState(lnk, cursorState, m.x() - col * w - st::overviewPhotoSkip, m.y() - _marginTop - row * vsize - st::overviewPhotoSkip);
+					media->getState(lnk, cursorState, m - QPoint(col * w + st::overviewPhotoSkip, _marginTop + row * vsize + st::overviewPhotoSkip));
 					lnkhost = media;
 				}
 			}
@@ -940,7 +933,7 @@ void OverviewInner::onUpdateSelected() {
 				if (auto media = _items.at(i)->toMediaItem()) {
 					item = media->getItem();
 					index = i;
-					media->getState(lnk, cursorState, m.x() - _rowsLeft, m.y() - _marginTop - top);
+					media->getState(lnk, cursorState, m - QPoint(_rowsLeft, _marginTop + top));
 					lnkhost = media;
 				}
 				break;
@@ -989,7 +982,7 @@ void OverviewInner::onUpdateSelected() {
 		if (_mousedItem != _dragItem || (m - _dragStartPos).manhattanLength() >= QApplication::startDragDistance()) {
 			if (_dragAction == PrepareDrag) {
 				_dragAction = Dragging;
-				QTimer::singleShot(1, this, SLOT(onDragExec()));
+				InvokeQueued(this, [this] { performDrag(); });
 			} else if (_dragAction == PrepareSelect) {
 				_dragAction = Selecting;
 			}
@@ -1424,9 +1417,11 @@ void OverviewInner::goToMessage() {
 
 void OverviewInner::forwardMessage() {
 	auto item = App::contextItem();
-	if (!item || item->id < 0) return;
+	if (!item || item->id < 0 || item->serviceMsg()) return;
 
-	App::main()->forwardLayer();
+	auto items = SelectedItemSet();
+	items.insert(item->id, item);
+	App::main()->showForwardLayer(items);
 }
 
 MsgId OverviewInner::complexMsgId(const HistoryItem *item) const {
@@ -1487,7 +1482,7 @@ bool OverviewInner::onSearchMessages(bool searchCache) {
 		_searchQuery = q;
 		_searchFull = _searchFullMigrated = false;
 		auto filter = (_type == OverviewLinks) ? MTP_inputMessagesFilterUrl() : MTP_inputMessagesFilterDocument();
-		_searchRequest = MTP::send(MTPmessages_Search(MTP_flags(0), _history->peer->input, MTP_string(_searchQuery), filter, MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(SearchPerPage)), rpcDone(&OverviewInner::searchReceived, SearchFromStart), rpcFail(&OverviewInner::searchFailed, SearchFromStart));
+		_searchRequest = MTP::send(MTPmessages_Search(MTP_flags(0), _history->peer->input, MTP_string(_searchQuery), MTP_inputUserEmpty(), filter, MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(SearchPerPage)), rpcDone(&OverviewInner::searchReceived, SearchFromStart), rpcFail(&OverviewInner::searchFailed, SearchFromStart));
 		_searchQueries.insert(_searchRequest, _searchQuery);
 	}
 	return false;
@@ -1580,19 +1575,23 @@ void OverviewInner::clearSelectedItems(bool onlyTextSelection) {
 	}
 }
 
-void OverviewInner::fillSelectedItems(SelectedItemSet &sel, bool forDelete) {
-	if (_selected.isEmpty() || _selected.cbegin().value() != FullSelection) return;
+SelectedItemSet OverviewInner::getSelectedItems() const {
+	auto result = SelectedItemSet();
+	if (_selected.isEmpty() || _selected.cbegin().value() != FullSelection) {
+		return result;
+	}
 
-	for (SelectedItems::const_iterator i = _selected.cbegin(), e = _selected.cend(); i != e; ++i) {
-		HistoryItem *item = App::histItemById(itemChannel(i.key()), itemMsgId(i.key()));
+	for (auto i = _selected.cbegin(), e = _selected.cend(); i != e; ++i) {
+		auto item = App::histItemById(itemChannel(i.key()), itemMsgId(i.key()));
 		if (item && item->toHistoryMessage() && item->id > 0) {
 			if (item->history() == _migrated) {
-				sel.insert(item->id - ServerMaxMsgId, item);
+				result.insert(item->id - ServerMaxMsgId, item);
 			} else {
-				sel.insert(item->id, item);
+				result.insert(item->id, item);
 			}
 		}
 	}
+	return result;
 }
 
 void OverviewInner::onTouchSelect() {
@@ -2263,7 +2262,7 @@ void OverviewWidget::grabFinish() {
 	_topShadow->show();
 }
 
-void OverviewWidget::ui_repaintHistoryItem(const HistoryItem *item) {
+void OverviewWidget::ui_repaintHistoryItem(gsl::not_null<const HistoryItem*> item) {
 	if (peer() == item->history()->peer || migratePeer() == item->history()->peer) {
 		_inner->repaintItem(item);
 	}
@@ -2275,12 +2274,8 @@ void OverviewWidget::notify_historyItemLayoutChanged(const HistoryItem *item) {
 	}
 }
 
-void OverviewWidget::fillSelectedItems(SelectedItemSet &sel, bool forDelete) {
-	_inner->fillSelectedItems(sel, forDelete);
-}
-
-void OverviewWidget::updateAfterDrag() {
-	_inner->dragActionUpdate(QCursor::pos());
+SelectedItemSet OverviewWidget::getSelectedItems() const {
+	return _inner->getSelectedItems();
 }
 
 OverviewWidget::~OverviewWidget() {
@@ -2343,7 +2338,7 @@ bool OverviewWidget::touchScroll(const QPoint &delta) {
 }
 
 void OverviewWidget::onForwardSelected() {
-	App::main()->forwardLayer(true);
+	App::main()->showForwardLayer(getSelectedItems());
 }
 
 void OverviewWidget::confirmDeleteContextItem() {
@@ -2360,8 +2355,7 @@ void OverviewWidget::confirmDeleteContextItem() {
 }
 
 void OverviewWidget::confirmDeleteSelectedItems() {
-	SelectedItemSet selected;
-	_inner->fillSelectedItems(selected);
+	auto selected = _inner->getSelectedItems();
 	if (selected.isEmpty()) return;
 
 	App::main()->deleteLayer(selected.size());
@@ -2393,8 +2387,7 @@ void OverviewWidget::deleteContextItem(bool forEveryone) {
 void OverviewWidget::deleteSelectedItems(bool forEveryone) {
 	Ui::hideLayer();
 
-	SelectedItemSet selected;
-	_inner->fillSelectedItems(selected);
+	auto selected = _inner->getSelectedItems();
 	if (selected.isEmpty()) return;
 
 	QMap<PeerData*, QVector<MTPint>> idsByPeer;

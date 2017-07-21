@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "intro/introstart.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "application.h"
 #include "intro/introphone.h"
 #include "ui/widgets/buttons.h"
@@ -30,8 +30,8 @@ namespace Intro {
 
 StartWidget::StartWidget(QWidget *parent, Widget::Data *data) : Step(parent, data, true) {
 	setMouseTracking(true);
-	setTitleText(qsl("Telegram Desktop"));
-	setDescriptionText(lang(lng_intro_about));
+	setTitleText([] { return qsl("Telegram Desktop"); });
+	setDescriptionText(langFactory(lng_intro_about));
 	show();
 }
 

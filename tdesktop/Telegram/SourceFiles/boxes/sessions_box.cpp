@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/sessions_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "storage/localstorage.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
@@ -35,9 +35,9 @@ SessionsBox::SessionsBox(QWidget*)
 }
 
 void SessionsBox::prepare() {
-	setTitle(lang(lng_sessions_other_header));
+	setTitle(langFactory(lng_sessions_other_header));
 
-	addButton(lang(lng_close), [this] { closeBox(); });
+	addButton(langFactory(lng_close), [this] { closeBox(); });
 
 	setDimensions(st::boxWideWidth, st::sessionsHeight);
 
@@ -117,8 +117,8 @@ void SessionsBox::gotAuthorizations(const MTPaccount_Authorizations &result) {
 			if (appVer == QString::number(appVer.toInt())) {
 				int32 ver = appVer.toInt();
 				appVer = QString("%1.%2").arg(ver / 1000000).arg((ver % 1000000) / 1000) + ((ver % 1000) ? ('.' + QString::number(ver % 1000)) : QString());
-			} else {
-				appVer = QString();
+			//} else {
+			//	appVer = QString();
 			}
 		} else {
 			appName = qs(d.vapp_name);// +qsl(" for ") + qs(d.vplatform);

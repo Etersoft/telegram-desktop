@@ -97,7 +97,7 @@ class HistoryHider : public TWidget, private base::Subscriber {
 	Q_OBJECT
 
 public:
-	HistoryHider(MainWidget *parent, bool forwardSelected); // forward messages
+	HistoryHider(MainWidget *parent, const SelectedItemSet &items); // forward messages
 	HistoryHider(MainWidget *parent, UserData *sharedContact); // share contact
 	HistoryHider(MainWidget *parent); // send path from command line argument
 	HistoryHider(MainWidget *parent, const QString &url, const QString &text); // share url
@@ -131,12 +131,14 @@ signals:
 	void forwarded();
 
 private:
+	void refreshLang();
+	void updateControlsGeometry();
 	void animationCallback();
 	void init();
 	MainWidget *parent();
 
 	UserData *_sharedContact = nullptr;
-	bool _forwardSelected = false;
+	SelectedItemSet _forwardItems;
 	bool _sendPath = false;
 
 	QString _shareUrl, _shareText;
@@ -197,7 +199,6 @@ public:
 	void newUnreadMsg(History *history, HistoryItem *item);
 	void historyToDown(History *history);
 	void historyWasRead(ReadServerHistoryChecks checks);
-	void historyCleared(History *history);
 	void unreadCountChanged(History *history);
 
 	QRect historyRect() const;
@@ -260,7 +261,7 @@ public:
 	uint64 animActiveTimeStart(const HistoryItem *msg) const;
 	void stopAnimActive();
 
-	void fillSelectedItems(SelectedItemSet &sel, bool forDelete = true);
+	SelectedItemSet getSelectedItems() const;
 	void itemEdited(HistoryItem *item);
 
 	void updateScrollColors();
@@ -270,8 +271,9 @@ public:
 	bool lastForceReplyReplied(const FullMsgId &replyTo = FullMsgId(NoChannel, -1)) const;
 	bool cancelReply(bool lastKeyboardUsed = false);
 	void cancelEdit();
-	void updateForwarding(bool force = false);
-	void cancelForwarding(); // called by MainWidget
+	void updateForwarding();
+	void updateForwardingTexts();
+	void updateForwardingItemRemovedSubscription();
 
 	void clearReplyReturns();
 	void pushReplyReturn(HistoryItem *item);
@@ -301,7 +303,7 @@ public:
 	DragState getDragState(const QMimeData *d);
 
 	void fastShowAtEnd(History *h);
-	void applyDraft(bool parseLinks = true);
+	void applyDraft(bool parseLinks = true, Ui::FlatTextarea::UndoHistoryAction undoHistoryAction = Ui::FlatTextarea::ClearUndoHistory);
 	void showHistory(const PeerId &peer, MsgId showAtMsgId, bool reload = false);
 	void clearDelayedShowAt();
 	void clearAllLoadRequests();
@@ -312,7 +314,6 @@ public:
 	void updateHistoryDownPosition();
 	void updateHistoryDownVisibility();
 
-	void updateAfterDrag();
 	void updateFieldSubmitSettings();
 
 	void setInnerFocus();
@@ -342,9 +343,9 @@ public:
 	bool wheelEventFromFloatPlayer(QEvent *e, Window::Column myColumn, Window::Column playerColumn) override;
 	QRect rectForFloatPlayer(Window::Column myColumn, Window::Column playerColumn) override;
 
-	void app_sendBotCallback(const HistoryMessageReplyMarkup::Button *button, const HistoryItem *msg, int row, int col);
+	void app_sendBotCallback(const HistoryMessageReplyMarkup::Button *button, gsl::not_null<const HistoryItem*> msg, int row, int col);
 
-	void ui_repaintHistoryItem(const HistoryItem *item);
+	void ui_repaintHistoryItem(gsl::not_null<const HistoryItem*> item);
 	PeerData *ui_getPeerForMouseAction();
 
 	void notify_historyItemLayoutChanged(const HistoryItem *item);
@@ -355,7 +356,6 @@ public:
 	bool notify_switchInlineBotButtonReceived(const QString &query, UserData *samePeerBot, MsgId samePeerReplyTo);
 	void notify_userIsBotChanged(UserData *user);
 	void notify_migrateUpdated(PeerData *peer);
-	void notify_handlePendingHistoryUpdate();
 
 	bool cmd_search();
 	bool cmd_next_chat();
@@ -387,8 +387,6 @@ public slots:
 	void onFieldBarCancel();
 
 	void onCancelSendAction();
-
-	void onStickerPackInfo();
 
 	void onPreviewParse();
 	void onPreviewCheck();
@@ -483,6 +481,7 @@ private:
 		bool allFilesForCompress = true;
 	};
 
+	void handlePendingHistoryUpdate();
 	void fullPeerUpdated(PeerData *peer);
 	void topBarClick();
 	void toggleTabbedSelectorMode();
@@ -521,6 +520,7 @@ private:
 
 	bool historyHasNotFreezedUnreadBar(History *history) const;
 	bool canWriteMessage() const;
+	bool isRestrictedWrite() const;
 	void orderWidgets();
 
 	void clearInlineBot();
@@ -537,10 +537,20 @@ private:
 	void hideSelectorControlsAnimated();
 	int countMembersDropdownHeightMax() const;
 
+	void updateReplyToName();
+	void checkForwardingInfo();
+	bool editingMessage() const {
+		return _editMsgId != 0;
+	}
+
 	MsgId _replyToId = 0;
 	Text _replyToName;
 	int _replyToNameVersion = 0;
-	void updateReplyToName();
+
+	SelectedItemSet _toForward;
+	Text _toForwardFrom, _toForwardText;
+	int _toForwardNameVersion = 0;
+	int _forwardingItemRemovedSubscription = 0;
 
 	int _chatWidth = 0;
 	MsgId _editMsgId = 0;
@@ -575,6 +585,7 @@ private:
 	void paintEditHeader(Painter &p, const QRect &rect, int left, int top) const;
 	void drawRecording(Painter &p, float64 recordActive);
 	void drawPinnedBar(Painter &p);
+	void drawRestrictedWrite(Painter &p);
 
 	void updateMouseTracking();
 
@@ -793,7 +804,7 @@ private:
 	object_ptr<MessageField> _field;
 	bool _recording = false;
 	bool _inField = false;
-	bool _inReplyEdit = false;
+	bool _inReplyEditForward = false;
 	bool _inPinnedMsg = false;
 	bool _inClickable = false;
 	int _recordingSamples = 0;

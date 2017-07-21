@@ -23,7 +23,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_boxes.h"
 #include "ui/widgets/buttons.h"
 #include "storage/localstorage.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "auth_session.h"
 
@@ -32,9 +32,9 @@ LocalStorageBox::LocalStorageBox(QWidget *parent)
 }
 
 void LocalStorageBox::prepare() {
-	setTitle(lang(lng_local_storage_title));
+	setTitle(langFactory(lng_local_storage_title));
 
-	addButton(lang(lng_box_ok), [this] { closeBox(); });
+	addButton(langFactory(lng_box_ok), [this] { closeBox(); });
 
 	_clear->setClickedCallback([this] { clearStorage(); });
 

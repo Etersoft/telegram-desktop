@@ -26,7 +26,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/input_fields.h"
 #include "ui/widgets/labels.h"
 #include "mainwidget.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 
 namespace {
 
@@ -210,14 +210,14 @@ void ConfirmPhoneBox::prepare() {
 	}
 	_about->setMarkedText(aboutText);
 
-	_code.create(this, st::confirmPhoneCodeField, lang(lng_code_ph));
+	_code.create(this, st::confirmPhoneCodeField, langFactory(lng_code_ph));
 	_code->setAutoSubmit(_sentCodeLength, [this] { onSendCode(); });
 	_code->setChangedCallback([this] { showError(QString()); });
 
-	setTitle(lang(lng_confirm_phone_title));
+	setTitle(langFactory(lng_confirm_phone_title));
 
-	addButton(lang(lng_confirm_phone_send), [this] { onSendCode(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_confirm_phone_send), [this] { onSendCode(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	setDimensions(st::boxWidth, st::usernamePadding.top() + _code->height() + st::usernameSkip + _about->height() + st::usernameSkip);
 

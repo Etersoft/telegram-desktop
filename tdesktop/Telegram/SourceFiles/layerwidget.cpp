@@ -18,7 +18,7 @@ to link the code of portions of this program with the OpenSSL library.
 Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
-#include "lang.h"
+#include "lang/lang_keys.h"
 
 #include "media/media_clip_reader.h"
 #include "boxes/abstract_box.h"
@@ -717,6 +717,15 @@ void LayerStackWidget::onLayerDestroyed(QObject *obj) {
 }
 
 LayerStackWidget::~LayerStackWidget() {
+	// We must destroy all layers before we destroy LayerStackWidget.
+	// Some layers in destructor call layer-related methods, like hiding
+	// other layers, that call methods of LayerStackWidget and access
+	// its fields, so if it is destroyed already everything crashes.
+	for (auto layer : base::take(_layers)) {
+		layer->setClosing();
+		layer->hide();
+		delete layer;
+	}
 	if (App::wnd()) App::wnd()->noLayerStack(this);
 }
 

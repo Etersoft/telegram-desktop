@@ -26,7 +26,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "observer_peer.h"
 #include "ui/widgets/buttons.h"
 #include "mainwidget.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 
 namespace Profile {
 namespace {
@@ -201,7 +201,7 @@ void SharedMediaWidget::onShowCommonGroups() {
 		return;
 	}
 	if (auto main = App::main()) {
-		main->showWideSection(Profile::CommonGroups::SectionMemento(peer()));
+		main->showWideSection(Profile::CommonGroups::SectionMemento(peer()->asUser()));
 	}
 }
 

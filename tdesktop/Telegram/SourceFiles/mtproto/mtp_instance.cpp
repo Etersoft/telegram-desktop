@@ -21,18 +21,24 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "mtproto/mtp_instance.h"
 
 #include "mtproto/dc_options.h"
-#include "storage/localstorage.h"
-#include "auth_session.h"
-#include "messenger.h"
+#include "mtproto/dcenter.h"
+#include "mtproto/config_loader.h"
 #include "mtproto/connection.h"
 #include "mtproto/sender.h"
 #include "mtproto/rsa_public_key.h"
+#include "storage/localstorage.h"
+#include "auth_session.h"
+#include "apiwrap.h"
+#include "messenger.h"
+#include "lang/lang_instance.h"
+#include "lang/lang_cloud_manager.h"
+#include "base/timer.h"
 
 namespace MTP {
 
-class Instance::Private : public Sender {
+class Instance::Private : private Sender {
 public:
-	Private(Instance *instance, DcOptions *options, Instance::Mode mode);
+	Private(gsl::not_null<Instance*> instance, gsl::not_null<DcOptions*> options, Instance::Mode mode);
 
 	void start(Config &&config);
 
@@ -44,10 +50,10 @@ public:
 	AuthKeysList getKeysForWrite() const;
 	void addKeysForDestroy(AuthKeysList &&keys);
 
-	DcOptions *dcOptions();
+	gsl::not_null<DcOptions*> dcOptions();
 
-	void configLoadRequest();
-	void cdnConfigLoadRequest();
+	void requestConfig();
+	void requestCDNConfig();
 
 	void restart();
 	void restart(ShiftedDcId shiftedDcId);
@@ -59,9 +65,10 @@ public:
 	void killSession(ShiftedDcId shiftedDcId);
 	void killSession(std::unique_ptr<internal::Session> session);
 	void stopSession(ShiftedDcId shiftedDcId);
+	void reInitConnection(DcId dcId);
 	void logout(RPCDoneHandlerPtr onDone, RPCFailHandlerPtr onFail);
 
-	internal::DcenterPtr getDcById(ShiftedDcId shiftedDcId);
+	std::shared_ptr<internal::Dcenter> getDcById(ShiftedDcId shiftedDcId);
 	void unpaused();
 
 	void queueQuittingConnection(std::unique_ptr<internal::Connection> connection);
@@ -95,8 +102,14 @@ public:
 
 	internal::Session *getSession(ShiftedDcId shiftedDcId);
 
+	bool isNormal() const {
+		return (_mode == Instance::Mode::Normal);
+	}
 	bool isKeysDestroyer() const {
 		return (_mode == Instance::Mode::KeysDestroyer);
+	}
+	bool isSpecialConfigRequester() const {
+		return (_mode == Instance::Mode::SpecialConfigRequester);
 	}
 
 	void scheduleKeyDestroy(ShiftedDcId shiftedDcId);
@@ -124,13 +137,13 @@ private:
 
 	void checkDelayedRequests();
 
-	Instance *_instance = nullptr;
-	DcOptions *_dcOptions = nullptr;
+	gsl::not_null<Instance*> _instance;
+	gsl::not_null<DcOptions*> _dcOptions;
 	Instance::Mode _mode = Instance::Mode::Normal;
 
 	DcId _mainDcId = Config::kDefaultMainDc;
 	bool _mainDcIdForced = false;
-	internal::DcenterMap _dcenters;
+	std::map<DcId, std::shared_ptr<internal::Dcenter>> _dcenters;
 
 	internal::Session *_mainSession = nullptr;
 	std::map<ShiftedDcId, std::unique_ptr<internal::Session>> _sessions;
@@ -174,14 +187,15 @@ private:
 	base::lambda<void(ShiftedDcId shiftedDcId, int32 state)> _stateChangedHandler;
 	base::lambda<void(ShiftedDcId shiftedDcId)> _sessionResetHandler;
 
-	SingleTimer _checkDelayedTimer;
+	base::Timer _checkDelayedTimer;
 
 	// Debug flag to find out how we end up crashing.
 	bool MustNotCreateSessions = false;
 
 };
 
-Instance::Private::Private(Instance *instance, DcOptions *options, Instance::Mode mode) : Sender(instance), _instance(instance)
+Instance::Private::Private(gsl::not_null<Instance*> instance, gsl::not_null<DcOptions*> options, Instance::Mode mode) : Sender()
+, _instance(instance)
 , _dcOptions(options)
 , _mode(mode) {
 }
@@ -189,7 +203,7 @@ Instance::Private::Private(Instance *instance, DcOptions *options, Instance::Mod
 void Instance::Private::start(Config &&config) {
 	if (isKeysDestroyer()) {
 		_instance->connect(_instance, SIGNAL(keyDestroyed(qint32)), _instance, SLOT(onKeyDestroyed(qint32)), Qt::QueuedConnection);
-	} else {
+	} else if (isNormal()) {
 		unixtimeInit();
 	}
 
@@ -232,13 +246,11 @@ void Instance::Private::start(Config &&config) {
 		_mainSession->start();
 	}
 
-	_checkDelayedTimer.setTimeoutHandler([this] {
-		checkDelayedRequests();
-	});
+	_checkDelayedTimer.setCallback([this] { checkDelayedRequests(); });
 
 	t_assert((_mainDcId == Config::kNoneMainDc) == isKeysDestroyer());
 	if (!isKeysDestroyer()) {
-		configLoadRequest();
+		requestConfig();
 	}
 }
 
@@ -263,11 +275,11 @@ void Instance::Private::setMainDcId(DcId mainDcId) {
 }
 
 DcId Instance::Private::mainDcId() const {
-	t_assert(_mainDcId != Config::kNoneMainDc);
+	Expects(_mainDcId != Config::kNoneMainDc);
 	return _mainDcId;
 }
 
-void Instance::Private::configLoadRequest() {
+void Instance::Private::requestConfig() {
 	if (_configLoader) {
 		return;
 	}
@@ -279,7 +291,7 @@ void Instance::Private::configLoadRequest() {
 	_configLoader->load();
 }
 
-void Instance::Private::cdnConfigLoadRequest() {
+void Instance::Private::requestCDNConfig() {
 	if (_cdnConfigLoadRequestId || _mainDcId == Config::kNoneMainDc) {
 		return;
 	}
@@ -417,7 +429,9 @@ void Instance::Private::killSession(ShiftedDcId shiftedDcId) {
 		_sessions.emplace(_mainDcId, std::move(main));
 		_mainSession->start();
 	}
-	QMetaObject::invokeMethod(_instance, "onClearKilledSessions", Qt::QueuedConnection);
+	InvokeQueued(_instance, [this] {
+		clearKilledSessions();
+	});
 }
 
 void Instance::Private::clearKilledSessions() {
@@ -431,6 +445,11 @@ void Instance::Private::stopSession(ShiftedDcId shiftedDcId) {
 			it->second->stop();
 		}
 	}
+}
+
+void Instance::Private::reInitConnection(DcId dcId) {
+	killSession(dcId);
+	getSession(dcId)->notifyLayerInited(false);
 }
 
 void Instance::Private::logout(RPCDoneHandlerPtr onDone, RPCFailHandlerPtr onFail) {
@@ -468,20 +487,29 @@ bool Instance::Private::logoutGuestDone(mtpRequestId requestId) {
 	return false;
 }
 
-internal::DcenterPtr Instance::Private::getDcById(ShiftedDcId shiftedDcId) {
+std::shared_ptr<internal::Dcenter> Instance::Private::getDcById(ShiftedDcId shiftedDcId) {
 	auto it = _dcenters.find(shiftedDcId);
 	if (it == _dcenters.cend()) {
 		auto dcId = bareDcId(shiftedDcId);
+		if (isTemporaryDcId(dcId)) {
+			if (auto realDcId = getRealIdFromTemporaryDcId(dcId)) {
+				dcId = realDcId;
+			}
+		}
 		it = _dcenters.find(dcId);
 		if (it == _dcenters.cend()) {
 			auto result = std::make_shared<internal::Dcenter>(_instance, dcId, AuthKeyPtr());
-			it = _dcenters.emplace(dcId, std::move(result)).first;
+			return _dcenters.emplace(dcId, std::move(result)).first->second;
 		}
 	}
 	return it->second;
 }
 
 void Instance::Private::setKeyForWrite(DcId dcId, const AuthKeyPtr &key) {
+	if (isTemporaryDcId(dcId)) {
+		return;
+	}
+
 	QWriteLocker lock(&_keysForWriteLock);
 	if (key) {
 		_keysForWrite[dcId] = key;
@@ -502,7 +530,7 @@ AuthKeysList Instance::Private::getKeysForWrite() const {
 }
 
 void Instance::Private::addKeysForDestroy(AuthKeysList &&keys) {
-	t_assert(isKeysDestroyer());
+	Expects(isKeysDestroyer());
 
 	for (auto &key : keys) {
 		auto dcId = key->dcId();
@@ -528,7 +556,7 @@ void Instance::Private::addKeysForDestroy(AuthKeysList &&keys) {
 	}
 }
 
-DcOptions *Instance::Private::dcOptions() {
+gsl::not_null<DcOptions*> Instance::Private::dcOptions() {
 	return _dcOptions;
 }
 
@@ -550,16 +578,12 @@ void Instance::Private::connectionFinished(internal::Connection *connection) {
 }
 
 void Instance::Private::configLoadDone(const MTPConfig &result) {
+	Expects(result.type() == mtpc_config);
+
 	_configLoader.reset();
 
-	if (result.type() != mtpc_config) {
-		LOG(("MTP Error: wrong config constructor: %1").arg(result.type()));
-		return;
-	}
 	auto &data = result.c_config();
-
 	DEBUG_LOG(("MTP Info: got config, chat_size_max: %1, date: %2, test_mode: %3, this_dc: %4, dc_options.length: %5").arg(data.vchat_size_max.v).arg(data.vdate.v).arg(mtpIsTrue(data.vtest_mode)).arg(data.vthis_dc.v).arg(data.vdc_options.v.size()));
-
 	if (data.vdc_options.v.empty()) {
 		LOG(("MTP Error: config with empty dc_options received!"));
 	} else {
@@ -591,6 +615,7 @@ void Instance::Private::configLoadDone(const MTPConfig &result) {
 		Global::SetPhoneCallsEnabled(data.is_phonecalls_enabled());
 		Global::RefPhoneCallsEnabledChanged().notify();
 	}
+	Lang::CurrentCloudManager().setSuggestedLanguage(data.has_suggested_lang_code() ? qs(data.vsuggested_lang_code) : QString());
 
 	Local::writeSettings();
 
@@ -639,7 +664,7 @@ void Instance::Private::checkDelayedRequests() {
 	}
 
 	if (!_delayedRequests.empty()) {
-		_checkDelayedTimer.start(_delayedRequests.front().second - now);
+		_checkDelayedTimer.callOnce(_delayedRequests.front().second - now);
 	}
 }
 
@@ -1073,6 +1098,8 @@ bool Instance::Private::onErrorDefault(mtpRequestId requestId, const RPCError &e
 			session->sendPrepared(request);
 		}
 		return true;
+	} else if (err == qstr("CONNECTION_LANG_CODE_INVALID")) {
+		Lang::CurrentCloudManager().resetToDefault();
 	} else if (err == qstr("MSG_WAIT_FAILED")) {
 		mtpRequest request;
 		{
@@ -1162,7 +1189,7 @@ internal::Session *Instance::Private::getSession(ShiftedDcId shiftedDcId) {
 }
 
 void Instance::Private::scheduleKeyDestroy(ShiftedDcId shiftedDcId) {
-	t_assert(isKeysDestroyer());
+	Expects(isKeysDestroyer());
 
 	_instance->send(MTPauth_LogOut(), rpcDone([this, shiftedDcId](const MTPBool &result) {
 		performKeyDestroy(shiftedDcId);
@@ -1174,7 +1201,7 @@ void Instance::Private::scheduleKeyDestroy(ShiftedDcId shiftedDcId) {
 }
 
 void Instance::Private::performKeyDestroy(ShiftedDcId shiftedDcId) {
-	t_assert(isKeysDestroyer());
+	Expects(isKeysDestroyer());
 
 	_instance->send(MTPDestroy_auth_key(), rpcDone([this, shiftedDcId](const MTPDestroyAuthKeyRes &result) {
 		switch (result.type()) {
@@ -1194,7 +1221,7 @@ void Instance::Private::performKeyDestroy(ShiftedDcId shiftedDcId) {
 }
 
 void Instance::Private::completedKeyDestroy(ShiftedDcId shiftedDcId) {
-	t_assert(isKeysDestroyer());
+	Expects(isKeysDestroyer());
 
 	_dcenters.erase(shiftedDcId);
 	{
@@ -1244,7 +1271,7 @@ void Instance::Private::prepareToDestroy() {
 	MustNotCreateSessions = true;
 }
 
-Instance::Instance(DcOptions *options, Mode mode, Config &&config) : QObject()
+Instance::Instance(gsl::not_null<DcOptions*> options, Mode mode, Config &&config) : QObject()
 , _private(std::make_unique<Private>(this, options, mode)) {
 	_private->start(std::move(config));
 }
@@ -1261,12 +1288,20 @@ DcId Instance::mainDcId() const {
 	return _private->mainDcId();
 }
 
-void Instance::configLoadRequest() {
-	_private->configLoadRequest();
+QString Instance::systemLangCode() const {
+	return Lang::Current().systemLangCode();
 }
 
-void Instance::cdnConfigLoadRequest() {
-	_private->cdnConfigLoadRequest();
+QString Instance::cloudLangCode() const {
+	return Lang::Current().cloudLangCode();
+}
+
+void Instance::requestConfig() {
+	_private->requestConfig();
+}
+
+void Instance::requestCDNConfig() {
+	_private->requestCDNConfig();
 }
 
 void Instance::connectionFinished(internal::Connection *connection) {
@@ -1309,11 +1344,15 @@ void Instance::stopSession(ShiftedDcId shiftedDcId) {
 	_private->stopSession(shiftedDcId);
 }
 
+void Instance::reInitConnection(DcId dcId) {
+	_private->reInitConnection(dcId);
+}
+
 void Instance::logout(RPCDoneHandlerPtr onDone, RPCFailHandlerPtr onFail) {
 	_private->logout(onDone, onFail);
 }
 
-internal::DcenterPtr Instance::getDcById(ShiftedDcId shiftedDcId) {
+std::shared_ptr<internal::Dcenter> Instance::getDcById(ShiftedDcId shiftedDcId) {
 	return _private->getDcById(shiftedDcId);
 }
 
@@ -1329,7 +1368,7 @@ void Instance::addKeysForDestroy(AuthKeysList &&keys) {
 	_private->addKeysForDestroy(std::move(keys));
 }
 
-DcOptions *Instance::dcOptions() {
+gsl::not_null<DcOptions*> Instance::dcOptions() {
 	return _private->dcOptions();
 }
 
@@ -1415,10 +1454,6 @@ void Instance::scheduleKeyDestroy(ShiftedDcId shiftedDcId) {
 
 void Instance::onKeyDestroyed(qint32 shiftedDcId) {
 	_private->completedKeyDestroy(shiftedDcId);
-}
-
-void Instance::onClearKilledSessions() {
-	_private->clearKilledSessions();
 }
 
 Instance::~Instance() {

@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/background_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "window/themes/window_theme.h"
@@ -63,9 +63,9 @@ BackgroundBox::BackgroundBox(QWidget*) {
 }
 
 void BackgroundBox::prepare() {
-	setTitle(lang(lng_backgrounds_header));
+	setTitle(langFactory(lng_backgrounds_header));
 
-	addButton(lang(lng_close), [this] { closeBox(); });
+	addButton(langFactory(lng_close), [this] { closeBox(); });
 
 	setDimensions(st::boxWideWidth, st::boxMaxListHeight);
 

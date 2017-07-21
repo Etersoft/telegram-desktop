@@ -25,7 +25,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "media/media_audio.h"
 #include "platform/mac/mac_utilities.h"
 #include "styles/style_window.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "base/timer.h"
 
 #include <Cocoa/Cocoa.h>
@@ -540,18 +540,6 @@ QString objc_downloadPath() {
 		return QString::fromUtf8([[url path] fileSystemRepresentation]) + '/' + str_const_toString(AppName) + '/';
 	}
 	return QString();
-}
-
-QString objc_currentCountry() {
-	NSLocale *currentLocale = [NSLocale currentLocale];  // get the current locale.
-	NSString *countryCode = [currentLocale objectForKey:NSLocaleCountryCode];
-	return countryCode ? NS2QString(countryCode) : QString();
-}
-
-QString objc_currentLang() {
-	NSLocale *currentLocale = [NSLocale currentLocale];  // get the current locale.
-	NSString *currentLang = [currentLocale objectForKey:NSLocaleLanguageCode];
-	return currentLang ? NS2QString(currentLang) : QString();
 }
 
 QByteArray objc_downloadPathBookmark(const QString &path) {

@@ -29,13 +29,15 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "inline_bots/inline_bot_layout_item.h"
 #include "dialogs/dialogs_layout.h"
 #include "storage/localstorage.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "apiwrap.h"
 #include "mainwidget.h"
 #include "auth_session.h"
 #include "window/window_controller.h"
 #include "ui/widgets/scroll_area.h"
+#include "ui/widgets/labels.h"
+#include "observer_peer.h"
 
 namespace InlineBots {
 namespace Layout {
@@ -67,6 +69,15 @@ Inner::Inner(QWidget *parent, gsl::not_null<Window::Controller*> controller) : T
 			update();
 		}
 	});
+	subscribe(Notify::PeerUpdated(), Notify::PeerUpdatedHandler(Notify::PeerUpdate::Flag::ChannelRightsChanged, [this](const Notify::PeerUpdate &update) {
+		if (update.peer == _inlineQueryPeer) {
+			auto isRestricted = (_restrictedLabel != nullptr);
+			if (isRestricted != isRestrictedView()) {
+				auto h = countHeight();
+				if (h != height()) resize(width(), h);
+			}
+		}
+	}));
 }
 
 void Inner::setVisibleTopBottom(int visibleTop, int visibleBottom) {
@@ -77,7 +88,39 @@ void Inner::setVisibleTopBottom(int visibleTop, int visibleBottom) {
 	}
 }
 
+void Inner::checkRestrictedPeer() {
+	if (auto megagroup = _inlineQueryPeer ? _inlineQueryPeer->asMegagroup() : nullptr) {
+		if (megagroup->restrictedRights().is_send_inline()) {
+			if (!_restrictedLabel) {
+				_restrictedLabel.create(this, lang(lng_restricted_send_inline), Ui::FlatLabel::InitType::Simple, st::stickersRestrictedLabel);
+				_restrictedLabel->show();
+				_restrictedLabel->move(st::inlineResultsLeft - st::buttonRadius, st::stickerPanPadding);
+				if (_switchPmButton) {
+					_switchPmButton->hide();
+				}
+				update();
+			}
+			return;
+		}
+	}
+	if (_restrictedLabel) {
+		_restrictedLabel.destroy();
+		if (_switchPmButton) {
+			_switchPmButton->show();
+		}
+		update();
+	}
+}
+
+bool Inner::isRestrictedView() {
+	checkRestrictedPeer();
+	return (_restrictedLabel != nullptr);
+}
+
 int Inner::countHeight() {
+	if (isRestrictedView()) {
+		return st::stickerPanPadding + _restrictedLabel->height() + st::stickerPanPadding;
+	}
 	auto result = st::stickerPanPadding;
 	if (_switchPmButton) {
 		result += _switchPmButton->height() + st::inlineResultsSkip;
@@ -102,6 +145,9 @@ void Inner::paintEvent(QPaintEvent *e) {
 }
 
 void Inner::paintInlineItems(Painter &p, const QRect &r) {
+	if (_restrictedLabel) {
+		return;
+	}
 	if (_rows.isEmpty() && !_switchPmButton) {
 		p.setFont(st::normalFont);
 		p.setPen(st::noContactsColor);
@@ -278,7 +324,7 @@ bool Inner::inlineRowFinalize(Row &row, int32 &sumWidth, bool force) {
 }
 
 void Inner::inlineBotChanged() {
-	refreshInlineRows(nullptr, nullptr, true);
+	refreshInlineRows(nullptr, nullptr, nullptr, true);
 }
 
 void Inner::clearInlineRows(bool resultsDeleted) {
@@ -382,21 +428,26 @@ void Inner::refreshSwitchPmButton(const CacheEntry *entry) {
 		_switchPmStartToken.clear();
 	} else {
 		if (!_switchPmButton) {
-			_switchPmButton.create(this, QString(), st::switchPmButton);
+			_switchPmButton.create(this, base::lambda<QString()>(), st::switchPmButton);
 			_switchPmButton->show();
 			_switchPmButton->setTextTransform(Ui::RoundButton::TextTransform::NoTransform);
 			connect(_switchPmButton, SIGNAL(clicked()), this, SLOT(onSwitchPm()));
 		}
-		_switchPmButton->setText(entry->switchPmText); // doesn't perform text.toUpper()
+		auto text = entry->switchPmText;
+		_switchPmButton->setText([text] { return text; }); // doesn't perform text.toUpper()
 		_switchPmStartToken = entry->switchPmStartToken;
 		auto buttonTop = st::stickerPanPadding;
 		_switchPmButton->move(st::inlineResultsLeft - st::buttonRadius, buttonTop);
+		if (isRestrictedView()) {
+			_switchPmButton->hide();
+		}
 	}
 	update();
 }
 
-int Inner::refreshInlineRows(UserData *bot, const CacheEntry *entry, bool resultsDeleted) {
+int Inner::refreshInlineRows(PeerData *queryPeer, UserData *bot, const CacheEntry *entry, bool resultsDeleted) {
 	_inlineBot = bot;
+	_inlineQueryPeer = queryPeer;
 	refreshSwitchPmButton(entry);
 	auto clearResults = [this, entry]() {
 		if (!entry) {
@@ -589,7 +640,7 @@ void Inner::updateSelected() {
 		}
 		if (col < inlineItems.size()) {
 			sel = row * MatrixRowShift + col;
-			inlineItems.at(col)->getState(lnk, cursor, sx, sy);
+			inlineItems.at(col)->getState(lnk, cursor, QPoint(sx, sy));
 			lnkhost = inlineItems.at(col);
 		} else {
 			row = col = -1;
@@ -846,7 +897,7 @@ void Widget::startShowAnimation() {
 		auto inner = rect().marginsRemoved(st::emojiPanMargins);
 		_showAnimation->setFinalImage(std::move(image), QRect(inner.topLeft() * cIntRetinaFactor(), inner.size() * cIntRetinaFactor()));
 		auto corners = App::cornersMask(ImageRoundRadius::Small);
-		_showAnimation->setCornerMasks(QImage(*corners[0]), QImage(*corners[1]), QImage(*corners[2]), QImage(*corners[3]));
+		_showAnimation->setCornerMasks(corners[0], corners[1], corners[2], corners[3]);
 		_showAnimation->start();
 	}
 	hideChildren();
@@ -1071,7 +1122,7 @@ bool Widget::refreshInlineRows(int *added) {
 		_inlineNextOffset = it->second->nextOffset;
 	}
 	if (!entry) prepareCache();
-	auto result = _inner->refreshInlineRows(_inlineBot, entry, false);
+	auto result = _inner->refreshInlineRows(_inlineQueryPeer, _inlineBot, entry, false);
 	if (added) *added = result;
 	return (entry != nullptr);
 }

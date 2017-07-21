@@ -23,7 +23,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/buttons.h"
 #include "styles/style_boxes.h"
 #include "styles/style_dialogs.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "ui/effects/ripple_animation.h"
 
 namespace {
@@ -463,7 +463,7 @@ void CalendarBox::prepare() {
 //	_inner = setInnerWidget(object_ptr<Inner>(this, _context.get()), st::calendarScroll, st::calendarTitleHeight);
 	_inner->setDateChosenCallback(std::move(_callback));
 
-	addButton(lang(lng_close), [this] { closeBox(); });
+	addButton(langFactory(lng_close), [this] { closeBox(); });
 
 	subscribe(_context->month(), [this](QDate month) { monthChanged(month); });
 

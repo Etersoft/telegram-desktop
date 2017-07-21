@@ -20,15 +20,18 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "mtproto/dcenter.h"
 #include "core/single_timer.h"
+#include "mtproto/rpc_sender.h"
 
 namespace MTP {
 
 class Instance;
+class AuthKey;
+using AuthKeyPtr = std::shared_ptr<AuthKey>;
 
 namespace internal {
 
+class Dcenter;
 class Connection;
 
 class ReceivedMsgIds {
@@ -98,7 +101,7 @@ inline bool ResponseNeedsAck(const SerializedMessage &response) {
 class Session;
 class SessionData {
 public:
-	SessionData(Session *creator) : _owner(creator) {
+	SessionData(gsl::not_null<Session*> creator) : _owner(creator) {
 	}
 
 	void setSession(uint64 session) {
@@ -123,6 +126,23 @@ public:
 		_layerInited = was;
 	}
 
+	QString systemLangCode() const {
+		QReadLocker locker(&_lock);
+		return _systemLangCode;
+	}
+	void setSystemLangCode(const QString &code) {
+		QWriteLocker locker(&_lock);
+		_systemLangCode = code;
+	}
+	QString cloudLangCode() const {
+		QReadLocker locker(&_lock);
+		return _cloudLangCode;
+	}
+	void setCloudLangCode(const QString &code) {
+		QWriteLocker locker(&_lock);
+		_cloudLangCode = code;
+	}
+
 	void setSalt(uint64 salt) {
 		QWriteLocker locker(&_lock);
 		_salt = salt;
@@ -135,20 +155,7 @@ public:
 	const AuthKeyPtr &getKey() const {
 		return _authKey;
 	}
-	void setKey(const AuthKeyPtr &key) {
-		if (_authKey != key) {
-			uint64 session = rand_value<uint64>();
-			_authKey = key;
-
-			DEBUG_LOG(("MTP Info: new auth key set in SessionData, id %1, setting random server_session %2").arg(key ? key->keyId() : 0).arg(session));
-			QWriteLocker locker(&_lock);
-			if (_session != session) {
-				_session = session;
-				_messagesSent = 0;
-			}
-			_layerInited = false;
-		}
-	}
+	void setKey(const AuthKeyPtr &key);
 
 	bool isCheckedKey() const {
 		QReadLocker locker(&_lock);
@@ -159,27 +166,27 @@ public:
 		_keyChecked = checked;
 	}
 
-	QReadWriteLock *keyMutex() const;
+	gsl::not_null<QReadWriteLock*> keyMutex() const;
 
-	QReadWriteLock *toSendMutex() const {
+	gsl::not_null<QReadWriteLock*> toSendMutex() const {
 		return &_toSendLock;
 	}
-	QReadWriteLock *haveSentMutex() const {
+	gsl::not_null<QReadWriteLock*> haveSentMutex() const {
 		return &_haveSentLock;
 	}
-	QReadWriteLock *toResendMutex() const {
+	gsl::not_null<QReadWriteLock*> toResendMutex() const {
 		return &_toResendLock;
 	}
-	QReadWriteLock *wereAckedMutex() const {
+	gsl::not_null<QReadWriteLock*> wereAckedMutex() const {
 		return &_wereAckedLock;
 	}
-	QReadWriteLock *receivedIdsMutex() const {
+	gsl::not_null<QReadWriteLock*> receivedIdsMutex() const {
 		return &_receivedIdsLock;
 	}
-	QReadWriteLock *haveReceivedMutex() const {
+	gsl::not_null<QReadWriteLock*> haveReceivedMutex() const {
 		return &_haveReceivedLock;
 	}
-	QReadWriteLock *stateRequestMutex() const {
+	gsl::not_null<QReadWriteLock*> stateRequestMutex() const {
 		return &_stateRequestLock;
 	}
 
@@ -232,10 +239,10 @@ public:
 		return _stateRequest;
 	}
 
-	Session *owner() {
+	gsl::not_null<Session*> owner() {
 		return _owner;
 	}
-	const Session *owner() const {
+	gsl::not_null<const Session*> owner() const {
 		return _owner;
 	}
 
@@ -254,11 +261,13 @@ private:
 
 	uint32 _messagesSent = 0;
 
-	Session *_owner = nullptr;
+	gsl::not_null<Session*> _owner;
 
 	AuthKeyPtr _authKey;
 	bool _keyChecked = false;
 	bool _layerInited = false;
+	QString _systemLangCode;
+	QString _cloudLangCode;
 
 	mtpPreRequestMap _toSend; // map of request_id -> request, that is waiting to be sent
 	mtpRequestMap _haveSent; // map of msg_id -> request, that was sent, msDate = 0 for msgs_state_req (no resend / state req), msDate = 0, seqNo = 0 for containers
@@ -357,7 +366,7 @@ private:
 	SessionData data;
 
 	ShiftedDcId dcWithShift = 0;
-	DcenterPtr dc;
+	std::shared_ptr<Dcenter> dc;
 
 	TimeMs msSendCall = 0;
 	TimeMs msWait = 0;
@@ -369,7 +378,7 @@ private:
 
 };
 
-inline QReadWriteLock *SessionData::keyMutex() const {
+inline gsl::not_null<QReadWriteLock*> SessionData::keyMutex() const {
 	return _owner->keyMutex();
 }
 

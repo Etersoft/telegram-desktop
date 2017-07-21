@@ -24,11 +24,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_window.h"
 #include "platform/platform_window_title.h"
 #include "window/themes/window_theme.h"
+#include "window/window_controller.h"
 #include "mediaview.h"
 #include "messenger.h"
 #include "mainwindow.h"
 
 namespace Window {
+
+constexpr auto kInactivePressTimeout = 200;
 
 QImage LoadLogo() {
 	return QImage(qsl(":/gui/art/logo_256.png"));
@@ -58,8 +61,7 @@ MainWindow::MainWindow() : QWidget()
 , _positionUpdatedTimer(this)
 , _body(this)
 , _icon(CreateIcon())
-, _titleText(qsl("Telegram"))
-, _isActiveTimer(this) {
+, _titleText(qsl("Telegram")) {
 	subscribe(Theme::Background(), [this](const Theme::BackgroundUpdate &data) {
 		if (data.paletteChanged()) {
 			if (_title) {
@@ -70,9 +72,11 @@ MainWindow::MainWindow() : QWidget()
 	});
 	subscribe(Global::RefUnreadCounterUpdate(), [this] { updateUnreadCounter(); });
 	subscribe(Global::RefWorkMode(), [this](DBIWorkMode mode) { workmodeUpdated(mode); });
+	subscribe(Messenger::Instance().authSessionChanged(), [this] { checkAuthSession(); });
+	checkAuthSession();
 
-	_isActiveTimer->setSingleShot(true);
-	connect(_isActiveTimer, SIGNAL(timeout()), this, SLOT(updateIsActiveByTimer()));
+	_isActiveTimer.setCallback([this] { updateIsActive(0); });
+	_inactivePressTimer.setCallback([this] { setInactivePress(false); });
 }
 
 bool MainWindow::hideNoQuit() {
@@ -140,8 +144,8 @@ bool MainWindow::ui_isMediaViewShown() {
 }
 
 void MainWindow::updateIsActive(int timeout) {
-	if (timeout) {
-		return _isActiveTimer->start(timeout);
+	if (timeout > 0) {
+		return _isActiveTimer.callOnce(timeout);
 	}
 	_isActive = computeIsActive();
 	updateIsActiveHook();
@@ -246,32 +250,38 @@ void MainWindow::initSize() {
 	setMinimumWidth(st::windowMinWidth);
 	setMinimumHeight((_title ? _title->height() : 0) + st::windowMinHeight);
 
-	auto pos = cWindowPos();
+	auto position = cWindowPos();
+	DEBUG_LOG(("Window Pos: Initializing first %1, %2, %3, %4 (maximized %5)").arg(position.x).arg(position.y).arg(position.w).arg(position.h).arg(Logs::b(position.maximized)));
+
 	auto avail = QDesktopWidget().availableGeometry();
 	bool maximized = false;
 	auto geom = QRect(avail.x() + (avail.width() - st::windowDefaultWidth) / 2, avail.y() + (avail.height() - st::windowDefaultHeight) / 2, st::windowDefaultWidth, st::windowDefaultHeight);
-	if (pos.w && pos.h) {
+	if (position.w && position.h) {
 		for (auto screen : QGuiApplication::screens()) {
-			if (pos.moncrc == screenNameChecksum(screen->name())) {
+			if (position.moncrc == screenNameChecksum(screen->name())) {
 				auto screenGeometry = screen->geometry();
+				DEBUG_LOG(("Window Pos: Screen found, screen geometry: %1, %2, %3, %4").arg(screenGeometry.x()).arg(screenGeometry.y()).arg(screenGeometry.width()).arg(screenGeometry.height()));
+
 				auto w = screenGeometry.width(), h = screenGeometry.height();
 				if (w >= st::windowMinWidth && h >= st::windowMinHeight) {
-					if (pos.w > w) pos.w = w;
-					if (pos.h > h) pos.h = h;
-					pos.x += screenGeometry.x();
-					pos.y += screenGeometry.y();
-					if (pos.x + st::windowMinWidth <= screenGeometry.x() + screenGeometry.width() &&
-						pos.y + st::windowMinHeight <= screenGeometry.y() + screenGeometry.height()) {
-						geom = QRect(pos.x, pos.y, pos.w, pos.h);
+					if (position.x < 0) position.x = 0;
+					if (position.y < 0) position.y = 0;
+					if (position.w > w) position.w = w;
+					if (position.h > h) position.h = h;
+					position.x += screenGeometry.x();
+					position.y += screenGeometry.y();
+					if (position.x + st::windowMinWidth <= screenGeometry.x() + screenGeometry.width() &&
+						position.y + st::windowMinHeight <= screenGeometry.y() + screenGeometry.height()) {
+						DEBUG_LOG(("Window Pos: Resulting geometry is %1, %2, %3, %4").arg(position.x).arg(position.y).arg(position.w).arg(position.h));
+						geom = QRect(position.x, position.y, position.w, position.h);
 					}
 				}
 				break;
 			}
 		}
-
-		if (pos.y < 0) pos.y = 0;
-		maximized = pos.maximized;
+		maximized = position.maximized;
 	}
+	DEBUG_LOG(("Window Pos: Setting first %1, %2, %3, %4").arg(geom.x()).arg(geom.y()).arg(geom.width()).arg(geom.height()));
 	setGeometry(geom);
 }
 
@@ -331,39 +341,51 @@ void MainWindow::savePosition(Qt::WindowState state) {
 	if (state == Qt::WindowActive) state = windowHandle()->windowState();
 	if (state == Qt::WindowMinimized || !positionInited()) return;
 
-	auto pos = cWindowPos(), curPos = pos;
+	auto savedPosition = cWindowPos();
+	auto realPosition = savedPosition;
 
 	if (state == Qt::WindowMaximized) {
-		curPos.maximized = 1;
+		realPosition.maximized = 1;
 	} else {
 		auto r = geometry();
-		curPos.x = r.x();
-		curPos.y = r.y();
-		curPos.w = r.width() - (_rightColumn ? _rightColumn->width() : 0);
-		curPos.h = r.height();
-		curPos.maximized = 0;
+		realPosition.x = r.x();
+		realPosition.y = r.y();
+		realPosition.w = r.width() - (_rightColumn ? _rightColumn->width() : 0);
+		realPosition.h = r.height();
+		realPosition.maximized = 0;
+		realPosition.moncrc = 0;
 	}
+	DEBUG_LOG(("Window Pos: Saving position: %1, %2, %3, %4 (maximized %5)").arg(realPosition.x).arg(realPosition.y).arg(realPosition.w).arg(realPosition.h).arg(Logs::b(realPosition.maximized)));
 
-	int px = curPos.x + curPos.w / 2, py = curPos.y + curPos.h / 2;
+	auto centerX = realPosition.x + realPosition.w / 2;
+	auto centerY = realPosition.y + realPosition.h / 2;
 	int minDelta = 0;
-	QScreen *chosen = 0;
+	QScreen *chosen = nullptr;
 	auto screens = QGuiApplication::screens();
 	for (auto screen : QGuiApplication::screens()) {
-		auto delta = (screen->geometry().center() - QPoint(px, py)).manhattanLength();
+		auto delta = (screen->geometry().center() - QPoint(centerX, centerY)).manhattanLength();
 		if (!chosen || delta < minDelta) {
 			minDelta = delta;
 			chosen = screen;
 		}
 	}
 	if (chosen) {
-		curPos.x -= chosen->geometry().x();
-		curPos.y -= chosen->geometry().y();
-		curPos.moncrc = screenNameChecksum(chosen->name());
+		auto screenGeometry = chosen->geometry();
+		DEBUG_LOG(("Window Pos: Screen found, geometry: %1, %2, %3, %4").arg(screenGeometry.x()).arg(screenGeometry.y()).arg(screenGeometry.width()).arg(screenGeometry.height()));
+		realPosition.x -= screenGeometry.x();
+		realPosition.y -= screenGeometry.y();
+		realPosition.moncrc = screenNameChecksum(chosen->name());
 	}
 
-	if (curPos.w >= st::windowMinWidth && curPos.h >= st::windowMinHeight) {
-		if (curPos.x != pos.x || curPos.y != pos.y || curPos.w != pos.w || curPos.h != pos.h || curPos.moncrc != pos.moncrc || curPos.maximized != pos.maximized) {
-			cSetWindowPos(curPos);
+	if (realPosition.w >= st::windowMinWidth && realPosition.h >= st::windowMinHeight) {
+		if (realPosition.x != savedPosition.x
+			|| realPosition.y != savedPosition.y
+			|| realPosition.w != savedPosition.w
+			|| realPosition.h != savedPosition.h
+			|| realPosition.moncrc != savedPosition.moncrc
+			|| realPosition.maximized != savedPosition.maximized) {
+			DEBUG_LOG(("Window Pos: Writing: %1, %2, %3, %4 (maximized %5)").arg(realPosition.x).arg(realPosition.y).arg(realPosition.w).arg(realPosition.h).arg(Logs::b(realPosition.maximized)));
+			cSetWindowPos(realPosition);
 			Local::writeSettings();
 		}
 	}
@@ -431,6 +453,36 @@ PeerData *MainWindow::ui_getPeerForMouseAction() {
 		return _mediaView->ui_getPeerForMouseAction();
 	}
 	return nullptr;
+}
+
+void MainWindow::launchDrag(std::unique_ptr<QMimeData> data) {
+	auto weak = QPointer<MainWindow>(this);
+	auto drag = std::make_unique<QDrag>(App::wnd());
+	drag->setMimeData(data.release());
+	drag->exec(Qt::CopyAction);
+
+	// We don't receive mouseReleaseEvent when drag is finished.
+	ClickHandler::unpressed();
+	if (weak) {
+		weak->dragFinished().notify();
+	}
+}
+
+void MainWindow::checkAuthSession() {
+	if (AuthSession::Exists()) {
+		_controller = std::make_unique<Window::Controller>(this);
+	} else {
+		_controller = nullptr;
+	}
+}
+
+void MainWindow::setInactivePress(bool inactive) {
+	_wasInactivePress = inactive;
+	if (_wasInactivePress) {
+		_inactivePressTimer.callOnce(kInactivePressTimeout);
+	} else {
+		_inactivePressTimer.cancel();
+	}
 }
 
 MainWindow::~MainWindow() = default;

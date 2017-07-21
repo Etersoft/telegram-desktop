@@ -146,9 +146,9 @@ public:
 		bool afterSymbol = false;
 		uint16 symbol = 0;
 	};
-	StateResult getState(int x, int y, int width, StateRequest request = StateRequest()) const;
-	StateResult getStateLeft(int x, int y, int width, int outerw, StateRequest request = StateRequest()) const {
-		return getState(rtl() ? (outerw - x - width) : x, y, width, request);
+	StateResult getState(QPoint point, int width, StateRequest request = StateRequest()) const;
+	StateResult getStateLeft(QPoint point, int width, int outerw, StateRequest request = StateRequest()) const {
+		return getState(rtlpoint(point, outerw), width, request);
 	}
 	struct StateRequestElided : public StateRequest {
 		StateRequestElided() {
@@ -158,12 +158,12 @@ public:
 		int lines = 1;
 		int removeFromEnd = 0;
     };
-	StateResult getStateElided(int x, int y, int width, StateRequestElided request = StateRequestElided()) const;
-	StateResult getStateElidedLeft(int x, int y, int width, int outerw, StateRequestElided request = StateRequestElided()) const {
-		return getStateElided(rtl() ? (outerw - x - width) : x, y, width, request);
+	StateResult getStateElided(QPoint point, int width, StateRequestElided request = StateRequestElided()) const;
+	StateResult getStateElidedLeft(QPoint point, int width, int outerw, StateRequestElided request = StateRequestElided()) const {
+		return getStateElided(rtlpoint(point, outerw), width, request);
 	}
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType selectType) const;
+	TextSelection adjustSelection(TextSelection selection, TextSelectType selectType) const WARN_UNUSED_RESULT;
 	bool isFullSelection(TextSelection selection) const {
 		return (selection.from == 0) && (selection.to >= _text.size());
 	}
@@ -199,12 +199,10 @@ public:
 	}
 
 	void clear();
-	~Text() {
-		clear();
-	}
+	~Text();
 
 private:
-	using TextBlocks = QVector<ITextBlock*>;
+	using TextBlocks = std::vector<std::unique_ptr<ITextBlock>>;
 	using TextLinks = QVector<ClickHandlerPtr>;
 
 	uint16 countBlockEnd(const TextBlocks::const_iterator &i, const TextBlocks::const_iterator &e) const;
@@ -245,23 +243,18 @@ private:
 inline TextSelection snapSelection(int from, int to) {
 	return { static_cast<uint16>(snap(from, 0, 0xFFFF)), static_cast<uint16>(snap(to, 0, 0xFFFF)) };
 }
+inline TextSelection shiftSelection(TextSelection selection, uint16 byLength) {
+	return snapSelection(int(selection.from) + byLength, int(selection.to) + byLength);
+}
+inline TextSelection unshiftSelection(TextSelection selection, uint16 byLength) {
+	return snapSelection(int(selection.from) - int(byLength), int(selection.to) - int(byLength));
+}
 inline TextSelection shiftSelection(TextSelection selection, const Text &byText) {
-	int len = byText.length();
-	return snapSelection(int(selection.from) + len, int(selection.to) + len);
+	return shiftSelection(selection, byText.length());
 }
 inline TextSelection unshiftSelection(TextSelection selection, const Text &byText) {
-	int len = byText.length();
-	return snapSelection(int(selection.from) - len, int(selection.to) - len);
+	return unshiftSelection(selection, byText.length());
 }
-
-void initLinkSets();
-const QSet<int32> &validProtocols();
-const QSet<int32> &validTopDomains();
-const QRegularExpression &reDomain();
-const QRegularExpression &reMailName();
-const QRegularExpression &reMailStart();
-const QRegularExpression &reHashtag();
-const QRegularExpression &reBotCommand();
 
 // textcmd
 QString textcmdSkipBlock(ushort w, ushort h);

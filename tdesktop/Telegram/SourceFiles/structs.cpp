@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "structs.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "inline_bots/inline_bot_layout_item.h"
 #include "observer_peer.h"
 #include "mainwidget.h"
@@ -248,6 +248,23 @@ using UpdateFlag = Notify::PeerUpdate::Flag;
 NotifySettings globalNotifyAll, globalNotifyUsers, globalNotifyChats;
 NotifySettingsPtr globalNotifyAllPtr = UnknownNotifySettings, globalNotifyUsersPtr = UnknownNotifySettings, globalNotifyChatsPtr = UnknownNotifySettings;
 
+PeerClickHandler::PeerClickHandler(gsl::not_null<PeerData*> peer) : _peer(peer) {
+}
+
+void PeerClickHandler::onClick(Qt::MouseButton button) const {
+	if (button == Qt::LeftButton && App::main()) {
+		if (_peer && _peer->isChannel() && App::main()->historyPeer() != _peer) {
+			if (!_peer->asChannel()->isPublic() && !_peer->asChannel()->amIn()) {
+				Ui::show(Box<InformBox>(lang((_peer->isMegagroup()) ? lng_group_not_accessible : lng_channel_not_accessible)));
+			} else {
+				Ui::showPeerHistory(_peer, ShowAtUnreadMsgId, Ui::ShowWay::Forward);
+			}
+		} else {
+			Ui::showPeerProfile(_peer);
+		}
+	}
+}
+
 PeerData::PeerData(const PeerId &id) : id(id), _colorIndex(peerColorIndex(id)) {
 	nameText.setText(st::msgNameStyle, QString(), _textNameOptions);
 	_userpicEmpty.set(_colorIndex, QString());
@@ -302,6 +319,10 @@ void PeerData::updateNameDelayed(const QString &newName, const QString &newNameO
 		emit App::main()->peerNameChanged(this, update.oldNames, update.oldNameFirstChars);
 	}
 	Notify::peerUpdatedDelayed(update);
+}
+
+ClickHandlerPtr PeerData::createOpenLink() {
+	return MakeShared<PeerClickHandler>(this);
 }
 
 void PeerData::setUserpic(ImagePtr userpic) {
@@ -440,22 +461,22 @@ void UserData::setPhoto(const MTPUserProfilePhoto &p) { // see Local::readPeer a
 void PeerData::fillNames() {
 	names.clear();
 	chars.clear();
-	QString toIndex = textAccentFold(name);
+	auto toIndex = TextUtilities::RemoveAccents(name);
 	if (cRussianLetters().match(toIndex).hasMatch()) {
 		toIndex += ' ' + translitRusEng(toIndex);
 	}
 	if (isUser()) {
-		if (!asUser()->nameOrPhone.isEmpty() && asUser()->nameOrPhone != name) toIndex += ' ' + textAccentFold(asUser()->nameOrPhone);
-		if (!asUser()->username.isEmpty()) toIndex += ' ' + textAccentFold(asUser()->username);
+		if (!asUser()->nameOrPhone.isEmpty() && asUser()->nameOrPhone != name) toIndex += ' ' + TextUtilities::RemoveAccents(asUser()->nameOrPhone);
+		if (!asUser()->username.isEmpty()) toIndex += ' ' + TextUtilities::RemoveAccents(asUser()->username);
 	} else if (isChannel()) {
-		if (!asChannel()->username.isEmpty()) toIndex += ' ' + textAccentFold(asChannel()->username);
+		if (!asChannel()->username.isEmpty()) toIndex += ' ' + TextUtilities::RemoveAccents(asChannel()->username);
 	}
 	toIndex += ' ' + rusKeyboardLayoutSwitch(toIndex);
 
-	QStringList namesList = toIndex.toLower().split(cWordSplit(), QString::SkipEmptyParts);
-	for (QStringList::const_iterator i = namesList.cbegin(), e = namesList.cend(); i != e; ++i) {
-		names.insert(*i);
-		chars.insert(i->at(0));
+	auto namesList = TextUtilities::PrepareSearchWords(toIndex);
+	for (auto &name : namesList) {
+		names.insert(name);
+		chars.insert(name[0]);
 	}
 }
 
@@ -647,10 +668,10 @@ void ChatData::setName(const QString &newName) {
 
 void ChatData::invalidateParticipants() {
 	auto wasCanEdit = canEdit();
-	participants = ChatData::Participants();
-	admins = ChatData::Admins();
+	participants.clear();
+	admins.clear();
 	flags &= ~MTPDchat::Flag::f_admin;
-	invitedByMe = ChatData::InvitedByMe();
+	invitedByMe.clear();
 	botStatus = 0;
 	if (wasCanEdit != canEdit()) {
 		Notify::peerUpdatedDelayed(this, Notify::PeerUpdate::Flag::ChatCanEdit);
@@ -748,40 +769,222 @@ void ChannelData::setAdminsCount(int newAdminsCount) {
 	}
 }
 
+void ChannelData::setRestrictedCount(int newRestrictedCount) {
+	if (_restrictedCount != newRestrictedCount) {
+		_restrictedCount = newRestrictedCount;
+		Notify::peerUpdatedDelayed(this, Notify::PeerUpdate::Flag::BannedUsersChanged);
+	}
+}
+
 void ChannelData::setKickedCount(int newKickedCount) {
 	if (_kickedCount != newKickedCount) {
 		_kickedCount = newKickedCount;
-		Notify::peerUpdatedDelayed(this, Notify::PeerUpdate::Flag::BlockedUsersChanged);
+		Notify::peerUpdatedDelayed(this, Notify::PeerUpdate::Flag::BannedUsersChanged);
 	}
+}
+
+MTPChannelBannedRights ChannelData::KickedRestrictedRights() {
+	using Flag = MTPDchannelBannedRights::Flag;
+	auto flags = Flag::f_view_messages | Flag::f_send_messages | Flag::f_send_media | Flag::f_embed_links | Flag::f_send_stickers | Flag::f_send_gifs | Flag::f_send_games | Flag::f_send_inline;
+	return MTP_channelBannedRights(MTP_flags(flags), MTP_int(std::numeric_limits<int32>::max()));
+}
+
+void ChannelData::applyEditAdmin(gsl::not_null<UserData*> user, const MTPChannelAdminRights &oldRights, const MTPChannelAdminRights &newRights) {
+	auto flags = Notify::PeerUpdate::Flag::AdminsChanged | Notify::PeerUpdate::Flag::None;
+	if (mgInfo) {
+		if (!mgInfo->lastParticipants.contains(user)) { // If rights are empty - still add participant? TODO check
+			mgInfo->lastParticipants.push_front(user);
+			setMembersCount(membersCount() + 1);
+			if (user->botInfo && !mgInfo->bots.contains(user)) {
+				mgInfo->bots.insert(user);
+				if (mgInfo->botStatus != 0 && mgInfo->botStatus < 2) {
+					mgInfo->botStatus = 2;
+				}
+			}
+		}
+		if (mgInfo->lastRestricted.contains(user)) { // If rights are empty - still remove restrictions? TODO check
+			mgInfo->lastRestricted.remove(user);
+			if (restrictedCount() > 0) {
+				setRestrictedCount(restrictedCount() - 1);
+			}
+		}
+		auto it = mgInfo->lastAdmins.find(user);
+		if (newRights.c_channelAdminRights().vflags.v != 0) {
+			auto lastAdmin = MegagroupInfo::Admin { newRights };
+			lastAdmin.canEdit = true;
+			if (it == mgInfo->lastAdmins.cend()) {
+				mgInfo->lastAdmins.insert(user, lastAdmin);
+				setAdminsCount(adminsCount() + 1);
+			} else {
+				it.value() = lastAdmin;
+			}
+		} else {
+			if (it != mgInfo->lastAdmins.cend()) {
+				mgInfo->lastAdmins.erase(it);
+				if (adminsCount() > 0) {
+					setAdminsCount(adminsCount() - 1);
+				}
+			}
+		}
+	}
+	if (oldRights.c_channelAdminRights().vflags.v && !newRights.c_channelAdminRights().vflags.v) {
+		// We removed an admin.
+		if (adminsCount() > 1) {
+			setAdminsCount(adminsCount() - 1);
+			if (App::main()) emit App::main()->peerUpdated(this);
+		}
+		if (!isMegagroup() && user->botInfo && membersCount() > 1) {
+			// Removing bot admin removes it from channel.
+			setMembersCount(membersCount() - 1);
+			if (App::main()) emit App::main()->peerUpdated(this);
+		}
+	} else if (!oldRights.c_channelAdminRights().vflags.v && newRights.c_channelAdminRights().vflags.v) {
+		// We added an admin.
+		setAdminsCount(adminsCount() + 1);
+		if (App::main()) emit App::main()->peerUpdated(this);
+		updateFull(true);
+	}
+	Notify::peerUpdatedDelayed(this, flags);
+}
+
+void ChannelData::applyEditBanned(gsl::not_null<UserData*> user, const MTPChannelBannedRights &oldRights, const MTPChannelBannedRights &newRights) {
+	auto flags = Notify::PeerUpdate::Flag::BannedUsersChanged | Notify::PeerUpdate::Flag::None;
+	if (mgInfo) {
+		if (mgInfo->lastAdmins.contains(user)) { // If rights are empty - still remove admin? TODO check
+			mgInfo->lastAdmins.remove(user);
+			if (adminsCount() > 1) {
+				setAdminsCount(adminsCount() - 1);
+			} else {
+				flags |= Notify::PeerUpdate::Flag::AdminsChanged;
+			}
+		}
+		auto isKicked = (newRights.c_channelBannedRights().vflags.v & MTPDchannelBannedRights::Flag::f_view_messages);
+		auto isRestricted = !isKicked && (newRights.c_channelBannedRights().vflags.v != 0);
+		auto it = mgInfo->lastRestricted.find(user);
+		if (isRestricted) {
+			if (it == mgInfo->lastRestricted.cend()) {
+				mgInfo->lastRestricted.insert(user, MegagroupInfo::Restricted { newRights });
+				setRestrictedCount(restrictedCount() + 1);
+			} else {
+				it->rights = newRights;
+			}
+		} else {
+			if (it != mgInfo->lastRestricted.cend()) {
+				mgInfo->lastRestricted.erase(it);
+				if (restrictedCount() > 0) {
+					setRestrictedCount(restrictedCount() - 1);
+				}
+			}
+			if (isKicked) {
+				auto i = mgInfo->lastParticipants.indexOf(user);
+				if (i >= 0) {
+					mgInfo->lastParticipants.removeAt(i);
+				}
+				if (membersCount() > 1) {
+					setMembersCount(membersCount() - 1);
+				} else {
+					mgInfo->lastParticipantsStatus |= MegagroupInfo::LastParticipantsCountOutdated;
+					mgInfo->lastParticipantsCount = 0;
+				}
+				setKickedCount(kickedCount() + 1);
+				if (mgInfo->bots.contains(user)) {
+					mgInfo->bots.remove(user);
+					if (mgInfo->bots.isEmpty() && mgInfo->botStatus > 0) {
+						mgInfo->botStatus = -1;
+					}
+				}
+				flags |= Notify::PeerUpdate::Flag::MembersChanged;
+			}
+		}
+	}
+	Notify::peerUpdatedDelayed(this, flags);
 }
 
 void ChannelData::flagsUpdated() {
 	if (isMegagroup()) {
 		if (!mgInfo) {
-			mgInfo = new MegagroupInfo();
+			mgInfo = std::make_unique<MegagroupInfo>();
 		}
 	} else if (mgInfo) {
-		delete mgInfo;
 		mgInfo = nullptr;
 	}
 }
 
-void ChannelData::selfAdminUpdated() {
+bool ChannelData::canNotEditLastAdmin(gsl::not_null<UserData*> user) const {
+	if (mgInfo) {
+		auto i = mgInfo->lastAdmins.constFind(user);
+		if (i != mgInfo->lastAdmins.cend()) {
+			return !i->canEdit;
+		}
+		return (user == mgInfo->creator);
+	}
+	return false;
+}
+
+bool ChannelData::canEditAdmin(gsl::not_null<UserData*> user) const {
+	if (user->isSelf()) {
+		return false;
+	} else if (amCreator()) {
+		return true;
+	} else if (canNotEditLastAdmin(user)) {
+		return false;
+	}
+	return adminRights().is_add_admins();
+}
+
+bool ChannelData::canRestrictUser(gsl::not_null<UserData*> user) const {
+	if (user->isSelf()) {
+		return false;
+	} else if (amCreator()) {
+		return true;
+	} else if (canNotEditLastAdmin(user)) {
+		return false;
+	}
+	return adminRights().is_ban_users();
+}
+
+void ChannelData::setAdminRights(const MTPChannelAdminRights &rights) {
+	if (rights.c_channelAdminRights().vflags.v == _adminRights.c_channelAdminRights().vflags.v) {
+		return;
+	}
+	_adminRights = rights;
 	if (isMegagroup()) {
-		if (amEditor()) {
-			mgInfo->lastAdmins.insert(App::self());
+		if (hasAdminRights()) {
+			if (!amCreator()) {
+				auto me = MegagroupInfo::Admin { _adminRights };
+				me.canEdit = false;
+				mgInfo->lastAdmins.insert(App::self(), me);
+			}
+			mgInfo->lastRestricted.remove(App::self());
 		} else {
 			mgInfo->lastAdmins.remove(App::self());
 		}
 	}
+	Notify::peerUpdatedDelayed(this, UpdateFlag::ChannelRightsChanged | UpdateFlag::AdminsChanged | UpdateFlag::BannedUsersChanged);
 }
 
-ChannelData::~ChannelData() {
-	delete mgInfo;
+void ChannelData::setRestrictedRights(const MTPChannelBannedRights &rights) {
+	if (rights.c_channelBannedRights().vflags.v == _restrictedRights.c_channelBannedRights().vflags.v
+		&& rights.c_channelBannedRights().vuntil_date.v == _restrictedRights.c_channelBannedRights().vuntil_date.v) {
+		return;
+	}
+	_restrictedRights = rights;
+	if (isMegagroup()) {
+		if (hasRestrictedRights()) {
+			if (!amCreator()) {
+				auto me = MegagroupInfo::Restricted { _restrictedRights };
+				mgInfo->lastRestricted.insert(App::self(), me);
+			}
+			mgInfo->lastAdmins.remove(App::self());
+		} else {
+			mgInfo->lastRestricted.remove(App::self());
+		}
+	}
+	Notify::peerUpdatedDelayed(this, UpdateFlag::ChannelRightsChanged | UpdateFlag::AdminsChanged | UpdateFlag::BannedUsersChanged);
 }
 
-uint64 PtsWaiter::ptsKey(PtsSkippedQueue queue) {
-	return _queue.insert(uint64(uint32(_last)) << 32 | uint64(uint32(_count)), queue).key();
+uint64 PtsWaiter::ptsKey(PtsSkippedQueue queue, int32 pts) {
+	return _queue.insert(uint64(uint32(pts)) << 32 | (++_skippedKey), queue).key();
 }
 
 void PtsWaiter::setWaitingForSkipped(ChannelData *channel, int32 ms) {
@@ -819,13 +1022,13 @@ void PtsWaiter::applySkippedUpdates(ChannelData *channel) {
 
 	setWaitingForSkipped(channel, -1);
 
-	if (!App::main() || _queue.isEmpty()) return;
+	if (!App::api() || _queue.isEmpty()) return;
 
 	++_applySkippedLevel;
 	for (QMap<uint64, PtsSkippedQueue>::const_iterator i = _queue.cbegin(), e = _queue.cend(); i != e; ++i) {
 		switch (i.value()) {
-		case SkippedUpdate: App::main()->feedUpdate(_updateQueue.value(i.key())); break;
-		case SkippedUpdates: App::main()->feedUpdates(_updatesQueue.value(i.key())); break;
+		case SkippedUpdate: App::api()->applyUpdateNoPtsCheck(_updateQueue.value(i.key())); break;
+		case SkippedUpdates: App::api()->applyUpdatesNoPtsCheck(_updatesQueue.value(i.key())); break;
 		}
 	}
 	--_applySkippedLevel;
@@ -839,15 +1042,6 @@ void PtsWaiter::clearSkippedUpdates() {
 	_applySkippedLevel = 0;
 }
 
-bool PtsWaiter::updated(ChannelData *channel, int32 pts, int32 count) {
-	if (_requesting || _applySkippedLevel) {
-		return true;
-	} else if (pts <= _good && count > 0) {
-		return false;
-	}
-	return check(channel, pts, count);
-}
-
 bool PtsWaiter::updated(ChannelData *channel, int32 pts, int32 count, const MTPUpdates &updates) {
 	if (_requesting || _applySkippedLevel) {
 		return true;
@@ -856,7 +1050,7 @@ bool PtsWaiter::updated(ChannelData *channel, int32 pts, int32 count, const MTPU
 	} else if (check(channel, pts, count)) {
 		return true;
 	}
-	_updatesQueue.insert(ptsKey(SkippedUpdates), updates);
+	_updatesQueue.insert(ptsKey(SkippedUpdates, pts), updates);
 	return false;
 }
 
@@ -868,8 +1062,53 @@ bool PtsWaiter::updated(ChannelData *channel, int32 pts, int32 count, const MTPU
 	} else if (check(channel, pts, count)) {
 		return true;
 	}
-	_updateQueue.insert(ptsKey(SkippedUpdate), update);
+	_updateQueue.insert(ptsKey(SkippedUpdate, pts), update);
 	return false;
+}
+
+bool PtsWaiter::updated(ChannelData *channel, int32 pts, int32 count) {
+	if (_requesting || _applySkippedLevel) {
+		return true;
+	} else if (pts <= _good && count > 0) {
+		return false;
+	}
+	return check(channel, pts, count);
+}
+
+bool PtsWaiter::updateAndApply(ChannelData *channel, int32 pts, int32 count, const MTPUpdates &updates) {
+	if (!updated(channel, pts, count, updates)) {
+		return false;
+	}
+	if (!_waitingForSkipped || _queue.isEmpty()) {
+		// Optimization - no need to put in queue and back.
+		App::api()->applyUpdatesNoPtsCheck(updates);
+	} else {
+		_updatesQueue.insert(ptsKey(SkippedUpdates, pts), updates);
+		applySkippedUpdates(channel);
+	}
+	return true;
+}
+
+bool PtsWaiter::updateAndApply(ChannelData *channel, int32 pts, int32 count, const MTPUpdate &update) {
+	if (!updated(channel, pts, count, update)) {
+		return false;
+	}
+	if (!_waitingForSkipped || _queue.isEmpty()) {
+		// Optimization - no need to put in queue and back.
+		App::api()->applyUpdateNoPtsCheck(update);
+	} else {
+		_updateQueue.insert(ptsKey(SkippedUpdate, pts), update);
+		applySkippedUpdates(channel);
+	}
+	return true;
+}
+
+bool PtsWaiter::updateAndApply(ChannelData *channel, int32 pts, int32 count) {
+	if (!updated(channel, pts, count)) {
+		return false;
+	}
+	applySkippedUpdates(channel);
+	return true;
 }
 
 bool PtsWaiter::check(ChannelData *channel, int32 pts, int32 count) { // return false if need to save that update and apply later
@@ -1811,7 +2050,7 @@ ImagePtr DocumentData::makeReplyPreview() {
 			if (h <= 0) h = 1;
 			auto thumbSize = (w > h) ? QSize(w * st::msgReplyBarSize.height() / h, st::msgReplyBarSize.height()) : QSize(st::msgReplyBarSize.height(), h * st::msgReplyBarSize.height() / w);
 			thumbSize *= cIntRetinaFactor();
-			auto options = Images::Option::Smooth | (isRoundVideo() ? Images::Option::Circled : Images::Option::None);
+			auto options = Images::Option::Smooth | (isRoundVideo() ? Images::Option::Circled : Images::Option::None) | Images::Option::TransparentBackground;
 			auto outerSize = st::msgReplyBarSize.height();
 			auto image = thumb->pixNoCache(thumbSize.width(), thumbSize.height(), options, outerSize, outerSize);
 			replyPreview = ImagePtr(image, "PNG");
@@ -1918,7 +2157,7 @@ QString DocumentData::composeNameString(const QString &filename, const QString &
 	return songPerformer + QString::fromUtf8(" \xe2\x80\x93 ") + trackTitle;
 }
 
-WebPageData::WebPageData(const WebPageId &id, WebPageType type, const QString &url, const QString &displayUrl, const QString &siteName, const QString &title, const QString &description, DocumentData *document, PhotoData *photo, int32 duration, const QString &author, int32 pendingTill) : id(id)
+WebPageData::WebPageData(const WebPageId &id, WebPageType type, const QString &url, const QString &displayUrl, const QString &siteName, const QString &title, const TextWithEntities &description, DocumentData *document, PhotoData *photo, int32 duration, const QString &author, int32 pendingTill) : id(id)
 , type(type)
 , url(url)
 , displayUrl(displayUrl)
@@ -1939,22 +2178,6 @@ GameData::GameData(const GameId &id, const uint64 &accessHash, const QString &sh
 , description(description)
 , photo(photo)
 , document(document) {
-}
-
-ClickHandlerPtr peerOpenClickHandler(PeerData *peer) {
-	return MakeShared<LambdaClickHandler>([peer] {
-		if (App::main()) {
-			if (peer && peer->isChannel() && App::main()->historyPeer() != peer) {
-				if (!peer->asChannel()->isPublic() && !peer->asChannel()->amIn()) {
-					Ui::show(Box<InformBox>(lang((peer->isMegagroup()) ? lng_group_not_accessible : lng_channel_not_accessible)));
-				} else {
-					Ui::showPeerHistory(peer, ShowAtUnreadMsgId, Ui::ShowWay::Forward);
-				}
-			} else {
-				Ui::showPeerProfile(peer);
-			}
-		}
-	});
 }
 
 MsgId clientMsgId() {

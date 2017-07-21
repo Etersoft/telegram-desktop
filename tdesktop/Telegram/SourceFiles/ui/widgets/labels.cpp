@@ -22,7 +22,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "ui/widgets/popup_menu.h"
 #include "mainwindow.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 
 namespace Ui {
 namespace {
@@ -35,7 +35,7 @@ TextParseOptions _labelOptions = {
 };
 
 TextParseOptions _labelMarkedOptions = {
-	TextParseMultiline | TextParseRichText | TextParseLinks | TextParseHashtags | TextParseMentions | TextParseBotCommands | TextParseMono, // flags
+	TextParseMultiline | TextParseRichText | TextParseLinks | TextParseHashtags | TextParseMentions | TextParseBotCommands | TextParseMarkdown, // flags
 	0, // maxw
 	0, // maxh
 	Qt::LayoutDirectionAuto, // dir
@@ -262,8 +262,8 @@ Text::StateResult FlatLabel::dragActionStart(const QPoint &p, Qt::MouseButton bu
 
 	ClickHandler::pressed();
 	_dragAction = NoDrag;
-	_dragWasInactive = App::wnd()->inactivePress();
-	if (_dragWasInactive) App::wnd()->inactivePress(false);
+	_dragWasInactive = App::wnd()->wasInactivePress();
+	if (_dragWasInactive) App::wnd()->setInactivePress(false);
 
 	if (ClickHandler::getPressed()) {
 		_dragStartPosition = mapFromGlobal(_lastMousePos);
@@ -750,9 +750,9 @@ Text::StateResult FlatLabel::getTextState(const QPoint &m) const {
 		if (_breakEverywhere) {
 			request.flags |= Text::StateRequest::Flag::BreakEverywhere;
 		}
-		state = _text.getStateElided(m.x() - _st.margin.left(), m.y() - _st.margin.top(), textWidth, request);
+		state = _text.getStateElided(m - QPoint(_st.margin.left(), _st.margin.top()), textWidth, request);
 	} else {
-		state = _text.getState(m.x() - _st.margin.left(), m.y() - _st.margin.top(), textWidth, request);
+		state = _text.getState(m - QPoint(_st.margin.left(), _st.margin.top()), textWidth, request);
 	}
 
 	return state;

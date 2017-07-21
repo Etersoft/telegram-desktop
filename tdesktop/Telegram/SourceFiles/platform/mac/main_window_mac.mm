@@ -21,14 +21,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "application.h"
-#include "historywidget.h"
+#include "history/history_widget.h"
 #include "history/history_inner_widget.h"
 #include "storage/localstorage.h"
 #include "window/notifications_manager_default.h"
 #include "platform/platform_notifications_manager.h"
 #include "boxes/contacts_box.h"
 #include "boxes/about_box.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "platform/mac/mac_utilities.h"
 
 #include <Cocoa/Cocoa.h>
@@ -383,6 +383,7 @@ void MainWindow::psFirstShow() {
 	show();
 	_private->enableShadow(winId());
 	if (cWindowPos().maximized) {
+		DEBUG_LOG(("Window Pos: First show, setting maximized."));
 		setWindowState(Qt::WindowMaximized);
 	}
 

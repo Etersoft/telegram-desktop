@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "mediaview.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "application.h"
@@ -32,6 +32,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_mediaview.h"
 #include "styles/style_history.h"
 #include "media/media_audio.h"
+#include "history/history_message.h"
 #include "history/history_media_types.h"
 #include "window/themes/window_theme_preview.h"
 #include "base/task_queue.h"
@@ -82,6 +83,8 @@ MediaView::MediaView(QWidget*) : TWidget(nullptr)
 , _a_state(animation(this, &MediaView::step_state))
 , _dropdown(this, st::mediaviewDropdownMenu)
 , _dropdownShowTimer(this) {
+	subscribe(Lang::Current().updated(), [this] { refreshLang(); });
+
 	TextCustomTagsMap custom;
 	custom.insert(QChar('c'), qMakePair(textcmdStartLink(1), textcmdStopLink()));
 	_saveMsgText.setRichText(st::mediaviewSaveMsgStyle, lang(lng_mediaview_saved), _textDlgOptions, custom);
@@ -146,6 +149,10 @@ MediaView::MediaView(QWidget*) : TWidget(nullptr)
 	_dropdown->setHiddenCallback([this] { dropdownHidden(); });
 	_dropdownShowTimer->setSingleShot(true);
 	connect(_dropdownShowTimer, SIGNAL(timeout()), this, SLOT(onDropdown()));
+}
+
+void MediaView::refreshLang() {
+	InvokeQueued(this, [this] { updateThemePreviewGeometry(); });
 }
 
 void MediaView::moveToScreen() {
@@ -412,7 +419,7 @@ void MediaView::updateActions() {
 	if (_doc && _doc->loading()) {
 		_actions.push_back({ lang(lng_cancel), SLOT(onSaveCancel()) });
 	}
-	if (_msgid > 0) {
+	if (_msgid > 0 && _msgid < ServerMaxMsgId) {
 		_actions.push_back({ lang(lng_context_to_msg), SLOT(onToMessage()) });
 	}
 	if (_doc && !_doc->filepath(DocumentData::FilePathResolveChecked).isEmpty()) {
@@ -742,7 +749,7 @@ void MediaView::onScreenResized(int screen) {
 }
 
 void MediaView::onToMessage() {
-	if (HistoryItem *item = _msgid ? App::histItemById(_msgmigrated ? 0 : _channel, _msgid) : 0) {
+	if (auto item = _msgid ? App::histItemById(_msgmigrated ? 0 : _channel, _msgid) : 0) {
 		if (App::wnd()) {
 			close();
 			Ui::showPeerHistoryAtItem(item);
@@ -943,14 +950,15 @@ void MediaView::onShowInFolder() {
 }
 
 void MediaView::onForward() {
-	HistoryItem *item = App::histItemById(_msgmigrated ? 0 : _channel, _msgid);
-	if (!_msgid || !item) return;
+	auto item = App::histItemById(_msgmigrated ? 0 : _channel, _msgid);
+	if (!_msgid || !item || item->id < 0 || item->serviceMsg()) return;
 
 	if (App::wnd()) {
 		close();
-		if (App::main()) {
-			App::contextItem(item);
-			App::main()->forwardLayer();
+		if (auto main = App::main()) {
+			auto items = SelectedItemSet();
+			items.insert(item->id, item);
+			main->showForwardLayer(items);
 		}
 	}
 }
@@ -1032,7 +1040,7 @@ void MediaView::showPhoto(PhotoData *photo, HistoryItem *context) {
 	_msgid = context ? context->id : 0;
 	_msgmigrated = context ? (context->history() == _migrated) : false;
 	_channel = _history ? _history->channelId() : NoChannel;
-	_canForward = _msgid > 0;
+	_canForward = context ? context->canForward() : false;
 	_canDelete = context ? context->canDelete() : false;
 	_photo = photo;
 	if (_history) {
@@ -1149,7 +1157,7 @@ void MediaView::showDocument(DocumentData *doc, HistoryItem *context) {
 	_msgid = context ? context->id : 0;
 	_msgmigrated = context ? (context->history() == _migrated) : false;
 	_channel = _history ? _history->channelId() : NoChannel;
-	_canForward = _msgid > 0;
+	_canForward = context ? context->canForward() : false;
 	_canDelete = context ? context->canDelete() : false;
 	if (_history) {
 		_overview = doc->isGifv() ? OverviewGIFs : doc->isVideo() ? OverviewVideos : OverviewFiles;
@@ -1176,8 +1184,8 @@ void MediaView::displayPhoto(PhotoData *photo, HistoryItem *item) {
 	_zoom = 0;
 
 	_caption = Text();
-	if (HistoryMessage *itemMsg = item ? item->toHistoryMessage() : nullptr) {
-		if (HistoryPhoto *photoMsg = dynamic_cast<HistoryPhoto*>(itemMsg->getMedia())) {
+	if (auto itemMsg = item ? item->toHistoryMessage() : nullptr) {
+		if (auto photoMsg = dynamic_cast<HistoryPhoto*>(itemMsg->getMedia())) {
 			_caption.setMarkedText(st::mediaviewCaptionStyle, photoMsg->getCaption(), (item->author()->isUser() && item->author()->asUser()->botInfo) ? _captionBotOptions : _captionTextOptions);
 		}
 	}
@@ -1468,14 +1476,14 @@ void MediaView::initThemePreview() {
 			_themePreviewId = 0;
 			_themePreview = std::move(result);
 			if (_themePreview) {
-				_themeApply.create(this, lang(lng_theme_preview_apply), st::themePreviewApplyButton);
+				_themeApply.create(this, langFactory(lng_theme_preview_apply), st::themePreviewApplyButton);
 				_themeApply->show();
 				_themeApply->setClickedCallback([this] {
 					auto preview = std::move(_themePreview);
 					close();
 					Window::Theme::Apply(std::move(preview));
 				});
-				_themeCancel.create(this, lang(lng_cancel), st::themePreviewCancelButton);
+				_themeCancel.create(this, langFactory(lng_cancel), st::themePreviewCancelButton);
 				_themeCancel->show();
 				_themeCancel->setClickedCallback([this] { close(); });
 				updateControls();
@@ -2141,7 +2149,7 @@ bool MediaView::moveToNext(int32 delta) {
 				}
 				_msgid = lastChatPhoto.item->id;
 				_channel = _history ? _history->channelId() : NoChannel;
-				_canForward = _msgid > 0;
+				_canForward = lastChatPhoto.item->canForward();
 				_canDelete = lastChatPhoto.item->canDelete();
 				displayPhoto(lastChatPhoto.photo, lastChatPhoto.item);
 				preloadData(delta);
@@ -2172,12 +2180,12 @@ bool MediaView::moveToNext(int32 delta) {
 			newMigrated = false;
 		}
 		if (newIndex >= 0 && newIndex < (newMigrated ? _migrated : _history)->overview[_overview].size()) {
-			if (HistoryItem *item = App::histItemById(newMigrated ? 0 : _channel, (newMigrated ? _migrated : _history)->overview[_overview][newIndex])) {
+			if (auto item = App::histItemById(newMigrated ? 0 : _channel, (newMigrated ? _migrated : _history)->overview[_overview][newIndex])) {
 				_index = newIndex;
 				_msgid = item->id;
 				_msgmigrated = (item->history() == _migrated);
 				_channel = _history ? _history->channelId() : NoChannel;
-				_canForward = _msgid > 0;
+				_canForward = item->canForward();
 				_canDelete = item->canDelete();
 				stopGif();
 				if (auto media = item->getMedia()) {
@@ -2452,13 +2460,12 @@ bool MediaView::updateOverState(OverState newState) {
 void MediaView::updateOver(QPoint pos) {
 	ClickHandlerPtr lnk;
 	ClickHandlerHost *lnkhost = nullptr;
-
 	if (_saveMsgStarted && _saveMsg.contains(pos)) {
-		auto textState = _saveMsgText.getState(pos.x() - _saveMsg.x() - st::mediaviewSaveMsgPadding.left(), pos.y() - _saveMsg.y() - st::mediaviewSaveMsgPadding.top(), _saveMsg.width() - st::mediaviewSaveMsgPadding.left() - st::mediaviewSaveMsgPadding.right());
+		auto textState = _saveMsgText.getState(pos - _saveMsg.topLeft() - QPoint(st::mediaviewSaveMsgPadding.left(), st::mediaviewSaveMsgPadding.top()), _saveMsg.width() - st::mediaviewSaveMsgPadding.left() - st::mediaviewSaveMsgPadding.right());
 		lnk = textState.link;
 		lnkhost = this;
 	} else if (_captionRect.contains(pos)) {
-		auto textState = _caption.getState(pos.x() - _captionRect.x(), pos.y() - _captionRect.y(), _captionRect.width());
+		auto textState = _caption.getState(pos - _captionRect.topLeft(), _captionRect.width());
 		lnk = textState.link;
 		lnkhost = this;
 	}
@@ -2483,7 +2490,7 @@ void MediaView::updateOver(QPoint pos) {
 		updateOverState(OverRightNav);
 	} else if (_nameNav.contains(pos)) {
 		updateOverState(OverName);
-	} else if (_msgid && _dateNav.contains(pos)) {
+	} else if ((_msgid > 0 && _msgid < ServerMaxMsgId) && _dateNav.contains(pos)) {
 		updateOverState(OverDate);
 	} else if (_headerHasLink && _headerNav.contains(pos)) {
 		updateOverState(OverHeader);

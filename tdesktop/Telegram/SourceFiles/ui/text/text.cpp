@@ -24,7 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "core/click_handler_types.h"
 #include "ui/text/text_block.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "platform/platform_specific.h"
 #include "boxes/confirm_box.h"
 #include "mainwindow.h"
@@ -178,13 +178,13 @@ public:
 			}
 			lastSkipped = false;
 			if (emoji) {
-				_t->_blocks.push_back(new EmojiBlock(_t->_st->font, _t->_text, blockStart, len, flags, lnkIndex, emoji));
+				_t->_blocks.push_back(std::make_unique<EmojiBlock>(_t->_st->font, _t->_text, blockStart, len, flags, lnkIndex, emoji));
 				emoji = 0;
 				lastSkipped = true;
 			} else if (newline) {
-				_t->_blocks.push_back(new NewlineBlock(_t->_st->font, _t->_text, blockStart, len));
+				_t->_blocks.push_back(std::make_unique<NewlineBlock>(_t->_st->font, _t->_text, blockStart, len, flags, lnkIndex));
 			} else {
-				_t->_blocks.push_back(new TextBlock(_t->_st->font, _t->_text, _t->_minResizeWidth, blockStart, len, flags, lnkIndex));
+				_t->_blocks.push_back(std::make_unique<TextBlock>(_t->_st->font, _t->_text, _t->_minResizeWidth, blockStart, len, flags, lnkIndex));
 			}
 			blockStart += len;
 			blockCreated();
@@ -194,7 +194,7 @@ public:
 	void createSkipBlock(int32 w, int32 h) {
 		createBlock();
 		_t->_text.push_back('_');
-		_t->_blocks.push_back(new SkipBlock(_t->_st->font, _t->_text, blockStart++, w, h, lnkIndex));
+		_t->_blocks.push_back(std::make_unique<SkipBlock>(_t->_st->font, _t->_text, blockStart++, w, h, lnkIndex));
 		blockCreated();
 	}
 
@@ -251,7 +251,7 @@ public:
 		} else if (type == EntityInTextPre) {
 			startFlags = TextBlockFPre;
 			createBlock();
-			if (!_t->_blocks.isEmpty() && _t->_blocks.back()->type() != TextBlockTNewline) {
+			if (!_t->_blocks.empty() && _t->_blocks.back()->type() != TextBlockTNewline) {
 				createNewlineBlock();
 			}
 		} else if (type == EntityInTextUrl
@@ -493,42 +493,41 @@ public:
 	}
 
 	TextParser(Text *t, const QString &text, const TextParseOptions &options) : _t(t),
-		src(text),
+		source { text },
 		rich(options.flags & TextParseRichText),
 		multiline(options.flags & TextParseMultiline),
 		stopAfterWidth(QFIXED_MAX) {
 		if (options.flags & TextParseLinks) {
-			textParseEntities(src, options.flags, &entities, rich);
+			TextUtilities::ParseEntities(source, options.flags, rich);
 		}
 		parse(options);
 	}
 
 	TextParser(Text *t, const TextWithEntities &textWithEntities, const TextParseOptions &options) : _t(t),
-		src(textWithEntities.text),
+		source(textWithEntities),
 		rich(options.flags & TextParseRichText),
 		multiline(options.flags & TextParseMultiline),
 		stopAfterWidth(QFIXED_MAX) {
-		auto preparsed = textWithEntities.entities;
+		auto &preparsed = textWithEntities.entities;
 		if ((options.flags & TextParseLinks) && !preparsed.isEmpty()) {
 			bool parseMentions = (options.flags & TextParseMentions);
 			bool parseHashtags = (options.flags & TextParseHashtags);
 			bool parseBotCommands = (options.flags & TextParseBotCommands);
-			bool parseMono = (options.flags & TextParseMono);
-			if (parseMentions && parseHashtags && parseBotCommands && parseMono) {
-				entities = preparsed;
-			} else {
+			bool parseMarkdown = (options.flags & TextParseMarkdown);
+			if (!parseMentions || !parseHashtags || !parseBotCommands || !parseMarkdown) {
 				int32 i = 0, l = preparsed.size();
-				entities.reserve(l);
-				const QChar s = src.size();
+				source.entities.clear();
+				source.entities.reserve(l);
+				const QChar s = source.text.size();
 				for (; i < l; ++i) {
 					auto type = preparsed.at(i).type();
 					if (((type == EntityInTextMention || type == EntityInTextMentionName) && !parseMentions) ||
 						(type == EntityInTextHashtag && !parseHashtags) ||
 						(type == EntityInTextBotCommand && !parseBotCommands) ||
-						((type == EntityInTextBold || type == EntityInTextItalic || type == EntityInTextCode || type == EntityInTextPre) && !parseMono)) {
+						((type == EntityInTextBold || type == EntityInTextItalic || type == EntityInTextCode || type == EntityInTextPre) && !parseMarkdown)) {
 						continue;
 					}
-					entities.push_back(preparsed.at(i));
+					source.entities.push_back(preparsed.at(i));
 				}
 			}
 		}
@@ -540,13 +539,13 @@ public:
 			stopAfterWidth = ((options.maxh / _t->_st->font->height) + 1) * options.maxw;
 		}
 
-		start = src.constData();
-		end = start + src.size();
+		start = source.text.constData();
+		end = start + source.text.size();
 
-		entitiesEnd = entities.cend();
-		waitingEntity = entities.cbegin();
+		entitiesEnd = source.entities.cend();
+		waitingEntity = source.entities.cbegin();
 		while (waitingEntity != entitiesEnd && waitingEntity->length() <= 0) ++waitingEntity;
-		int firstMonospaceOffset = EntityInText::firstMonospaceOffset(entities, end - start);
+		int firstMonospaceOffset = EntityInText::firstMonospaceOffset(source.entities, end - start);
 
 		ptr = start;
 		while (ptr != end && chIsTrimmed(*ptr, rich) && ptr != start + firstMonospaceOffset) {
@@ -587,56 +586,56 @@ public:
 		removeFlags.clear();
 
 		_t->_links.resize(maxLnkIndex);
-		for (Text::TextBlocks::const_iterator i = _t->_blocks.cbegin(), e = _t->_blocks.cend(); i != e; ++i) {
-			ITextBlock *b = *i;
+		for (auto i = _t->_blocks.cbegin(), e = _t->_blocks.cend(); i != e; ++i) {
+			auto b = i->get();
 			if (b->lnkIndex() > 0x8000) {
 				lnkIndex = maxLnkIndex + (b->lnkIndex() - 0x8000);
 				if (_t->_links.size() < lnkIndex) {
 					_t->_links.resize(lnkIndex);
-					const TextLinkData &link(links[lnkIndex - maxLnkIndex - 1]);
+					auto &link = links[lnkIndex - maxLnkIndex - 1];
 					ClickHandlerPtr handler;
 					switch (link.type) {
-					case EntityInTextCustomUrl: handler.reset(new HiddenUrlClickHandler(link.data)); break;
+					case EntityInTextCustomUrl: handler = MakeShared<HiddenUrlClickHandler>(link.data); break;
 					case EntityInTextEmail:
-					case EntityInTextUrl: handler.reset(new UrlClickHandler(link.data, link.displayStatus == LinkDisplayedFull)); break;
-					case EntityInTextBotCommand: handler.reset(new BotCommandClickHandler(link.data)); break;
+					case EntityInTextUrl: handler = MakeShared<UrlClickHandler>(link.data, link.displayStatus == LinkDisplayedFull); break;
+					case EntityInTextBotCommand: handler = MakeShared<BotCommandClickHandler>(link.data); break;
 					case EntityInTextHashtag:
 						if (options.flags & TextTwitterMentions) {
-							handler.reset(new UrlClickHandler(qsl("https://twitter.com/hashtag/") + link.data.mid(1) + qsl("?src=hash"), true));
+							handler = MakeShared<UrlClickHandler>(qsl("https://twitter.com/hashtag/") + link.data.mid(1) + qsl("?src=hash"), true);
 						} else if (options.flags & TextInstagramMentions) {
-							handler.reset(new UrlClickHandler(qsl("https://instagram.com/explore/tags/") + link.data.mid(1) + '/', true));
+							handler = MakeShared<UrlClickHandler>(qsl("https://instagram.com/explore/tags/") + link.data.mid(1) + '/', true);
 						} else {
-							handler.reset(new HashtagClickHandler(link.data));
+							handler = MakeShared<HashtagClickHandler>(link.data);
 						}
 					break;
 					case EntityInTextMention:
 						if (options.flags & TextTwitterMentions) {
-							handler.reset(new UrlClickHandler(qsl("https://twitter.com/") + link.data.mid(1), true));
+							handler = MakeShared<UrlClickHandler>(qsl("https://twitter.com/") + link.data.mid(1), true);
 						} else if (options.flags & TextInstagramMentions) {
-							handler.reset(new UrlClickHandler(qsl("https://instagram.com/") + link.data.mid(1) + '/', true));
+							handler = MakeShared<UrlClickHandler>(qsl("https://instagram.com/") + link.data.mid(1) + '/', true);
 						} else {
-							handler.reset(new MentionClickHandler(link.data));
+							handler = MakeShared<MentionClickHandler>(link.data);
 						}
 					break;
 					case EntityInTextMentionName: {
-						UserId userId = 0;
-						uint64 accessHash = 0;
-						if (mentionNameToFields(link.data, &userId, &accessHash)) {
-							handler.reset(new MentionNameClickHandler(link.text, userId, accessHash));
+						auto fields = TextUtilities::MentionNameDataToFields(link.data);
+						if (fields.userId) {
+							handler = MakeShared<MentionNameClickHandler>(link.text, fields.userId, fields.accessHash);
 						} else {
 							LOG(("Bad mention name: %1").arg(link.data));
 						}
 					} break;
 					}
 
-					t_assert(!handler.isNull());
-					_t->setLink(lnkIndex, handler);
+					if (!handler.isNull()) {
+						_t->setLink(lnkIndex, handler);
+					}
 				}
 				b->setLnkIndex(lnkIndex);
 			}
 		}
 		_t->_links.squeeze();
-		_t->_blocks.squeeze();
+		_t->_blocks.shrink_to_fit();
 		_t->_text.squeeze();
 	}
 
@@ -667,11 +666,9 @@ private:
 	}
 
 	Text *_t;
-	QString src;
+	TextWithEntities source;
 	const QChar *start, *end, *ptr;
 	bool rich, multiline;
-
-	EntitiesInText entities;
 	EntitiesInText::const_iterator waitingEntity, entitiesEnd;
 
 	typedef QVector<TextLinkData> TextLinks;
@@ -826,8 +823,8 @@ public:
 		_wLeft = _w = w;
 		if (_elideLast) {
 			_yToElide = _yTo;
-			if (_elideRemoveFromEnd > 0 && !_t->_blocks.isEmpty()) {
-				int firstBlockHeight = countBlockHeight(_t->_blocks.front(), _t->_st);
+			if (_elideRemoveFromEnd > 0 && !_t->_blocks.empty()) {
+				int firstBlockHeight = countBlockHeight(_t->_blocks.front().get(), _t->_st);
 				if (_y + firstBlockHeight >= _yToElide) {
 					_wLeft -= _elideRemoveFromEnd;
 				}
@@ -863,7 +860,7 @@ public:
 		bool longWordLine = true;
 		auto e = _t->_blocks.cend();
 		for (auto i = _t->_blocks.cbegin(); i != e; ++i, ++blockIndex) {
-			auto b = *i;
+			auto b = i->get();
 			auto _btype = b->type();
 			auto blockHeight = countBlockHeight(b, _t->_st);
 
@@ -1020,11 +1017,11 @@ public:
 		draw(left, top, w, align, yFrom, yTo, selection);
 	}
 
-	Text::StateResult getState(int x, int y, int w, Text::StateRequest request) {
-		if (!_t->isNull() && y >= 0) {
+	Text::StateResult getState(QPoint point, int w, Text::StateRequest request) {
+		if (!_t->isNull() && point.y() >= 0) {
 			_lookupRequest = request;
-			_lookupX = x;
-			_lookupY = y;
+			_lookupX = point.x();
+			_lookupY = point.y();
 
 			_breakEverywhere = (_lookupRequest.flags & Text::StateRequest::Flag::BreakEverywhere);
 			_lookupSymbol = (_lookupRequest.flags & Text::StateRequest::Flag::LookupSymbol);
@@ -1036,11 +1033,11 @@ public:
 		return _lookupResult;
 	}
 
-	Text::StateResult getStateElided(int x, int y, int w, Text::StateRequestElided request) {
-		if (!_t->isNull() && y >= 0 && request.lines > 0) {
+	Text::StateResult getStateElided(QPoint point, int w, Text::StateRequestElided request) {
+		if (!_t->isNull() && point.y() >= 0 && request.lines > 0) {
 			_lookupRequest = request;
-			_lookupX = x;
-			_lookupY = y;
+			_lookupX = point.x();
+			_lookupY = point.y();
 
 			_breakEverywhere = (_lookupRequest.flags & Text::StateRequest::Flag::BreakEverywhere);
 			_lookupSymbol = (_lookupRequest.flags & Text::StateRequest::Flag::LookupSymbol);
@@ -1142,7 +1139,7 @@ private:
 			}
 		}
 
-		auto _endBlock = (_endBlockIter == _end) ? nullptr : (*_endBlockIter);
+		auto _endBlock = (_endBlockIter == _end) ? nullptr : _endBlockIter->get();
 		auto elidedLine = _elideLast && (_y + _lineHeight >= _yToElide);
 		if (elidedLine) {
 			// If we decided to draw the last line elided only because of the skip block
@@ -1157,8 +1154,8 @@ private:
 		}
 
 		auto blockIndex = _lineStartBlock;
-		auto currentBlock = _t->_blocks[blockIndex];
-		auto nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : nullptr;
+		auto currentBlock = _t->_blocks[blockIndex].get();
+		auto nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 
 		int32 delta = (currentBlock->from() < _lineStart ? qMin(_lineStart - currentBlock->from(), 2) : 0);
 		_localFrom = _lineStart - delta;
@@ -1257,12 +1254,12 @@ private:
 		QVarLengthArray<int> visualOrder(nItems);
 		QVarLengthArray<uchar> levels(nItems);
 		for (int i = 0; i < nItems; ++i) {
-			QScriptItem &si(engine.layoutData->items[firstItem + i]);
+			auto &si = engine.layoutData->items[firstItem + i];
 			while (nextBlock && nextBlock->from() <= _localFrom + si.position) {
 				currentBlock = nextBlock;
-				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 			}
-			TextBlockType _type = currentBlock->type();
+			auto _type = currentBlock->type();
 			if (_type == TextBlockTSkip) {
 				levels[i] = si.analysis.bidiLevel = 0;
 				skipIndex = i;
@@ -1285,8 +1282,8 @@ private:
 		}
 
 		blockIndex = _lineStartBlock;
-		currentBlock = _t->_blocks[blockIndex];
-		nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+		currentBlock = _t->_blocks[blockIndex].get();
+		nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 
 		int32 textY = _y + _yDelta + _t->_st->font->ascent, emojiY = (_t->_st->font->height - st::emojiSize) / 2;
 
@@ -1298,12 +1295,12 @@ private:
 
 			while (blockIndex > _lineStartBlock + 1 && _t->_blocks[blockIndex - 1]->from() > _localFrom + si.position) {
 				nextBlock = currentBlock;
-				currentBlock = _t->_blocks[--blockIndex - 1];
+				currentBlock = _t->_blocks[--blockIndex - 1].get();
 				applyBlockProperties(currentBlock);
 			}
 			while (nextBlock && nextBlock->from() <= _localFrom + si.position) {
 				currentBlock = nextBlock;
-				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 				applyBlockProperties(currentBlock);
 			}
 			if (si.analysis.flags >= QScriptAnalysis::TabOrObject) {
@@ -1554,10 +1551,11 @@ private:
 		}
 
 		_elideSavedIndex = blockIndex;
-		_elideSavedBlock = _t->_blocks[blockIndex];
-		const_cast<Text*>(_t)->_blocks[blockIndex] = new TextBlock(_t->_st->font, _t->_text, QFIXED_MAX, elideStart, 0, _elideSavedBlock->flags(), _elideSavedBlock->lnkIndex());
+		auto mutableText = const_cast<Text*>(_t);
+		_elideSavedBlock = std::move(mutableText->_blocks[blockIndex]);
+		mutableText->_blocks[blockIndex] = std::make_unique<TextBlock>(_t->_st->font, _t->_text, QFIXED_MAX, elideStart, 0, _elideSavedBlock->flags(), _elideSavedBlock->lnkIndex());
 		_blocksSize = blockIndex + 1;
-		_endBlock = (blockIndex + 1 < _t->_blocks.size() ? _t->_blocks[blockIndex + 1] : 0);
+		_endBlock = (blockIndex + 1 < _t->_blocks.size() ? _t->_blocks[blockIndex + 1].get() : nullptr);
 	}
 
 	void setElideBidi(int32 elideStart, int32 elideLen) {
@@ -1580,9 +1578,9 @@ private:
 
 		eItemize();
 
-		int blockIndex = _lineStartBlock;
-		ITextBlock *currentBlock = _t->_blocks[blockIndex];
-		ITextBlock *nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+		auto blockIndex = _lineStartBlock;
+		auto currentBlock = _t->_blocks[blockIndex].get();
+		auto nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 
 		QScriptLine line;
 		line.from = lineStart;
@@ -1599,7 +1597,7 @@ private:
 			QScriptItem &si(engine.layoutData->items[firstItem + i]);
 			while (nextBlock && nextBlock->from() <= _localFrom + si.position) {
 				currentBlock = nextBlock;
-				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 			}
 			TextBlockType _type = currentBlock->type();
 			if (si.analysis.flags == QScriptAnalysis::Object) {
@@ -1670,7 +1668,7 @@ private:
 		lineLength += _Elide.size();
 
 		if (!repeat) {
-			for (; blockIndex < _blocksSize && _t->_blocks[blockIndex] != _endBlock && _t->_blocks[blockIndex]->from() < elideStart; ++blockIndex) {
+			for (; blockIndex < _blocksSize && _t->_blocks[blockIndex].get() != _endBlock && _t->_blocks[blockIndex]->from() < elideStart; ++blockIndex) {
 			}
 			if (blockIndex < _blocksSize) {
 				elideSaveBlock(blockIndex, _endBlock, elideStart, elideWidth);
@@ -1680,9 +1678,7 @@ private:
 
 	void restoreAfterElided() {
 		if (_elideSavedBlock) {
-			delete _t->_blocks[_elideSavedIndex];
-			const_cast<Text*>(_t)->_blocks[_elideSavedIndex] = _elideSavedBlock;
-			_elideSavedBlock = nullptr;
+			const_cast<Text*>(_t)->_blocks[_elideSavedIndex] = std::move(_elideSavedBlock);
 		}
 	}
 
@@ -1698,15 +1694,15 @@ private:
 		auto end = _e->findItem(line.from + line.length - 1, item);
 #endif // OS_MAC_OLD
 
-		int blockIndex = _lineStartBlock;
-		ITextBlock *currentBlock = _t->_blocks[blockIndex];
-		ITextBlock *nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+		auto blockIndex = _lineStartBlock;
+		auto currentBlock = _t->_blocks[blockIndex].get();
+		auto nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 		eSetFont(currentBlock);
 		for (; item <= end; ++item) {
 			QScriptItem &si = _e->layoutData->items[item];
 			while (nextBlock && nextBlock->from() <= _localFrom + si.position) {
 				currentBlock = nextBlock;
-				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 				eSetFont(currentBlock);
 			}
 			_e->shape(item);
@@ -1776,12 +1772,12 @@ private:
 
 		const ushort *string = reinterpret_cast<const ushort*>(_e->layoutData->string.unicode());
 
-		int blockIndex = _lineStartBlock;
-		ITextBlock *currentBlock = _t->_blocks[blockIndex];
-		ITextBlock *nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+		auto blockIndex = _lineStartBlock;
+		auto currentBlock = _t->_blocks[blockIndex].get();
+		auto nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 
 		_e->layoutData->hasBidi = _parHasBidi;
-		QScriptAnalysis *analysis = _parAnalysis.data() + (_localFrom - _parStart);
+		auto analysis = _parAnalysis.data() + (_localFrom - _parStart);
 
 		{
 			QVarLengthArray<uchar> scripts(length);
@@ -1791,17 +1787,17 @@ private:
 		}
 
 		blockIndex = _lineStartBlock;
-		currentBlock = _t->_blocks[blockIndex];
-		nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+		currentBlock = _t->_blocks[blockIndex].get();
+		nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 
-		const ushort *start = string;
-		const ushort *end = start + length;
+		auto start = string;
+		auto end = start + length;
 		while (start < end) {
 			while (nextBlock && nextBlock->from() <= _localFrom + (start - string)) {
 				currentBlock = nextBlock;
-				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+				nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 			}
-			TextBlockType _type = currentBlock->type();
+			auto _type = currentBlock->type();
 			if (_type == TextBlockTEmoji || _type == TextBlockTSkip) {
 				analysis->script = QChar::Script_Common;
 				analysis->flags = QScriptAnalysis::Object;
@@ -1814,22 +1810,24 @@ private:
 		}
 
 		{
-			const QString *i_string = &_e->layoutData->string;
-			const QScriptAnalysis *i_analysis = _parAnalysis.data() + (_localFrom - _parStart);
-			QScriptItemArray *i_items = &_e->layoutData->items;
+			auto i_string = &_e->layoutData->string;
+			auto i_analysis = _parAnalysis.data() + (_localFrom - _parStart);
+			auto i_items = &_e->layoutData->items;
 
 			blockIndex = _lineStartBlock;
-			currentBlock = _t->_blocks[blockIndex];
-			nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
-			ITextBlock *startBlock = currentBlock;
+			currentBlock = _t->_blocks[blockIndex].get();
+			nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
+			auto startBlock = currentBlock;
 
-			if (!length)
+			if (!length) {
 				return;
-			int start = 0, end = start + length;
+			}
+			auto start = 0;
+			auto end = start + length;
 			for (int i = start + 1; i < end; ++i) {
 				while (nextBlock && nextBlock->from() <= _localFrom + i) {
 					currentBlock = nextBlock;
-					nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex] : 0;
+					nextBlock = (++blockIndex < _blocksSize) ? _t->_blocks[blockIndex].get() : nullptr;
 				}
 				// According to the unicode spec we should be treating characters in the Common script
 				// (punctuation, spaces, etc) as being the same script as the surrounding text for the
@@ -2362,7 +2360,7 @@ private:
 	// elided hack support
 	int _blocksSize = 0;
 	int _elideSavedIndex = 0;
-	ITextBlock *_elideSavedBlock = nullptr;
+	std::unique_ptr<ITextBlock> _elideSavedBlock;
 
 	int _lineStart = 0;
 	int _localFrom = 0;
@@ -2409,11 +2407,11 @@ Text::Text(const Text &other)
 , _minHeight(other._minHeight)
 , _text(other._text)
 , _st(other._st)
-, _blocks(other._blocks.size())
 , _links(other._links)
 , _startDir(other._startDir) {
-	for (int32 i = 0, l = _blocks.size(); i < l; ++i) {
-		_blocks[i] = other._blocks.at(i)->clone();
+	_blocks.reserve(other._blocks.size());
+	for (auto &block : other._blocks) {
+		_blocks.push_back(block->clone());
 	}
 }
 
@@ -2423,7 +2421,7 @@ Text::Text(Text &&other)
 , _minHeight(other._minHeight)
 , _text(other._text)
 , _st(other._st)
-, _blocks(other._blocks)
+, _blocks(std::move(other._blocks))
 , _links(other._links)
 , _startDir(other._startDir) {
 	other.clearFields();
@@ -2450,7 +2448,7 @@ Text &Text::operator=(Text &&other) {
 	_minHeight = other._minHeight;
 	_text = other._text;
 	_st = other._st;
-	_blocks = other._blocks;
+	_blocks = std::move(other._blocks);
 	_links = other._links;
 	_startDir = other._startDir;
 	other.clearFields();
@@ -2474,7 +2472,7 @@ void Text::recountNaturalSize(bool initial, Qt::LayoutDirection optionsDir) {
 	int32 result = 0, lastNewlineStart = 0;
 	QFixed _width = 0, last_rBearing = 0, last_rPadding = 0;
 	for (auto i = _blocks.cbegin(), e = _blocks.cend(); i != e; ++i) {
-		auto b = *i;
+		auto b = i->get();
 		auto _btype = b->type();
 		auto blockHeight = countBlockHeight(b, _st);
 		if (_btype == TextBlockTNewline) {
@@ -2533,7 +2531,7 @@ void Text::recountNaturalSize(bool initial, Qt::LayoutDirection optionsDir) {
 		}
 	}
 	if (_width > 0) {
-		if (!lineHeight) lineHeight = countBlockHeight(_blocks.back(), _st);
+		if (!lineHeight) lineHeight = countBlockHeight(_blocks.back().get(), _st);
 		_minHeight += lineHeight;
 		accumulate_max(_maxWidth, _width);
 	}
@@ -2662,23 +2660,23 @@ bool Text::hasLinks() const {
 }
 
 bool Text::hasSkipBlock() const {
-	return _blocks.isEmpty() ? false : _blocks.back()->type() == TextBlockTSkip;
+	return _blocks.empty() ? false : _blocks.back()->type() == TextBlockTSkip;
 }
 
 void Text::setSkipBlock(int32 width, int32 height) {
-	if (!_blocks.isEmpty() && _blocks.back()->type() == TextBlockTSkip) {
-		SkipBlock *block = static_cast<SkipBlock*>(_blocks.back());
+	if (!_blocks.empty() && _blocks.back()->type() == TextBlockTSkip) {
+		auto block = static_cast<SkipBlock*>(_blocks.back().get());
 		if (block->width() == width && block->height() == height) return;
 		_text.resize(block->from());
 		_blocks.pop_back();
 	}
 	_text.push_back('_');
-	_blocks.push_back(new SkipBlock(_st->font, _text, _text.size() - 1, width, height, 0));
+	_blocks.push_back(std::make_unique<SkipBlock>(_st->font, _text, _text.size() - 1, width, height, 0));
 	recountNaturalSize(false);
 }
 
 void Text::removeSkipBlock() {
-	if (!_blocks.isEmpty() && _blocks.back()->type() == TextBlockTSkip) {
+	if (!_blocks.empty() && _blocks.back()->type() == TextBlockTSkip) {
 		_text.resize(_blocks.back()->from());
 		_blocks.pop_back();
 		recountNaturalSize(false);
@@ -2724,9 +2722,9 @@ void Text::enumerateLines(int w, Callback callback) const {
 	int lineHeight = 0;
 	QFixed widthLeft = width, last_rBearing = 0, last_rPadding = 0;
 	bool longWordLine = true;
-	for_const (auto b, _blocks) {
+	for (auto &b : _blocks) {
 		auto _btype = b->type();
-		int blockHeight = countBlockHeight(b, _st);
+		int blockHeight = countBlockHeight(b.get(), _st);
 
 		if (_btype == TextBlockTNewline) {
 			if (!lineHeight) lineHeight = blockHeight;
@@ -2754,7 +2752,7 @@ void Text::enumerateLines(int w, Callback callback) const {
 		}
 
 		if (_btype == TextBlockTText) {
-			auto t = static_cast<TextBlock*>(b);
+			auto t = static_cast<TextBlock*>(b.get());
 			if (t->_words.isEmpty()) { // no words in this block, spaces only => layout this block in the same line
 				last_rPadding += b->f_rpadding();
 
@@ -2838,14 +2836,14 @@ void Text::drawElided(Painter &painter, int32 left, int32 top, int32 w, int32 li
 	p.drawElided(left, top, w, align, lines, yFrom, yTo, removeFromEnd, breakEverywhere, selection);
 }
 
-Text::StateResult Text::getState(int x, int y, int width, StateRequest request) const {
+Text::StateResult Text::getState(QPoint point, int width, StateRequest request) const {
 	TextPainter p(0, this);
-	return p.getState(x, y, width, request);
+	return p.getState(point, width, request);
 }
 
-Text::StateResult Text::getStateElided(int x, int y, int width, StateRequestElided request) const {
+Text::StateResult Text::getStateElided(QPoint point, int width, StateRequestElided request) const {
 	TextPainter p(0, this);
-	return p.getStateElided(x, y, width, request);
+	return p.getStateElided(point, width, request);
 }
 
 TextSelection Text::adjustSelection(TextSelection selection, TextSelectType selectType) const {
@@ -3030,9 +3028,6 @@ QString Text::originalText(TextSelection selection, ExpandLinksMode mode) const 
 }
 
 void Text::clear() {
-	for (TextBlocks::iterator i = _blocks.begin(), e = _blocks.end(); i != e; ++i) {
-		delete *i;
-	}
 	clearFields();
 	_text.clear();
 }
@@ -3043,6 +3038,8 @@ void Text::clearFields() {
 	_maxWidth = _minHeight = 0;
 	_startDir = Qt::LayoutDirectionAuto;
 }
+
+Text::~Text() = default;
 
 void emojiDraw(QPainter &p, EmojiPtr e, int x, int y) {
 	auto size = Ui::Emoji::Size();

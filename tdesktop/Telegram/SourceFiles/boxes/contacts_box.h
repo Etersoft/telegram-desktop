@@ -23,7 +23,29 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "boxes/abstract_box.h"
 #include "core/single_timer.h"
 #include "ui/effects/round_checkbox.h"
-#include "boxes/members_box.h"
+
+enum class MembersFilter {
+	Recent,
+	Admins,
+};
+using MembersAlreadyIn = OrderedSet<UserData*>;
+
+// Not used for now.
+//
+//class MembersAddButton : public Ui::RippleButton {
+//public:
+//	MembersAddButton(QWidget *parent, const style::TwoIconButton &st);
+//
+//protected:
+//	void paintEvent(QPaintEvent *e) override;
+//
+//	QImage prepareRippleMask() const override;
+//	QPoint prepareRippleStartPosition() const override;
+//
+//private:
+//	const style::TwoIconButton &_st;
+//
+//};
 
 namespace Dialogs {
 class Row;
@@ -80,6 +102,7 @@ protected:
 
 	void keyPressEvent(QKeyEvent *e) override;
 	void resizeEvent(QResizeEvent *e) override;
+	void paintEvent(QPaintEvent *e) override;
 
 private:
 	object_ptr<Ui::WidgetSlideWrap<Ui::MultiSelect>> createMultiSelect();
@@ -103,8 +126,8 @@ private:
 	void saveAdminsDone(const MTPUpdates &result);
 	void saveSelectedAdmins();
 	void getAdminsDone(const MTPmessages_ChatFull &result);
-	void setAdminDone(UserData *user, const MTPBool &result);
-	void removeAdminDone(UserData *user, const MTPBool &result);
+	void setAdminDone(gsl::not_null<UserData*> user, const MTPBool &result);
+	void removeAdminDone(gsl::not_null<UserData*> user, const MTPBool &result);
 	bool saveAdminsFail(const RPCError &error);
 	bool editAdminFail(const RPCError &error);
 
@@ -161,7 +184,7 @@ public:
 	void selectSkip(int32 dir);
 	void selectSkipPage(int32 h, int32 dir);
 
-	QVector<UserData*> selected();
+	std::vector<gsl::not_null<UserData*>> selected();
 	QVector<MTPInputUser> selectedInputs();
 	bool allAdmins() const;
 	void setAllAdminsChangedCallback(base::lambda<void()> allAdminsChangedCallback) {
@@ -249,8 +272,6 @@ private:
 	void updateSelectedRow();
 	int getRowTopWithPeer(PeerData *peer) const;
 	void updateRowWithPeer(PeerData *peer);
-	void addAdminDone(const MTPUpdates &result, mtpRequestId req);
-	bool addAdminFail(const RPCError &error, mtpRequestId req);
 
 	void paintDialog(Painter &p, TimeMs ms, PeerData *peer, ContactData *data, bool sel);
 	void paintDisabledCheckUserpic(Painter &p, PeerData *peer, int x, int y, int outerWidth) const;
@@ -266,9 +287,13 @@ private:
 	template <typename FilterCallback>
 	void addDialogsToList(FilterCallback callback);
 
+	PeerData *selectedPeer() const;
 	bool usingMultiSelect() const {
 		return (_chat != nullptr) || (_creating != CreatingGroupNone && (!_channel || _membersFilter != MembersFilter::Admins));
 	}
+	void changeMultiSelectCheckState();
+	void shareBotGameToSelected();
+	void addBotToSelectedGroup();
 
 	base::lambda<void(PeerData *peer, bool selected)> _peerSelectedChangedCallback;
 
@@ -291,9 +316,6 @@ private:
 	base::lambda<void()> _allAdminsChangedCallback;
 
 	PeerData *_addToPeer = nullptr;
-	UserData *_addAdmin = nullptr;
-	mtpRequestId _addAdminRequestId = 0;
-	QPointer<ConfirmBox> _addAdminBox;
 
 	int32 _time;
 

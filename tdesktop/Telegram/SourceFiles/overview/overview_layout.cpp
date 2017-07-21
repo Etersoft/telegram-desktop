@@ -25,7 +25,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "core/file_utilities.h"
 #include "boxes/add_contact_box.h"
 #include "boxes/confirm_box.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "application.h"
 #include "storage/file_upload.h"
@@ -41,7 +41,7 @@ namespace Layout {
 namespace {
 
 TextParseOptions _documentNameOptions = {
-	TextParseMultiline | TextParseRichText | TextParseLinks | TextParseHashtags | TextParseMentions | TextParseBotCommands | TextParseMono, // flags
+	TextParseMultiline | TextParseRichText | TextParseLinks | TextParseHashtags | TextParseMentions | TextParseBotCommands | TextParseMarkdown, // flags
 	0, // maxw
 	0, // maxh
 	Qt::LayoutDirectionAuto, // dir
@@ -282,8 +282,8 @@ void Photo::ensureCheckboxCreated() {
 	});
 }
 
-void Photo::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x, int y) const {
-	if (hasPoint(x, y)) {
+void Photo::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const {
+	if (hasPoint(point)) {
 		link = _link;
 	}
 }
@@ -462,10 +462,10 @@ void Video::invalidateCache() {
 	}
 }
 
-void Video::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x, int y) const {
+void Video::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const {
 	bool loaded = _data->loaded();
 
-	if (hasPoint(x, y)) {
+	if (hasPoint(point)) {
 		link = loaded ? _openl : (_data->loading() ? _cancell : _savel);
 	}
 }
@@ -506,7 +506,7 @@ Voice::Voice(DocumentData *voice, HistoryItem *parent, const style::OverviewFile
 	setDocumentLinks(_data);
 
 	updateName();
-	QString d = textcmdLink(1, textRichPrepare(langDateTime(date(_data->date))));
+	QString d = textcmdLink(1, TextUtilities::EscapeForRichParsing(langDateTime(date(_data->date))));
 	TextParseOptions opts = { TextParseRichText, 0, 0, Qt::LayoutDirectionAuto };
 	_details.setText(st::defaultTextStyle, lng_date_and_duration(lt_date, d, lt_duration, formatDurationText(_data->voice()->duration)), opts);
 	_details.setLink(1, goToMessageClickHandler(parent));
@@ -614,7 +614,7 @@ void Voice::paint(Painter &p, const QRect &clip, TextSelection selection, const 
 	}
 }
 
-void Voice::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x, int y) const {
+void Voice::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const {
 	bool loaded = _data->loaded();
 
 	int32 nameleft = 0, nametop = 0, nameright = 0, statustop = 0, datetop = 0;
@@ -625,18 +625,18 @@ void Voice::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x, i
 	statustop = _st.songStatusTop;
 
 	auto inner = rtlrect(_st.songPadding.left(), _st.songPadding.top(), _st.songThumbSize, _st.songThumbSize, _width);
-	if (inner.contains(x, y)) {
+	if (inner.contains(point)) {
 		link = loaded ? _openl : ((_data->loading() || _data->status == FileUploading) ? _cancell : _openl);
 		return;
 	}
-	if (rtlrect(nameleft, statustop, _width - nameleft - nameright, st::normalFont->height, _width).contains(x, y)) {
+	if (rtlrect(nameleft, statustop, _width - nameleft - nameright, st::normalFont->height, _width).contains(point)) {
 		if (_status.size() == FileStatusSizeLoaded || _status.size() == FileStatusSizeReady) {
-			auto textState = _details.getStateLeft(x - nameleft, y - statustop, _width, _width);
+			auto textState = _details.getStateLeft(point - QPoint(nameleft, statustop), _width, _width);
 			link = textState.link;
 			cursor = textState.uponSymbol ? HistoryInTextCursorState : HistoryDefaultCursorState;
 		}
 	}
-	if (hasPoint(x, y) && !link && !_data->loading()) {
+	if (hasPoint(point) && !link && !_data->loading()) {
 		link = _namel;
 		return;
 	}
@@ -742,7 +742,8 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 	int32 nameleft = 0, nametop = 0, nameright = 0, statustop = 0, datetop = -1;
 	bool wthumb = withThumb();
 
-	if (_data->song()) {
+	auto isSong = (_data->song() != nullptr);
+	if (isSong) {
 		nameleft = _st.songPadding.left() + _st.songThumbSize + _st.songPadding.right();
 		nameright = _st.songPadding.left();
 		nametop = _st.songNameTop;
@@ -857,9 +858,9 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 				}
 			}
 			if (selected || context->selecting) {
-				QRect check(rthumb.topLeft() + QPoint(rtl() ? 0 : (rthumb.width() - st::defaultCheckbox.diameter), rthumb.height() - st::defaultCheckbox.diameter), QSize(st::defaultCheckbox.diameter, st::defaultCheckbox.diameter));
+				QRect check(rthumb.topLeft() + QPoint(rtl() ? 0 : (rthumb.width() - st::defaultCheck.diameter), rthumb.height() - st::defaultCheck.diameter), QSize(st::defaultCheck.diameter, st::defaultCheck.diameter));
 				p.fillRect(check, selected ? st::overviewFileChecked : st::overviewFileCheck);
-				st::defaultCheckbox.checkIcon.paint(p, QPoint(rthumb.width() - st::defaultCheckbox.diameter, rthumb.y() + rthumb.height() - st::defaultCheckbox.diameter), _width);
+				st::defaultCheck.icon.paint(p, QPoint(rthumb.width() - st::defaultCheck.diameter, rthumb.y() + rthumb.height() - st::defaultCheck.diameter), _width);
 			}
 		}
 	}
@@ -873,7 +874,7 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 
 	if (clip.intersects(rtlrect(nameleft, statustop, availwidth, st::normalFont->height, _width))) {
 		p.setFont(st::normalFont);
-		p.setPen(st::mediaInFg);
+		p.setPen((isSong && selected) ? st::mediaInFgSelected : st::mediaInFg);
 		p.drawTextLeft(nameleft, statustop, _width, _status.text());
 	}
 	if (datetop >= 0 && clip.intersects(rtlrect(nameleft, datetop, _datew, st::normalFont->height, _width))) {
@@ -883,7 +884,7 @@ void Document::paint(Painter &p, const QRect &clip, TextSelection selection, con
 	}
 }
 
-void Document::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x, int y) const {
+void Document::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const {
 	bool loaded = _data->loaded() || Local::willStickerImageLoad(_data->mediaKey());
 
 	int32 nameleft = 0, nametop = 0, nameright = 0, statustop = 0, datetop = 0;
@@ -896,11 +897,11 @@ void Document::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x
 		statustop = _st.songStatusTop;
 
 		auto inner = rtlrect(_st.songPadding.left(), _st.songPadding.top(), _st.songThumbSize, _st.songThumbSize, _width);
-		if (inner.contains(x, y)) {
+		if (inner.contains(point)) {
 			link = loaded ? _openl : ((_data->loading() || _data->status == FileUploading) ? _cancell : _openl);
 			return;
 		}
-		if (hasPoint(x, y) && !_data->loading()) {
+		if (hasPoint(point) && !_data->loading()) {
 			link = _namel;
 			return;
 		}
@@ -912,23 +913,23 @@ void Document::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x
 
 		auto rthumb = rtlrect(0, st::linksBorder + _st.filePadding.top(), _st.fileThumbSize, _st.fileThumbSize, _width);
 
-		if (rthumb.contains(x, y)) {
+		if (rthumb.contains(point)) {
 			link = loaded ? _openl : ((_data->loading() || _data->status == FileUploading) ? _cancell : _savel);
 			return;
 		}
 
 		if (_data->status != FileUploadFailed) {
-			if (rtlrect(nameleft, datetop, _datew, st::normalFont->height, _width).contains(x, y)) {
+			if (rtlrect(nameleft, datetop, _datew, st::normalFont->height, _width).contains(point)) {
 				link = _msgl;
 				return;
 			}
 		}
 		if (!_data->loading() && _data->isValid()) {
-			if (loaded && rtlrect(0, st::linksBorder, nameleft, _height - st::linksBorder, _width).contains(x, y)) {
+			if (loaded && rtlrect(0, st::linksBorder, nameleft, _height - st::linksBorder, _width).contains(point)) {
 				link = _namel;
 				return;
 			}
-			if (rtlrect(nameleft, nametop, qMin(_width - nameleft - nameright, _name.maxWidth()), st::semiboldFont->height, _width).contains(x, y)) {
+			if (rtlrect(nameleft, nametop, qMin(_width - nameleft - nameright, _name.maxWidth()), st::semiboldFont->height, _width).contains(point)) {
 				link = _namel;
 				return;
 			}
@@ -1014,16 +1015,16 @@ Link::Link(HistoryMedia *media, HistoryItem *parent) : ItemBase(parent) {
 		}
 	}
 
-	_page = (media && media->type() == MediaTypeWebPage) ? static_cast<HistoryWebPage*>(media)->webpage() : 0;
+	_page = (media && media->type() == MediaTypeWebPage) ? static_cast<HistoryWebPage*>(media)->webpage().get() : nullptr;
 	if (_page) {
 		mainUrl = _page->url;
 		if (_page->document) {
-			_photol.reset(new DocumentOpenClickHandler(_page->document));
+			_photol = MakeShared<DocumentOpenClickHandler>(_page->document);
 		} else if (_page->photo) {
 			if (_page->type == WebPageProfile || _page->type == WebPageVideo) {
 				_photol = MakeShared<UrlClickHandler>(_page->url);
 			} else if (_page->type == WebPagePhoto || _page->siteName == qstr("Twitter") || _page->siteName == qstr("Facebook")) {
-				_photol.reset(new PhotoOpenClickHandler(_page->photo));
+				_photol = MakeShared<PhotoOpenClickHandler>(_page->photo);
 			} else {
 				_photol = MakeShared<UrlClickHandler>(_page->url);
 			}
@@ -1034,7 +1035,7 @@ Link::Link(HistoryMedia *media, HistoryItem *parent) : ItemBase(parent) {
 		_photol = MakeShared<UrlClickHandler>(mainUrl);
 	}
 	if (from >= till && _page) {
-		text = _page->description;
+		text = _page->description.text;
 		from = 0;
 		till = text.size();
 	}
@@ -1203,9 +1204,9 @@ void Link::paint(Painter &p, const QRect &clip, TextSelection selection, const P
 	}
 }
 
-void Link::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x, int y) const {
+void Link::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const {
 	int32 left = st::linksPhotoSize + st::linksPhotoPadding, top = st::linksMargin.top() + st::linksBorder, w = _width - left;
-	if (rtlrect(0, top, st::linksPhotoSize, st::linksPhotoSize, _width).contains(x, y)) {
+	if (rtlrect(0, top, st::linksPhotoSize, st::linksPhotoSize, _width).contains(point)) {
 		link = _photol;
 		return;
 	}
@@ -1214,7 +1215,7 @@ void Link::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x, in
 		top += (st::linksPhotoSize - st::semiboldFont->height - st::normalFont->height) / 2;
 	}
 	if (!_title.isEmpty()) {
-		if (rtlrect(left, top, qMin(w, _titlew), st::semiboldFont->height, _width).contains(x, y)) {
+		if (rtlrect(left, top, qMin(w, _titlew), st::semiboldFont->height, _width).contains(point)) {
 			link = _photol;
 			return;
 		}
@@ -1224,7 +1225,7 @@ void Link::getState(ClickHandlerPtr &link, HistoryCursorState &cursor, int x, in
 		top += qMin(st::normalFont->height * 3, _text.countHeight(w));
 	}
 	for (int32 i = 0, l = _links.size(); i < l; ++i) {
-		if (rtlrect(left, top, qMin(w, _links.at(i).width), st::normalFont->height, _width).contains(x, y)) {
+		if (rtlrect(left, top, qMin(w, _links.at(i).width), st::normalFont->height, _width).contains(point)) {
 			link = _links.at(i).lnk;
 			return;
 		}

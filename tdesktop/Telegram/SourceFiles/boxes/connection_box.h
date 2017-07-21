@@ -39,6 +39,8 @@ class ConnectionBox : public BoxContent {
 public:
 	ConnectionBox(QWidget *parent);
 
+	static void ShowApplyProxyConfirmation(const QMap<QString, QString> &fields);
+
 protected:
 	void prepare() override;
 	void setInnerFocus() override;
@@ -47,12 +49,14 @@ protected:
 
 private slots:
 	void onSubmit();
+	void onFieldFocus();
 	void onSave();
 
 private:
 	void typeChanged(DBIConnectionType type);
 	void updateControlsVisibility();
 	void updateControlsPosition();
+	bool badProxyValue() const;
 
 	object_ptr<Ui::InputField> _hostInput;
 	object_ptr<Ui::PortInput> _portInput;

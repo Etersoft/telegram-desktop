@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/photo_crop_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "messenger.h"
 #include "mainwidget.h"
 #include "storage/file_upload.h"
@@ -50,8 +50,8 @@ void PhotoCropBox::init(const QImage &img, PeerData *peer) {
 }
 
 void PhotoCropBox::prepare() {
-	addButton(lang(lng_settings_save), [this] { sendPhoto(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_settings_save), [this] { sendPhoto(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 	if (peerToBareInt(_peerId)) {
 		connect(this, SIGNAL(ready(const QImage&)), this, SLOT(onReady(const QImage&)));
 	}

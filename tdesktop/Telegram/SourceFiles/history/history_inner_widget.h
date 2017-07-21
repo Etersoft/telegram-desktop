@@ -44,13 +44,8 @@ public:
 
 	TextWithEntities getSelectedText() const;
 
-	void dragActionStart(const QPoint &screenPos, Qt::MouseButton button = Qt::LeftButton);
-	void dragActionUpdate(const QPoint &screenPos);
-	void dragActionFinish(const QPoint &screenPos, Qt::MouseButton button = Qt::LeftButton);
-	void dragActionCancel();
-
 	void touchScrollUpdated(const QPoint &screenPos);
-	QPoint mapMouseToItem(QPoint p, HistoryItem *item);
+	QPoint mapPointToItem(QPoint p, HistoryItem *item);
 
 	void recountHeight();
 	void updateSize();
@@ -62,7 +57,7 @@ public:
 
 	Window::TopBarWidget::SelectedState getSelectionState() const;
 	void clearSelectedItems(bool onlyTextSelection = false);
-	void fillSelectedItems(SelectedItemSet &sel, bool forDelete = true);
+	SelectedItemSet getSelectedItems() const;
 	void selectItem(HistoryItem *item);
 
 	void updateBotInfo(bool recount = true);
@@ -114,7 +109,6 @@ public slots:
 	void onParentGeometryChanged();
 
 	void copyContextUrl();
-	void copyContextImage();
 	void cancelContextDownload();
 	void showContextInFolder();
 	void saveContextGif();
@@ -125,18 +119,33 @@ public slots:
 	void onMenuDestroy(QObject *obj);
 	void onTouchSelect();
 	void onTouchScrollTimer();
-	void onDragExec();
 
 private slots:
 	void onScrollDateCheck();
 	void onScrollDateHideByTimer();
 
 private:
+	enum class MouseAction {
+		None,
+		PrepareDrag,
+		Dragging,
+		PrepareSelect,
+		Selecting,
+	};
+
+	void mouseActionStart(const QPoint &screenPos, Qt::MouseButton button);
+	void mouseActionUpdate(const QPoint &screenPos);
+	void mouseActionFinish(const QPoint &screenPos, Qt::MouseButton button);
+	void mouseActionCancel();
+	void performDrag();
+
 	void showContextMenu(QContextMenuEvent *e, bool showFromTouch = false);
 
 	void itemRemoved(HistoryItem *item);
 	void savePhotoToFile(PhotoData *photo);
 	void saveDocumentToFile(DocumentData *document);
+	void copyContextImage(PhotoData *photo);
+	void showStickerPackInfo();
 
 	void touchResetSpeed();
 	void touchUpdateSpeed();
@@ -207,32 +216,26 @@ private:
 		return (_history && _history->hasPendingResizedItems()) || (_migrated && _migrated->hasPendingResizedItems());
 	}
 
-	enum DragAction {
-		NoDrag = 0x00,
-		PrepareDrag = 0x01,
-		Dragging = 0x02,
-		PrepareSelect = 0x03,
-		Selecting = 0x04,
-	};
-	DragAction _dragAction = NoDrag;
-	TextSelectType _dragSelType = TextSelectType::Letters;
-	QPoint _dragStartPos, _dragPos;
-	HistoryItem *_dragItem = nullptr;
-	HistoryCursorState _dragCursorState = HistoryDefaultCursorState;
-	uint16 _dragSymbol = 0;
-	bool _dragWasInactive = false;
+	MouseAction _mouseAction = MouseAction::None;
+	TextSelectType _mouseSelectType = TextSelectType::Letters;
+	QPoint _dragStartPosition;
+	QPoint _mousePosition;
+	HistoryItem *_mouseActionItem = nullptr;
+	HistoryCursorState _mouseCursorState = HistoryDefaultCursorState;
+	uint16 _mouseTextSymbol = 0;
+	bool _pressWasInactive = false;
 
 	QPoint _trippleClickPoint;
 	QTimer _trippleClickTimer;
 
-	ClickHandlerPtr _contextMenuLnk;
+	ClickHandlerPtr _contextMenuLink;
 
 	HistoryItem *_dragSelFrom = nullptr;
 	HistoryItem *_dragSelTo = nullptr;
 	bool _dragSelecting = false;
 	bool _wasSelectedText = false; // was some text selected in current drag action
 
-								   // scroll by touch support (at least Windows Surface tablets)
+	// scroll by touch support (at least Windows Surface tablets)
 	bool _touchScroll = false;
 	bool _touchSelect = false;
 	bool _touchInProgress = false;
@@ -267,11 +270,11 @@ private:
 		TopToBottom,
 		BottomToTop,
 	};
-	// this function finds all history items that are displayed and calls template method
-	// for each found message (in given direction) in the passed history with passed top offset
+	// This function finds all history items that are displayed and calls template method
+	// for each found message (in given direction) in the passed history with passed top offset.
 	//
-	// method has "bool (*Method)(HistoryItem *item, int itemtop, int itembottom)" signature
-	// if it returns false the enumeration stops immidiately
+	// Method has "bool (*Method)(gsl::not_null<HistoryItem*> item, int itemtop, int itembottom)" signature
+	// if it returns false the enumeration stops immidiately.
 	template <bool TopToBottom, typename Method>
 	void enumerateItemsInHistory(History *history, int historytop, Method method);
 
@@ -287,19 +290,19 @@ private:
 		}
 	}
 
-	// this function finds all userpics on the left that are displayed and calls template method
-	// for each found userpic (from the top to the bottom) using enumerateItems() method
+	// This function finds all userpics on the left that are displayed and calls template method
+	// for each found userpic (from the top to the bottom) using enumerateItems() method.
 	//
-	// method has "bool (*Method)(HistoryMessage *message, int userpicTop)" signature
-	// if it returns false the enumeration stops immidiately
+	// Method has "bool (*Method)(gsl::not_null<HistoryMessage*> message, int userpicTop)" signature
+	// if it returns false the enumeration stops immidiately.
 	template <typename Method>
 	void enumerateUserpics(Method method);
 
-	// this function finds all date elements that are displayed and calls template method
-	// for each found date element (from the bottom to the top) using enumerateItems() method
+	// This function finds all date elements that are displayed and calls template method
+	// for each found date element (from the bottom to the top) using enumerateItems() method.
 	//
-	// method has "bool (*Method)(HistoryItem *item, int itemtop, int dateTop)" signature
-	// if it returns false the enumeration stops immidiately
+	// Method has "bool (*Method)(gsl::not_null<HistoryItem*> item, int itemtop, int dateTop)" signature
+	// if it returns false the enumeration stops immidiately.
 	template <typename Method>
 	void enumerateDates(Method method);
 

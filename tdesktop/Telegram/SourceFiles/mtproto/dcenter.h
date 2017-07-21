@@ -20,13 +20,11 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "core/single_timer.h"
-#include "mtproto/rpc_sender.h"
-#include "mtproto/auth_key.h"
-
 namespace MTP {
 
 class Instance;
+class AuthKey;
+using AuthKeyPtr = std::shared_ptr<AuthKey>;
 
 namespace internal {
 
@@ -34,7 +32,7 @@ class Dcenter : public QObject {
 	Q_OBJECT
 
 public:
-	Dcenter(Instance *instance, DcId dcId, AuthKeyPtr &&key);
+	Dcenter(gsl::not_null<Instance*> instance, DcId dcId, AuthKeyPtr &&key);
 
 	QReadWriteLock *keyMutex() const;
 	const AuthKeyPtr &getKey() const;
@@ -61,38 +59,10 @@ private slots:
 private:
 	mutable QReadWriteLock keyLock;
 	mutable QMutex initLock;
-	Instance *_instance = nullptr;
+	gsl::not_null<Instance*> _instance;
 	DcId _id = 0;
 	AuthKeyPtr _key;
 	bool _connectionInited = false;
-
-};
-
-using DcenterPtr = std::shared_ptr<Dcenter>;
-using DcenterMap = std::map<DcId, DcenterPtr>;
-
-class ConfigLoader : public QObject {
-	Q_OBJECT
-
-public:
-	ConfigLoader(Instance *instance, RPCDoneHandlerPtr onDone, RPCFailHandlerPtr onFail);
-	~ConfigLoader();
-
-	void load();
-
-public slots:
-	void enumDC();
-
-private:
-	mtpRequestId sendRequest(ShiftedDcId shiftedDcId);
-
-	Instance *_instance = nullptr;
-	SingleTimer _enumDCTimer;
-	DcId _enumCurrent = 0;
-	mtpRequestId _enumRequest = 0;
-
-	RPCDoneHandlerPtr _doneHandler;
-	RPCFailHandlerPtr _failHandler;
 
 };
 

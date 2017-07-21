@@ -27,7 +27,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "inline_bots/inline_bot_result.h"
 #include "chat_helpers/stickers.h"
 #include "storage/localstorage.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "dialogs/dialogs_layout.h"
 #include "boxes/sticker_set_box.h"
@@ -676,9 +676,10 @@ void StickersListWidget::paintFeaturedStickers(Painter &p, QRect clip) {
 			}
 		}
 
+		auto statusText = (size > 0) ? lng_stickers_count(lt_count, size) : lang(lng_contacts_loading);
 		p.setFont(st::stickersTrendingSubheaderFont);
 		p.setPen(st::stickersTrendingSubheaderFg);
-		p.drawTextLeft(st::emojiPanHeaderLeft - st::buttonRadius, y + st::stickersTrendingSubheaderTop, width(), lng_stickers_count(lt_count, size));
+		p.drawTextLeft(st::emojiPanHeaderLeft - st::buttonRadius, y + st::stickersTrendingSubheaderTop, width(), statusText);
 
 		y += st::stickersTrendingHeader;
 		if (y >= clip.y() + clip.height()) break;

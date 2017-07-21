@@ -330,10 +330,6 @@ msgBotKbButton: BotKeyboardButton {
 }
 
 botKbDuration: 200;
-botKbBg: menuBgOver;
-botKbOverBg: menuBgOver;
-botKbDownBg: menuBgRipple;
-botKbColor: windowBoldFgOver;
 botKbStyle: TextStyle(defaultTextStyle) {
 	font: font(15px semibold);
 	linkFont: font(15px semibold);
@@ -344,7 +340,9 @@ botKbButton: BotKeyboardButton {
 	padding: 10px;
 	height: 38px;
 	textTop: 9px;
-	ripple: defaultRippleAnimation;
+	ripple: RippleAnimation(defaultRippleAnimation) {
+		color: botKbDownBg;
+	}
 }
 botKbTinyButton: BotKeyboardButton {
 	margin: 4px;
@@ -445,3 +443,48 @@ historyVideoMessageMute: icon {{ "volume_mute", historyFileThumbIconFg }};
 historyVideoMessageMuteSelected: icon {{ "volume_mute", historyFileThumbIconFgSelected }};
 historyVideoMessageMuteSize: 25px;
 historyVideoMessageProgressOpacity: 0.72;
+
+historyAdminLogEmptyWidth: 260px;
+historyAdminLogEmptyPadding: margins(10px, 12px, 10px, 12px);
+historyAdminLogSearchField: FlatInput(defaultFlatInput) {
+	textColor: windowFg;
+	bgColor: topBarBg;
+	bgActive: topBarBg;
+
+	font: font(fsize);
+
+	borderWidth: 0px;
+	borderColor: topBarBg;
+	borderActive: topBarBg;
+
+	width: 100px;
+	height: 32px;
+	textMrg: margins(0px, 0px, 0px, 0px);
+}
+historyAdminLogCancelSearch: CrossButton {
+	width: 40px;
+	height: 54px;
+
+	cross: CrossAnimation {
+		size: 36px;
+		skip: 10px;
+		stroke: 2px;
+		minScale: 0.3;
+	}
+	crossFg: menuIconFg;
+	crossFgOver: menuIconFgOver;
+	crossPosition: point(4px, 9px);
+
+	duration: 150;
+	loadingPeriod: 1000;
+	ripple: RippleAnimation(defaultRippleAnimation) {
+		color: windowBgOver;
+	}
+}
+historyAdminLogSearchTop: 11px;
+historyAdminLogSearchSlideDuration: 150;
+
+historyFastShareSize: 31px;
+historyFastShareLeft: 13px;
+historyFastShareBottom: 5px;
+historyFastShareIcon: icon {{ "fast_share", msgServiceFg, point(4px, 3px)}};

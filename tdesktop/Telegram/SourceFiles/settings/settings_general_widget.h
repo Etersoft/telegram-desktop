@@ -104,7 +104,6 @@ private slots:
 private:
 	void refreshControls();
 	void updateWorkmode();
-	void chooseCustomLang();
 
 	object_ptr<Ui::LinkButton> _changeLanguage;
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
@@ -117,7 +116,7 @@ private:
 	object_ptr<Ui::WidgetSlideWrap<Ui::Checkbox>> _startMinimized = { nullptr };
 	object_ptr<Ui::Checkbox> _addInSendTo = { nullptr };
 
-	QString _testLanguage;
+	int _languagesLoadedSubscription = 0;
 
 };
 

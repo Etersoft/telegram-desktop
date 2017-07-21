@@ -24,7 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "messenger.h"
 #include "auth_session.h"
 #include "apiwrap.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "boxes/confirm_box.h"
 #include "calls/calls_call.h"
 #include "calls/calls_panel.h"
@@ -195,7 +195,7 @@ void Instance::refreshServerConfig() {
 		auto error = QJsonParseError { 0, QJsonParseError::NoError };
 		auto document = QJsonDocument::fromJson(QByteArray::fromRawData(reinterpret_cast<const char*>(bytes.data()), bytes.size()), &error);
 		if (error.error != QJsonParseError::NoError) {
-			LOG(("API Error: Faild to parse call config JSON, error: %1").arg(error.errorString()));
+			LOG(("API Error: Failed to parse call config JSON, error: %1").arg(error.errorString()));
 			return;
 		} else if (!document.isObject()) {
 			LOG(("API Error: Not an object received in call config JSON."));

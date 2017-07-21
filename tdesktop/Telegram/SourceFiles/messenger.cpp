@@ -29,7 +29,9 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "auth_session.h"
 #include "apiwrap.h"
 #include "calls/calls_instance.h"
-#include "langloaderplain.h"
+#include "lang/lang_file_parser.h"
+#include "lang/lang_translator.h"
+#include "lang/lang_cloud_manager.h"
 #include "observer_peer.h"
 #include "storage/file_upload.h"
 #include "mainwidget.h"
@@ -43,6 +45,11 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/tooltip.h"
 #include "storage/serialize_common.h"
 #include "window/window_controller.h"
+#include "base/qthelp_regex.h"
+#include "base/qthelp_url.h"
+#include "boxes/connection_box.h"
+#include "boxes/confirm_phone_box.h"
+#include "boxes/share_box.h"
 
 namespace {
 
@@ -66,6 +73,7 @@ struct Messenger::Private {
 
 Messenger::Messenger() : QObject()
 , _private(std::make_unique<Private>())
+, _langpack(std::make_unique<Lang::Instance>())
 , _audio(std::make_unique<Media::Audio::Instance>())
 , _logo(Window::LoadLogo())
 , _logoNoMargin(Window::LoadLogoNoMargin()) {
@@ -95,10 +103,13 @@ Messenger::Messenger() : QObject()
 		cSetConfigScale(dbisOne);
 		cSetRealScale(dbisOne);
 	}
-	loadLanguage();
+
+	_translator = std::make_unique<Lang::Translator>();
+	QCoreApplication::instance()->installTranslator(_translator.get());
+
 	style::startManager();
 	anim::startManager();
-	historyInit();
+	HistoryInit();
 	Media::Player::start();
 
 	DEBUG_LOG(("Application Info: inited..."));
@@ -159,10 +170,6 @@ Messenger::Messenger() : QObject()
 	QNetworkProxyFactory::setUseSystemConfiguration(true);
 #endif // !TDESKTOP_DISABLE_NETWORK_PROXY
 
-	if (state != Local::ReadMapPassNeeded) {
-		checkMapVersion();
-	}
-
 	_window->updateIsActive(Global::OnlineFocusTimeout());
 
 	if (!Shortcuts::errors().isEmpty()) {
@@ -201,12 +208,7 @@ QByteArray Messenger::serializeMtpAuthorization() const {
 		size += keysSize(keys) + keysSize(keysToDestroy);
 		result.reserve(size);
 		{
-			QBuffer buffer(&result);
-			if (!buffer.open(QIODevice::WriteOnly)) {
-				LOG(("MTP Error: could not open buffer to serialize mtp authorization."));
-				return result;
-			}
-			QDataStream stream(&buffer);
+			QDataStream stream(&result, QIODevice::WriteOnly);
 			stream.setVersion(QDataStream::Qt_5_1);
 
 			auto currentUserId = AuthSession::Exists() ? AuthSession::CurrentUserId() : 0;
@@ -250,13 +252,7 @@ AuthSessionData *Messenger::getAuthSessionData() {
 void Messenger::setMtpAuthorization(const QByteArray &serialized) {
 	Expects(!_mtproto);
 
-	auto readonly = serialized;
-	QBuffer buffer(&readonly);
-	if (!buffer.open(QIODevice::ReadOnly)) {
-		LOG(("MTP Error: could not open serialized mtp authorization for reading."));
-		return;
-	}
-	QDataStream stream(&buffer);
+	QDataStream stream(serialized);
 	stream.setVersion(QDataStream::Qt_5_1);
 
 	auto userId = Serialize::read<qint32>(stream);
@@ -324,6 +320,8 @@ void Messenger::startMtp() {
 		}
 		_private->storedAuthSession.reset();
 	}
+
+	_langCloudManager = std::make_unique<Lang::CloudManager>(langpack(), mtp());
 }
 
 void Messenger::destroyMtpKeys(MTP::AuthKeysList &&keys) {
@@ -374,34 +372,6 @@ void Messenger::destroyStaleAuthorizationKeys() {
 	}
 }
 
-void Messenger::loadLanguage() {
-	if (cLang() < languageTest) {
-		cSetLang(Sandbox::LangSystem());
-	}
-	if (cLang() == languageTest) {
-		if (QFileInfo(cLangFile()).exists()) {
-			LangLoaderPlain loader(cLangFile());
-			cSetLangErrors(loader.errors());
-			if (!cLangErrors().isEmpty()) {
-				LOG(("Lang load errors: %1").arg(cLangErrors()));
-			} else if (!loader.warnings().isEmpty()) {
-				LOG(("Lang load warnings: %1").arg(loader.warnings()));
-			}
-		} else {
-			cSetLang(languageDefault);
-		}
-	} else if (cLang() > languageDefault && cLang() < languageCount) {
-		LangLoaderPlain loader(qsl(":/langs/lang_") + LanguageCodes[cLang()].c_str() + qsl(".strings"));
-		if (!loader.errors().isEmpty()) {
-			LOG(("Lang load errors: %1").arg(loader.errors()));
-		} else if (!loader.warnings().isEmpty()) {
-			LOG(("Lang load warnings: %1").arg(loader.warnings()));
-		}
-	}
-	_translator = std::make_unique<Translator>();
-	QCoreApplication::instance()->installTranslator(_translator.get());
-}
-
 void Messenger::startLocalStorage() {
 	_dcOptions = std::make_unique<MTP::DcOptions>();
 	_dcOptions->constructFromBuiltIn();
@@ -415,9 +385,11 @@ void Messenger::startLocalStorage() {
 		}
 	});
 	subscribe(authSessionChanged(), [this] {
-		if (_mtproto) {
-			_mtproto->configLoadRequest();
-		}
+		InvokeQueued(this, [this] {
+			if (_mtproto) {
+				_mtproto->requestConfig();
+			}
+		});
 	});
 }
 
@@ -684,6 +656,98 @@ QString Messenger::createInternalLinkFull(const QString &query) const {
 	return Global::InternalLinksDomain() + query;
 }
 
+void Messenger::checkStartUrl() {
+	if (!cStartUrl().isEmpty() && !App::passcoded()) {
+		auto url = cStartUrl();
+		cSetStartUrl(QString());
+		if (!openLocalUrl(url)) {
+			cSetStartUrl(url);
+		}
+	}
+}
+
+bool Messenger::openLocalUrl(const QString &url) {
+	auto urlTrimmed = url.trimmed();
+	if (urlTrimmed.size() > 8192) urlTrimmed = urlTrimmed.mid(0, 8192);
+
+	if (!urlTrimmed.startsWith(qstr("tg://"), Qt::CaseInsensitive) || App::passcoded()) {
+		return false;
+	}
+	auto command = urlTrimmed.midRef(qstr("tg://").size());
+
+	using namespace qthelp;
+	auto matchOptions = RegExOption::CaseInsensitive;
+	if (auto joinChatMatch = regex_match(qsl("^join/?\\?invite=([a-zA-Z0-9\\.\\_\\-]+)(&|$)"), command, matchOptions)) {
+		if (auto main = App::main()) {
+			main->joinGroupByHash(joinChatMatch->captured(1));
+			return true;
+		}
+	} else if (auto stickerSetMatch = regex_match(qsl("^addstickers/?\\?set=([a-zA-Z0-9\\.\\_]+)(&|$)"), command, matchOptions)) {
+		if (auto main = App::main()) {
+			main->stickersBox(MTP_inputStickerSetShortName(MTP_string(stickerSetMatch->captured(1))));
+			return true;
+		}
+	} else if (auto shareUrlMatch = regex_match(qsl("^msg_url/?\\?(.+)(#|$)"), command, matchOptions)) {
+		if (auto main = App::main()) {
+			auto params = url_parse_params(shareUrlMatch->captured(1), UrlParamNameTransform::ToLower);
+			auto url = params.value(qsl("url"));
+			if (!url.isEmpty()) {
+				main->shareUrlLayer(url, params.value("text"));
+				return true;
+			}
+		}
+	} else if (auto confirmPhoneMatch = regex_match(qsl("^confirmphone/?\\?(.+)(#|$)"), command, matchOptions)) {
+		if (auto main = App::main()) {
+			auto params = url_parse_params(confirmPhoneMatch->captured(1), UrlParamNameTransform::ToLower);
+			auto phone = params.value(qsl("phone"));
+			auto hash = params.value(qsl("hash"));
+			if (!phone.isEmpty() && !hash.isEmpty()) {
+				ConfirmPhoneBox::start(phone, hash);
+				return true;
+			}
+		}
+	} else if (auto usernameMatch = regex_match(qsl("^resolve/?\\?(.+)(#|$)"), command, matchOptions)) {
+		if (auto main = App::main()) {
+			auto params = url_parse_params(usernameMatch->captured(1), UrlParamNameTransform::ToLower);
+			auto domain = params.value(qsl("domain"));
+			if (regex_match(qsl("^[a-zA-Z0-9\\.\\_]+$"), domain, matchOptions)) {
+				auto start = qsl("start");
+				auto startToken = params.value(start);
+				if (startToken.isEmpty()) {
+					start = qsl("startgroup");
+					startToken = params.value(start);
+					if (startToken.isEmpty()) {
+						start = QString();
+					}
+				}
+				auto post = (start == qsl("startgroup")) ? ShowAtProfileMsgId : ShowAtUnreadMsgId;
+				auto postParam = params.value(qsl("post"));
+				if (auto postId = postParam.toInt()) {
+					post = postId;
+				}
+				auto gameParam = params.value(qsl("game"));
+				if (!gameParam.isEmpty() && regex_match(qsl("^[a-zA-Z0-9\\.\\_]+$"), gameParam, matchOptions)) {
+					startToken = gameParam;
+					post = ShowAtGameShareMsgId;
+				}
+				main->openPeerByName(domain, post, startToken);
+				return true;
+			}
+		}
+	} else if (auto shareGameScoreMatch = regex_match(qsl("^share_game_score/?\\?(.+)(#|$)"), command, matchOptions)) {
+		if (auto main = App::main()) {
+			auto params = url_parse_params(shareGameScoreMatch->captured(1), UrlParamNameTransform::ToLower);
+			ShareGameScoreByHash(params.value(qsl("hash")));
+			return true;
+		}
+	} else if (auto socksMatch = regex_match(qsl("^socks/?\\?(.+)(#|$)"), command, matchOptions)) {
+		auto params = url_parse_params(socksMatch->captured(1), UrlParamNameTransform::ToLower);
+		ConnectionBox::ShowApplyProxyConfirmation(params);
+		return true;
+	}
+	return false;
+}
+
 FileUploader *Messenger::uploader() {
 	if (!_uploader && !App::quitting()) _uploader = new FileUploader();
 	return _uploader;
@@ -726,25 +790,6 @@ void Messenger::uploadProfilePhoto(const QImage &tosend, const PeerId &peerId) {
 	App::uploader()->uploadMedia(newId, ready);
 }
 
-void Messenger::checkMapVersion() {
-	if (Local::oldMapVersion() < AppVersion) {
-		if (Local::oldMapVersion()) {
-			QString versionFeatures;
-			if ((cAlphaVersion() || cBetaVersion()) && Local::oldMapVersion() < 1001003) {
-				versionFeatures = QString::fromUtf8("\xE2\x80\x94 Improved video messages playback.\n\xE2\x80\x94 Video and audio messages now play one after another.");
-			} else if (!(cAlphaVersion() || cBetaVersion()) && Local::oldMapVersion() < 1001000) {
-				versionFeatures = langNewVersionText();
-			} else {
-				versionFeatures = lang(lng_new_version_minor).trimmed();
-			}
-			if (!versionFeatures.isEmpty()) {
-				versionFeatures = lng_new_version_wrap(lt_version, QString::fromLatin1(AppVersionStr.c_str()), lt_changes, versionFeatures, lt_link, qsl("https://desktop.telegram.org/changelog"));
-				_window->serviceNotificationLocal(versionFeatures);
-			}
-		}
-	}
-}
-
 void Messenger::setupPasscode() {
 	_window->setupPasscode();
 	_passcodedChanged.notify();
@@ -764,6 +809,10 @@ Messenger::~Messenger() {
 	// Some MTP requests can be cancelled from data clearing.
 	App::clearHistories();
 	authSessionDestroy();
+
+	// The langpack manager should be destroyed before MTProto instance,
+	// because it is MTP::Sender and it may have pending requests.
+	_langCloudManager.reset();
 
 	_mtproto.reset();
 	_mtprotoForKeysDestroy.reset();

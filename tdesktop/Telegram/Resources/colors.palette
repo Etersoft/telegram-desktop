@@ -93,8 +93,13 @@ placeholderFg: windowSubTextFg; // default input field placeholder when field is
 placeholderFgActive: #aaaaaa; // default input field placeholder when field is focused
 inputBorderFg: #e0e0e0; // default input field bottom border (like in code input field when you log in and field is not focused)
 filterInputBorderFg: #54c3f3; // default rounded input field border (like in chats list search field when field is focused)
-filterInputInactiveBg: windowBgOver; // default rounded input field background (like in chats list search field when field is inactive)
-checkboxFg: #b3b3b3; // default unchecked checkbox rounded rectangle (and also emoji category icons)
+filterInputActiveBg: windowBg; // default rounded input field active background (like in chats list search field when field is focused)
+filterInputInactiveBg: windowBgOver; // default rounded input field inactive background (like in chats list search field when field is inactive)
+checkboxFg: #b3b3b3; // default unchecked checkbox rounded rectangle
+
+botKbBg: menuBgOver; // bot keyboard button background
+botKbDownBg: menuBgRipple; // bot keyboard button ripple effect
+botKbColor: windowBoldFgOver; // bot keyboard button text
 
 sliderBgInactive: #e1eaef; // default slider not active bar (like in Settings when you choose interface scale or custom notifications count)
 sliderBgActive: windowBgActive; // default slider active bar (like in Settings when you choose interface scale or custom notifications count)
@@ -232,8 +237,8 @@ dialogsUnreadBgActive: dialogsTextFgActive; // chat list unread badge background
 dialogsUnreadBgMutedActive: dialogsDraftFgActive; // chat list unread badge background for muted chat for current (active) chat
 dialogsUnreadFgActive: dialogsBgActive; // chat list unread badge text for current (active) chat
 
-dialogsRippleBg: windowBgRipple;
-dialogsRippleBgActive: activeButtonBgRipple;
+dialogsRippleBg: windowBgRipple; // chat list background ripple effect
+dialogsRippleBgActive: activeButtonBgRipple; // chat list background ripple effect for current (active) chat
 
 dialogsForwardBg: dialogsBgActive; // forwarding panel background (when forwarding messages in the smallest window size)
 dialogsForwardFg: dialogsNameFgActive; // forwarding panel text (when forwarding messages in the smallest window size)
@@ -248,6 +253,8 @@ emojiPanBg: windowBg; // emoji panel background
 emojiPanCategories: #f7f7f7 | windowBg; // emoji panel categories background
 emojiPanHeaderFg: windowSubTextFg; // emoji panel section header text
 emojiPanHeaderBg: #fffffff2 | emojiPanBg; // emoji panel section header background
+emojiIconFg: checkboxFg; // emoji category icon
+emojiIconFgActive: windowBgActive; // active emoji category icon
 stickerPanDeleteBg: #000000cc; // delete X button background for custom sent stickers in stickers panel (legacy)
 stickerPanDeleteFg: windowFgActive; // delete X button icon for custom sent stickers in stickers panel (legacy)
 stickerPreviewBg: #ffffffb0; // sticker and GIF preview background (when you press and hold on a sticker)
@@ -450,7 +457,9 @@ historyComposeButtonBgOver: windowBgOver; // unblock / join channel / mute chann
 historyComposeButtonBgRipple: windowBgRipple; // unblock / join channel / mute channel button ripple effect
 
 // overview
-overviewCheckBg: #00000040; // shared files / links checkbox background for not selected rows when some rows are selected
+overviewCheckBg: #00000040; // shared media / files / links checkbox background for not selected rows when some rows are selected
+overviewCheckBgActive: windowBgActive; // shared media / files / links checkbox background for selected rows
+overviewCheckBorder: windowBg; // shared media round checkbox border
 overviewCheckFg: windowBg; // shared files / links checkbox icon for not selected rows when some rows are selected
 overviewCheckFgActive: windowBg; // shared files / links checkbox icon for selected rows
 overviewPhotoSelectOverlay: #40ace333; // shared photos / videos / links fill for selected rows
@@ -459,7 +468,10 @@ overviewPhotoSelectOverlay: #40ace333; // shared photos / videos / links fill fo
 profileStatusFgOver: #7c99b2; // group members list in group profile user last seen text with mouse over
 profileVerifiedCheckBg: windowBgActive; // profile verified check icon background
 profileVerifiedCheckFg: windowFgActive; // profile verified check icon tick
-profileAdminStartFg: windowBgActive; // group members list admin star icon
+profileAdminStartFg: windowBgActive; // group members list creator star icon
+profileAdminStarFgOver: profileAdminStartFg; // group members list creator star icon with mouse over
+profileOtherAdminStarFg: windowSubTextFg; // group members list admin star icon
+profileOtherAdminStarFgOver: profileStatusFgOver; // group members list admin star icon with mouse over
 
 // settings
 notificationsBoxMonitorFg: windowFg; // custom notifications settings box monitor color

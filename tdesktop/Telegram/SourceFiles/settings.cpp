@@ -21,7 +21,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "settings.h"
 
 #include "platform/platform_specific.h"
-#include "lang.h"
 
 bool gRtl = false;
 Qt::LayoutDirection gLangDir = gRtl ? Qt::RightToLeft : Qt::LeftToRight;
@@ -41,8 +40,6 @@ QString gWorkingDir, gExeDir, gExeName;
 
 QStringList gSendPaths;
 QString gStartUrl;
-
-QString gLangErrors;
 
 QString gDialogLastPath, gDialogHelperPath; // optimize QFileDialog
 
@@ -90,9 +87,6 @@ RecentInlineBots gRecentInlineBots;
 bool gPasswordRecovered = false;
 int32 gPasscodeBadTries = 0;
 TimeMs gPasscodeLastTry = 0;
-
-int32 gLang = -2; // auto
-QString gLangFile;
 
 bool gRetina = false;
 float64 gRetinaFactor = 1.;

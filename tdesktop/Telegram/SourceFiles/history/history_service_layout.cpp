@@ -20,10 +20,12 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "history/history_service_layout.h"
 
+#include "history/history_service.h"
+#include "history/history_media.h"
 #include "data/data_abstract_structure.h"
 #include "styles/style_history.h"
 #include "mainwidget.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 
 namespace HistoryLayout {
 namespace {
@@ -187,9 +189,8 @@ int WideChatWidth() {
 }
 
 void ServiceMessagePainter::paint(Painter &p, const HistoryService *message, const PaintContext &context, int height) {
-	int left = 0, width = 0;
-	message->countPositionAndSize(left, width);
-	if (width < 1) return;
+	auto g = message->countGeometry();
+	if (g.width() < 1) return;
 
 	auto fullAnimMs = App::main() ? App::main()->animActiveTimeStart(message) : 0LL;
 	if (fullAnimMs > 0 && fullAnimMs <= context.ms) {
@@ -215,20 +216,15 @@ void ServiceMessagePainter::paint(Painter &p, const HistoryService *message, con
 
 	if (auto media = message->getMedia()) {
 		height -= st::msgServiceMargin.top() + media->height();
-		int32 left = st::msgServiceMargin.left() + (width - media->maxWidth()) / 2, top = st::msgServiceMargin.top() + height + st::msgServiceMargin.top();
+		auto left = st::msgServiceMargin.left() + (g.width() - media->maxWidth()) / 2, top = st::msgServiceMargin.top() + height + st::msgServiceMargin.top();
 		p.translate(left, top);
-		media->draw(p, context.clip.translated(-left, -top), message->toMediaSelection(context.selection), context.ms);
+		media->draw(p, context.clip.translated(-left, -top), message->skipTextSelection(context.selection), context.ms);
 		p.translate(-left, -top);
 	}
 
-	QRect trect(QRect(left, st::msgServiceMargin.top(), width, height).marginsAdded(-st::msgServicePadding));
+	auto trect = QRect(g.left(), st::msgServiceMargin.top(), g.width(), height).marginsAdded(-st::msgServicePadding);
 
-	paintComplexBubble(p, left, width, message->_text, trect);
-
-	if (width > message->maxWidth()) {
-		left += (width - message->maxWidth()) / 2;
-		width = message->maxWidth();
-	}
+	paintComplexBubble(p, g.left(), g.width(), message->_text, trect);
 
 	p.setBrush(Qt::NoBrush);
 	p.setPen(st::msgServiceFg);

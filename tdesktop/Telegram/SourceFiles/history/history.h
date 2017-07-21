@@ -25,10 +25,10 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/effects/send_action_animations.h"
 #include "base/observer.h"
 
-void historyInit();
+void HistoryInit();
 
 class HistoryItem;
-using SelectedItemSet = QMap<int32, HistoryItem*>;
+using SelectedItemSet = QMap<int, gsl::not_null<HistoryItem*>>;
 
 enum NewMessageType {
 	NewMessageUnread,
@@ -217,6 +217,9 @@ public:
 	HistoryItem *addNewPhoto(MsgId id, MTPDmessage::Flags flags, int32 viaBotId, MsgId replyTo, QDateTime date, int32 from, PhotoData *photo, const QString &caption, const MTPReplyMarkup &markup);
 	HistoryItem *addNewGame(MsgId id, MTPDmessage::Flags flags, int32 viaBotId, MsgId replyTo, QDateTime date, int32 from, GameData *game, const MTPReplyMarkup &markup);
 
+	// Used only internally and for channel admin log.
+	HistoryItem *createItem(const MTPMessage &msg, bool applyServiceAction, bool detachExistingItem);
+
 	void addOlderSlice(const QVector<MTPMessage> &slice);
 	void addNewerSlice(const QVector<MTPMessage> &slice);
 	bool addToOverview(MediaOverviewType type, MsgId msgId, AddToOverviewMethod method);
@@ -382,6 +385,12 @@ public:
 		return _editDraft ? editDraft() : localDraft();
 	}
 
+	QVector<FullMsgId> forwardDraft() const {
+		return _forwardDraft;
+	}
+	SelectedItemSet validateForwardDraft();
+	void setForwardDraft(const SelectedItemSet &items);
+
 	// some fields below are a property of a currently displayed instance of this
 	// conversation history not a property of the conversation history itself
 public:
@@ -474,7 +483,6 @@ protected:
 
 	void clearBlocks(bool leaveItems);
 
-	HistoryItem *createItem(const MTPMessage &msg, bool applyServiceAction, bool detachExistingItem);
 	HistoryItem *createItemForwarded(MsgId id, MTPDmessage::Flags flags, QDateTime date, int32 from, HistoryMessage *msg);
 	HistoryItem *createItemDocument(MsgId id, MTPDmessage::Flags flags, int32 viaBotId, MsgId replyTo, QDateTime date, int32 from, DocumentData *doc, const QString &caption, const MTPReplyMarkup &markup);
 	HistoryItem *createItemPhoto(MsgId id, MTPDmessage::Flags flags, int32 viaBotId, MsgId replyTo, QDateTime date, int32 from, PhotoData *photo, const QString &caption, const MTPReplyMarkup &markup);
@@ -558,6 +566,7 @@ private:
 
 	std::unique_ptr<Data::Draft> _localDraft, _cloudDraft;
 	std::unique_ptr<Data::Draft> _editDraft;
+	QVector<FullMsgId> _forwardDraft;
 
 	using TypingUsers = QMap<UserData*, TimeMs>;
 	TypingUsers _typing;

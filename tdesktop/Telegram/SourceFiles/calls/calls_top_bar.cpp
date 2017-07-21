@@ -23,7 +23,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_calls.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "calls/calls_call.h"
 #include "calls/calls_instance.h"
 #include "styles/style_boxes.h"
@@ -56,8 +56,9 @@ DebugInfoBox::DebugInfoBox(QWidget*, base::weak_unique_ptr<Call> call) : _call(c
 }
 
 void DebugInfoBox::prepare() {
-	setTitle("Call Debug");
-	addButton(lang(lng_close), [this] { closeBox(); });
+	setTitle([] { return QString("Call Debug"); });
+
+	addButton(langFactory(lng_close), [this] { closeBox(); });
 	_text = setInnerWidget(object_ptr<Ui::FlatLabel>(this, st::callDebugLabel));
 	_text->setSelectable(true);
 	updateText();

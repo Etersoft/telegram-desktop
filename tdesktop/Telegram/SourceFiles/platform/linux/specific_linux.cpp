@@ -18,7 +18,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "platform/linux/specific_linux.h"
 
 #include "platform/linux/linux_libs.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "application.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
@@ -278,16 +278,6 @@ void psActivateProcess(uint64 pid) {
 //	objc_activateProgram();
 }
 
-QString psCurrentCountry() {
-	QString country;// = objc_currentCountry();
-	return country.isEmpty() ? QString::fromLatin1(DefaultCountry) : country;
-}
-
-QString psCurrentLanguage() {
-	QString lng;// = objc_currentLang();
-	return lng.isEmpty() ? QString::fromLatin1(DefaultLanguage) : lng;
-}
-
 namespace {
 
 QString getHomeDir() {
@@ -400,6 +390,14 @@ bool TranslucentWindowsSupported(QPoint globalPosition) {
 		}
 	}
 	return false;
+}
+
+QString SystemCountry() {
+	return QString();
+}
+
+QString SystemLanguage() {
+	return QString();
 }
 
 namespace ThirdParty {

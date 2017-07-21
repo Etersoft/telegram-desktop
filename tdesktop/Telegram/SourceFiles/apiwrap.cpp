@@ -22,12 +22,12 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "data/data_drafts.h"
 #include "observer_peer.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "application.h"
 #include "mainwindow.h"
 #include "messenger.h"
 #include "mainwidget.h"
-#include "historywidget.h"
+#include "history/history_widget.h"
 #include "storage/localstorage.h"
 #include "auth_session.h"
 #include "boxes/confirm_box.h"
@@ -44,11 +44,75 @@ constexpr auto kSmallDelayMs = 5;
 
 } // namespace
 
-ApiWrap::ApiWrap()
-: _messageDataResolveDelayed([this] { resolveMessageDatas(); })
+ApiWrap::ApiWrap(gsl::not_null<AuthSession*> session)
+: _session(session)
+, _messageDataResolveDelayed([this] { resolveMessageDatas(); })
 , _webPagesTimer([this] { resolveWebPages(); })
 , _draftsSaveTimer([this] { saveDraftsToCloud(); }) {
+}
+
+void ApiWrap::start() {
 	Window::Theme::Background()->start();
+	requestAppChangelogs();
+}
+
+void ApiWrap::requestAppChangelogs() {
+	auto oldAppVersion = Local::oldMapVersion();
+	if (oldAppVersion > 0 && oldAppVersion < AppVersion) {
+		_changelogSubscription = subscribe(_session->data().moreChatsLoaded(), [this, oldAppVersion] {
+			auto oldVersionString = qsl("%1.%2.%3").arg(oldAppVersion / 1000000).arg((oldAppVersion % 1000000) / 1000).arg(oldAppVersion % 1000);
+			request(MTPhelp_GetAppChangelog(MTP_string(oldVersionString))).done([this, oldAppVersion](const MTPUpdates &result) {
+				applyUpdates(result);
+
+				auto resultEmpty = true;
+				switch (result.type()) {
+				case mtpc_updateShortMessage:
+				case mtpc_updateShortChatMessage:
+				case mtpc_updateShort: resultEmpty = false; break;
+				case mtpc_updatesCombined: resultEmpty = result.c_updatesCombined().vupdates.v.isEmpty(); break;
+				case mtpc_updates: resultEmpty = result.c_updates().vupdates.v.isEmpty(); break;
+				case mtpc_updatesTooLong:
+				case mtpc_updateShortSentMessage: LOG(("API Error: Bad updates type in app changelog.")); break;
+				}
+				if (resultEmpty) {
+					addLocalChangelogs(oldAppVersion);
+				}
+			}).send();
+			unsubscribe(base::take(_changelogSubscription));
+		});
+	}
+}
+
+void ApiWrap::addLocalChangelogs(int oldAppVersion) {
+	auto addedSome = false;
+	auto addLocalChangelog = [this, &addedSome](const QString &text) {
+		auto textWithEntities = TextWithEntities { text };
+		TextUtilities::ParseEntities(textWithEntities, TextParseLinks);
+		App::wnd()->serviceNotification(textWithEntities, MTP_messageMediaEmpty(), unixtime());
+		addedSome = true;
+	};
+	if (cAlphaVersion() || cBetaVersion()) {
+		auto addLocalAlphaChangelog = [this, oldAppVersion, addLocalChangelog](int changeVersion, const char *changes) {
+			if (oldAppVersion < changeVersion) {
+				auto changeVersionString = QString::number(changeVersion / 1000000) + '.' + QString::number((changeVersion % 1000000) / 1000) + ((changeVersion % 1000) ? ('.' + QString::number(changeVersion % 1000)) : QString());
+				auto text = qsl("New in version %1:\n\n").arg(changeVersionString) + QString::fromUtf8(changes).trimmed();
+				addLocalChangelog(text);
+			}
+		};
+		addLocalAlphaChangelog(1001008, "\xE2\x80\x94 Toggle night mode in the main menu.\n");
+		addLocalAlphaChangelog(1001010, "\xE2\x80\x94 Filter added to channel and supergroup event log.\n\xE2\x80\x94 Search by username in privacy exceptions editor fixed.\n\xE2\x80\x94 Adding admins in channels fixed.");
+		addLocalAlphaChangelog(1001011, "\xE2\x80\x94 Send **bold** and __italic__ text in your messages (in addition to already supported `monospace` and ```multiline monospace```).\n\xE2\x80\x94 Search in channel and supergroup admin event log.\n\xE2\x80\x94 Ban members from right click menu in supergroup admin event log.");
+		addLocalAlphaChangelog(1001012, "\xE2\x80\x94 Click on forwarded messages bar to change the recipient chat in case you chose a wrong one first.\n\xE2\x80\x94 Quickly share posts from channels and media messages from bots.\n\xE2\x80\x94 Search in large supergroup members by name.\n\xE2\x80\x94 Search in channel members by name if you're a channel admin.\n\xE2\x80\x94 Copy links to messages in public supergroups.");
+		addLocalAlphaChangelog(1001014, "\xE2\x80\x94 Bug fixes and other minor improvements.");
+	}
+	if (!addedSome) {
+		auto text = lng_new_version_wrap(lt_version, str_const_toString(AppVersionStr), lt_changes, lang(lng_new_version_minor), lt_link, qsl("https://desktop.telegram.org/changelog")).trimmed();
+		addLocalChangelog(text);
+	}
+}
+
+void ApiWrap::applyUpdates(const MTPUpdates &updates, uint64 sentMessageRandomId) {
+	App::main()->feedUpdates(updates, sentMessageRandomId);
 }
 
 void ApiWrap::requestMessageData(ChannelData *channel, MsgId msgId, RequestMessageDataCallback callback) {
@@ -112,10 +176,6 @@ void ApiWrap::resolveMessageDatas() {
 		}
 		++j;
 	}
-}
-
-void ApiWrap::updatesReceived(const MTPUpdates &updates) {
-	App::main()->sentUpdatesReceived(updates);
 }
 
 void ApiWrap::gotMessageDatas(ChannelData *channel, const MTPmessages_Messages &msgs, mtpRequestId requestId) {
@@ -204,9 +264,9 @@ void ApiWrap::gotChatFull(PeerData *peer, const MTPmessages_ChatFull &result, mt
 	auto &vc = d.vchats.v;
 	auto badVersion = false;
 	if (peer->isChat()) {
-		badVersion = (!vc.isEmpty() && vc.at(0).type() == mtpc_chat && vc.at(0).c_chat().vversion.v < peer->asChat()->version);
+		badVersion = (!vc.isEmpty() && vc[0].type() == mtpc_chat && vc[0].c_chat().vversion.v < peer->asChat()->version);
 	} else if (peer->isChannel()) {
-		badVersion = (!vc.isEmpty() && vc.at(0).type() == mtpc_channel && vc.at(0).c_channel().vversion.v < peer->asChannel()->version);
+		badVersion = (!vc.isEmpty() && vc[0].type() == mtpc_channel && vc[0].c_channel().vversion.v < peer->asChannel()->version);
 	}
 
 	App::feedUsers(d.vusers);
@@ -303,6 +363,7 @@ void ApiWrap::gotChatFull(PeerData *peer, const MTPmessages_ChatFull &result, mt
 		channel->setAbout(qs(f.vabout));
 		channel->setMembersCount(f.has_participants_count() ? f.vparticipants_count.v : 0);
 		channel->setAdminsCount(f.has_admins_count() ? f.vadmins_count.v : 0);
+		channel->setRestrictedCount(f.has_banned_count() ? f.vbanned_count.v : 0);
 		channel->setKickedCount(f.has_kicked_count() ? f.vkicked_count.v : 0);
 		channel->setInviteLink((f.vexported_invite.type() == mtpc_chatInviteExported) ? qs(f.vexported_invite.c_chatInviteExported().vlink) : QString());
 		if (auto h = App::historyLoaded(channel->id)) {
@@ -321,23 +382,23 @@ void ApiWrap::gotChatFull(PeerData *peer, const MTPmessages_ChatFull &result, mt
 		}
 		channel->fullUpdated();
 
-		if (canViewAdmins != channel->canViewAdmins()) Notify::peerUpdatedDelayed(channel, Notify::PeerUpdate::Flag::ChannelCanViewAdmins);
-		if (canViewMembers != channel->canViewMembers()) Notify::peerUpdatedDelayed(channel, Notify::PeerUpdate::Flag::ChannelCanViewMembers);
+		if (canViewAdmins != channel->canViewAdmins()
+			|| canViewMembers != channel->canViewMembers()) Notify::peerUpdatedDelayed(channel, Notify::PeerUpdate::Flag::ChannelRightsChanged);
 
 		notifySettingReceived(MTP_inputNotifyPeer(peer->input), f.vnotify_settings);
 	}
 
 	if (req) {
-		QMap<PeerData*, mtpRequestId>::iterator i = _fullPeerRequests.find(peer);
+		auto i = _fullPeerRequests.find(peer);
 		if (i != _fullPeerRequests.cend() && i.value() == req) {
 			_fullPeerRequests.erase(i);
 		}
 	}
 	if (badVersion) {
-		if (peer->isChat()) {
-			peer->asChat()->version = vc.at(0).c_chat().vversion.v;
-		} else if (peer->isChannel()) {
-			peer->asChannel()->version = vc.at(0).c_channel().vversion.v;
+		if (auto chat = peer->asChat()) {
+			chat->version = vc[0].c_chat().vversion.v;
+		} else if (auto channel = peer->asChannel()) {
+			channel->version = vc[0].c_channel().vversion.v;
 		}
 		requestPeer(peer);
 	}
@@ -389,18 +450,18 @@ void ApiWrap::requestPeer(PeerData *peer) {
 			if (auto chats = Api::getChatsFromMessagesChats(result)) {
 				auto &v = chats->v;
 				bool badVersion = false;
-				if (peer->isChat()) {
-					badVersion = (!v.isEmpty() && v.at(0).type() == mtpc_chat && v.at(0).c_chat().vversion.v < peer->asChat()->version);
-				} else if (peer->isChannel()) {
-					badVersion = (!v.isEmpty() && v.at(0).type() == mtpc_channel && v.at(0).c_chat().vversion.v < peer->asChannel()->version);
+				if (auto chat = peer->asChat()) {
+					badVersion = (!v.isEmpty() && v[0].type() == mtpc_chat && v[0].c_chat().vversion.v < chat->version);
+				} else if (auto channel = peer->asChannel()) {
+					badVersion = (!v.isEmpty() && v[0].type() == mtpc_channel && v[0].c_channel().vversion.v < channel->version);
 				}
 				auto chat = App::feedChats(*chats);
 				if (chat == peer) {
 					if (badVersion) {
-						if (peer->isChat()) {
-							peer->asChat()->version = v.at(0).c_chat().vversion.v;
-						} else if (peer->isChannel()) {
-							peer->asChannel()->version = v.at(0).c_channel().vversion.v;
+						if (auto chat = peer->asChat()) {
+							chat->version = v[0].c_chat().vversion.v;
+						} else if (auto channel = peer->asChannel()) {
+							channel->version = v[0].c_channel().vversion.v;
 						}
 						requestPeer(peer);
 					}
@@ -464,7 +525,7 @@ void ApiWrap::requestLastParticipants(ChannelData *channel, bool fromStart) {
 		return;
 	}
 
-	auto needAdmins = channel->amEditor();
+	auto needAdmins = channel->canViewAdmins();
 	auto adminsOutdated = (channel->mgInfo->lastParticipantsStatus & MegagroupInfo::LastParticipantsAdminsOutdated) != 0;
 	if ((needAdmins && adminsOutdated) || channel->lastParticipantsCountOutdated()) {
 		fromStart = true;
@@ -539,19 +600,36 @@ void ApiWrap::lastParticipantsDone(ChannelData *peer, const MTPchannels_ChannelP
 	auto needBotsInfos = false;
 	auto botStatus = peer->mgInfo->botStatus;
 	auto keyboardBotFound = !h || !h->lastKeyboardFrom;
+	auto emptyAdminRights = MTP_channelAdminRights(MTP_flags(0));
+	auto emptyRestrictedRights = MTP_channelBannedRights(MTP_flags(0), MTP_int(0));
 	for_const (auto &participant, v) {
 		auto userId = UserId(0);
-		bool admin = false;
+		auto adminCanEdit = false;
+		auto adminRights = emptyAdminRights;
+		auto restrictedRights = emptyRestrictedRights;
 
 		switch (participant.type()) {
 		case mtpc_channelParticipant: userId = participant.c_channelParticipant().vuser_id.v; break;
 		case mtpc_channelParticipantSelf: userId = participant.c_channelParticipantSelf().vuser_id.v; break;
-		case mtpc_channelParticipantModerator: userId = participant.c_channelParticipantModerator().vuser_id.v; break;
-		case mtpc_channelParticipantEditor: userId = participant.c_channelParticipantEditor().vuser_id.v; admin = true; break;
-		case mtpc_channelParticipantKicked: userId = participant.c_channelParticipantKicked().vuser_id.v; break;
-		case mtpc_channelParticipantCreator: userId = participant.c_channelParticipantCreator().vuser_id.v; admin = true; break;
+		case mtpc_channelParticipantAdmin:
+			userId = participant.c_channelParticipantAdmin().vuser_id.v;
+			adminCanEdit = participant.c_channelParticipantAdmin().is_can_edit();
+			adminRights = participant.c_channelParticipantAdmin().vadmin_rights;
+		break;
+		case mtpc_channelParticipantBanned:
+			userId = participant.c_channelParticipantBanned().vuser_id.v;
+			restrictedRights = participant.c_channelParticipantBanned().vbanned_rights;
+		break;
+		case mtpc_channelParticipantCreator: userId = participant.c_channelParticipantCreator().vuser_id.v; break;
 		}
+		if (!userId) {
+			continue;
+		}
+
 		auto u = App::user(userId);
+		if (participant.type() == mtpc_channelParticipantCreator) {
+			peer->mgInfo->creator = u;
+		}
 		if (bots) {
 			if (u->botInfo) {
 				peer->mgInfo->bots.insert(u);
@@ -566,7 +644,11 @@ void ApiWrap::lastParticipantsDone(ChannelData *peer, const MTPchannels_ChannelP
 		} else {
 			if (peer->mgInfo->lastParticipants.indexOf(u) < 0) {
 				peer->mgInfo->lastParticipants.push_back(u);
-				if (admin) peer->mgInfo->lastAdmins.insert(u);
+				if (adminRights.c_channelAdminRights().vflags.v) {
+					peer->mgInfo->lastAdmins.insert(u, MegagroupInfo::Admin { adminRights, adminCanEdit });
+				} else if (restrictedRights.c_channelBannedRights().vflags.v != 0) {
+					peer->mgInfo->lastRestricted.insert(u, MegagroupInfo::Restricted { restrictedRights });
+				}
 				if (u->botInfo) {
 					peer->mgInfo->bots.insert(u);
 					if (peer->mgInfo->botStatus != 0 && peer->mgInfo->botStatus < 2) {
@@ -625,20 +707,17 @@ void ApiWrap::requestSelfParticipant(ChannelData *channel) {
 		} break;
 		case mtpc_channelParticipantCreator: {
 			auto &d = p.vparticipant.c_channelParticipantCreator();
-			channel->inviter = AuthSession::CurrentUserId();
+			channel->inviter = _session->userId();
 			channel->inviteDate = date(MTP_int(channel->date));
+			if (channel->mgInfo) {
+				channel->mgInfo->creator = App::self();
+			}
 		} break;
-		case mtpc_channelParticipantModerator: {
-			auto &d = p.vparticipant.c_channelParticipantModerator();
+		case mtpc_channelParticipantAdmin: {
+			auto &d = p.vparticipant.c_channelParticipantAdmin();
 			channel->inviter = d.vinviter_id.v;
 			channel->inviteDate = date(d.vdate);
 		} break;
-		case mtpc_channelParticipantEditor: {
-			auto &d = p.vparticipant.c_channelParticipantEditor();
-			channel->inviter = d.vinviter_id.v;
-			channel->inviteDate = date(d.vdate);
-		} break;
-
 		}
 
 		if (App::main()) App::main()->onSelfParticipantUpdated(channel);
@@ -652,44 +731,17 @@ void ApiWrap::requestSelfParticipant(ChannelData *channel) {
 	_selfParticipantRequests.insert(channel, requestId);
 }
 
-void ApiWrap::kickParticipant(PeerData *peer, UserData *user) {
+void ApiWrap::kickParticipant(PeerData *peer, UserData *user, const MTPChannelBannedRights &currentRights) {
 	auto kick = KickRequest(peer, user);
 	if (_kickRequests.contains(kick)) return;
 
 	if (auto channel = peer->asChannel()) {
-		auto requestId = request(MTPchannels_KickFromChannel(channel->inputChannel, user->inputUser, MTP_bool(true))).done([this, peer, user](const MTPUpdates &result) {
-			App::main()->sentUpdatesReceived(result);
+		auto rights = ChannelData::KickedRestrictedRights();
+		auto requestId = request(MTPchannels_EditBanned(channel->inputChannel, user->inputUser, rights)).done([this, channel, user, currentRights, rights](const MTPUpdates &result) {
+			applyUpdates(result);
 
-			_kickRequests.remove(KickRequest(peer, user));
-			if (auto channel = peer->asMegagroup()) {
-				auto megagroupInfo = channel->mgInfo;
-
-				auto i = megagroupInfo->lastParticipants.indexOf(user);
-				if (i >= 0) {
-					megagroupInfo->lastParticipants.removeAt(i);
-				}
-
-				if (channel->membersCount() > 1) {
-					channel->setMembersCount(channel->membersCount() - 1);
-				} else {
-					megagroupInfo->lastParticipantsStatus |= MegagroupInfo::LastParticipantsCountOutdated;
-					megagroupInfo->lastParticipantsCount = 0;
-				}
-				channel->setKickedCount(channel->kickedCount() + 1);
-				if (megagroupInfo->lastAdmins.contains(user)) {
-					megagroupInfo->lastAdmins.remove(user);
-					if (channel->adminsCount() > 1) {
-						channel->setAdminsCount(channel->adminsCount() - 1);
-					}
-					Notify::peerUpdatedDelayed(channel, Notify::PeerUpdate::Flag::AdminsChanged);
-				}
-				megagroupInfo->bots.remove(user);
-				if (megagroupInfo->bots.isEmpty() && megagroupInfo->botStatus > 0) {
-					megagroupInfo->botStatus = -1;
-				}
-			}
-			Notify::peerUpdatedDelayed(peer, Notify::PeerUpdate::Flag::MembersChanged);
-			fullPeerUpdated().notify(peer);
+			_kickRequests.remove(KickRequest(channel, user));
+			channel->applyEditBanned(user, currentRights, rights);
 		}).fail([this, kick](const RPCError &error) {
 			_kickRequests.remove(kick);
 		}).send();
@@ -703,8 +755,8 @@ void ApiWrap::unblockParticipant(PeerData *peer, UserData *user) {
 	if (_kickRequests.contains(kick)) return;
 
 	if (auto channel = peer->asChannel()) {
-		auto requestId = request(MTPchannels_KickFromChannel(channel->inputChannel, user->inputUser, MTP_bool(false))).done([this, peer, user](const MTPUpdates &result) {
-			App::main()->sentUpdatesReceived(result);
+		auto requestId = request(MTPchannels_EditBanned(channel->inputChannel, user->inputUser, MTP_channelBannedRights(MTP_flags(0), MTP_int(0)))).done([this, peer, user](const MTPUpdates &result) {
+			applyUpdates(result);
 
 			_kickRequests.remove(KickRequest(peer, user));
 			if (auto channel = peer->asMegagroup()) {
@@ -877,7 +929,7 @@ void ApiWrap::joinChannel(ChannelData *channel) {
 	} else if (!_channelAmInRequests.contains(channel)) {
 		auto requestId = request(MTPchannels_JoinChannel(channel->inputChannel)).done([this, channel](const MTPUpdates &result) {
 			_channelAmInRequests.remove(channel);
-			updatesReceived(result);
+			applyUpdates(result);
 		}).fail([this, channel](const RPCError &error) {
 			if (error.type() == qstr("CHANNELS_TOO_MUCH")) {
 				Ui::show(Box<InformBox>(lang(lng_join_channel_error)));
@@ -895,7 +947,7 @@ void ApiWrap::leaveChannel(ChannelData *channel) {
 	} else if (!_channelAmInRequests.contains(channel)) {
 		auto requestId = request(MTPchannels_LeaveChannel(channel->inputChannel)).done([this, channel](const MTPUpdates &result) {
 			_channelAmInRequests.remove(channel);
-			updatesReceived(result);
+			applyUpdates(result);
 		}).fail([this, channel](const RPCError &error) {
 			_channelAmInRequests.remove(channel);
 		}).send();
@@ -1128,7 +1180,7 @@ void ApiWrap::saveDraftsToCloud() {
 		if (!textWithTags.tags.isEmpty()) {
 			flags |= MTPmessages_SaveDraft::Flag::f_entities;
 		}
-		auto entities = linksToMTP(ConvertTextTagsToEntities(textWithTags.tags), true);
+		auto entities = TextUtilities::EntitiesToMTP(ConvertTextTagsToEntities(textWithTags.tags), TextUtilities::ConvertOption::SkipLocal);
 
 		cloudDraft->saveRequestId = request(MTPmessages_SaveDraft(MTP_flags(flags), MTP_int(cloudDraft->msgId), history->peer->input, MTP_string(textWithTags.text), entities)).done([this, history](const MTPBool &result, mtpRequestId requestId) {
 			if (auto cloudDraft = history->cloudDraft()) {
@@ -1197,7 +1249,7 @@ PeerData *ApiWrap::notifySettingReceived(MTPInputNotifyPeer notifyPeer, const MT
 		}
 	} break;
 	}
-	AuthSession::Current().notifications().checkDelayed();
+	_session->notifications().checkDelayed();
 	return requestedPeer;
 }
 
@@ -1476,6 +1528,123 @@ void ApiWrap::stickersSaveOrder() {
 			Global::SetLastStickersUpdate(0);
 			App::main()->updateStickers();
 		}).send();
+	}
+}
+
+void ApiWrap::applyUpdatesNoPtsCheck(const MTPUpdates &updates) {
+	switch (updates.type()) {
+	case mtpc_updateShortMessage: {
+		auto &d = updates.c_updateShortMessage();
+		auto flags = mtpCastFlags(d.vflags.v) | MTPDmessage::Flag::f_from_id;
+		App::histories().addNewMessage(MTP_message(MTP_flags(flags), d.vid, d.is_out() ? MTP_int(AuthSession::CurrentUserId()) : d.vuser_id, MTP_peerUser(d.is_out() ? d.vuser_id : MTP_int(AuthSession::CurrentUserId())), d.vfwd_from, d.vvia_bot_id, d.vreply_to_msg_id, d.vdate, d.vmessage, MTP_messageMediaEmpty(), MTPnullMarkup, d.has_entities() ? d.ventities : MTPnullEntities, MTPint(), MTPint()), NewMessageUnread);
+	} break;
+
+	case mtpc_updateShortChatMessage: {
+		auto &d = updates.c_updateShortChatMessage();
+		auto flags = mtpCastFlags(d.vflags.v) | MTPDmessage::Flag::f_from_id;
+		App::histories().addNewMessage(MTP_message(MTP_flags(flags), d.vid, d.vfrom_id, MTP_peerChat(d.vchat_id), d.vfwd_from, d.vvia_bot_id, d.vreply_to_msg_id, d.vdate, d.vmessage, MTP_messageMediaEmpty(), MTPnullMarkup, d.has_entities() ? d.ventities : MTPnullEntities, MTPint(), MTPint()), NewMessageUnread);
+	} break;
+
+	case mtpc_updateShortSentMessage: {
+		auto &d = updates.c_updateShortSentMessage();
+		Q_UNUSED(d); // Sent message data was applied anyway.
+	} break;
+
+	default: Unexpected("Type in applyUpdatesNoPtsCheck()");
+	}
+}
+
+void ApiWrap::applyUpdateNoPtsCheck(const MTPUpdate &update) {
+	switch (update.type()) {
+	case mtpc_updateNewMessage: {
+		auto &d = update.c_updateNewMessage();
+		auto needToAdd = true;
+		if (d.vmessage.type() == mtpc_message) { // index forwarded messages to links _overview
+			if (App::checkEntitiesAndViewsUpdate(d.vmessage.c_message())) { // already in blocks
+				LOG(("Skipping message, because it is already in blocks!"));
+				needToAdd = false;
+			}
+		}
+		if (needToAdd) {
+			App::histories().addNewMessage(d.vmessage, NewMessageUnread);
+		}
+	} break;
+
+	case mtpc_updateReadMessagesContents: {
+		auto &d = update.c_updateReadMessagesContents();
+		auto &v = d.vmessages.v;
+		for (auto i = 0, l = v.size(); i < l; ++i) {
+			if (auto item = App::histItemById(NoChannel, v.at(i).v)) {
+				if (item->isMediaUnread()) {
+					item->markMediaRead();
+					Ui::repaintHistoryItem(item);
+
+					if (item->out() && item->history()->peer->isUser()) {
+						auto when = App::main()->requestingDifference() ? 0 : unixtime();
+						item->history()->peer->asUser()->madeAction(when);
+					}
+				}
+			}
+		}
+	} break;
+
+	case mtpc_updateReadHistoryInbox: {
+		auto &d = update.c_updateReadHistoryInbox();
+		App::feedInboxRead(peerFromMTP(d.vpeer), d.vmax_id.v);
+	} break;
+
+	case mtpc_updateReadHistoryOutbox: {
+		auto &d = update.c_updateReadHistoryOutbox();
+		auto peerId = peerFromMTP(d.vpeer);
+		auto when = App::main()->requestingDifference() ? 0 : unixtime();
+		App::feedOutboxRead(peerId, d.vmax_id.v, when);
+	} break;
+
+	case mtpc_updateWebPage: {
+		auto &d = update.c_updateWebPage();
+		Q_UNUSED(d); // Web page was updated anyway.
+	} break;
+
+	case mtpc_updateDeleteMessages: {
+		auto &d = update.c_updateDeleteMessages();
+		App::feedWereDeleted(NoChannel, d.vmessages.v);
+	} break;
+
+	case mtpc_updateNewChannelMessage: {
+		auto &d = update.c_updateNewChannelMessage();
+		auto needToAdd = true;
+		if (d.vmessage.type() == mtpc_message) { // index forwarded messages to links _overview
+			if (App::checkEntitiesAndViewsUpdate(d.vmessage.c_message())) { // already in blocks
+				LOG(("Skipping message, because it is already in blocks!"));
+				needToAdd = false;
+			}
+		}
+		if (needToAdd) {
+			App::histories().addNewMessage(d.vmessage, NewMessageUnread);
+		}
+	} break;
+
+	case mtpc_updateEditChannelMessage: {
+		auto &d = update.c_updateEditChannelMessage();
+		App::updateEditedMessage(d.vmessage);
+	} break;
+
+	case mtpc_updateEditMessage: {
+		auto &d = update.c_updateEditMessage();
+		App::updateEditedMessage(d.vmessage);
+	} break;
+
+	case mtpc_updateChannelWebPage: {
+		auto &d = update.c_updateChannelWebPage();
+		Q_UNUSED(d); // Web page was updated anyway.
+	} break;
+
+	case mtpc_updateDeleteChannelMessages: {
+		auto &d = update.c_updateDeleteChannelMessages();
+		App::feedWereDeleted(d.vchannel_id.v, d.vmessages.v);
+	} break;
+
+	default: Unexpected("Type in applyUpdateNoPtsCheck()");
 	}
 }
 

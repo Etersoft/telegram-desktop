@@ -136,7 +136,7 @@ std::unique_ptr<Result> Result::create(uint64 queryId, const MTPBotInlineResult 
 
 	case mtpc_botInlineMessageText: {
 		auto &r = message->c_botInlineMessageText();
-		auto entities = r.has_entities() ? entitiesFromMTP(r.ventities.v) : EntitiesInText();
+		auto entities = r.has_entities() ? TextUtilities::EntitiesFromMTP(r.ventities.v) : EntitiesInText();
 		result->sendData = std::make_unique<internal::SendText>(qs(r.vmessage), entities, r.is_no_webpage());
 		if (result->_type == Type::Photo) {
 			result->createPhoto();
@@ -288,6 +288,10 @@ void Result::addToHistory(History *history, MTPDmessage::Flags flags, MsgId msgI
 		markup = *_mtpKeyboard;
 	}
 	sendData->addToHistory(this, history, flags, msgId, fromId, mtpDate, viaBotId, replyToId, markup);
+}
+
+QString Result::getErrorOnSend(History *history) const {
+	return sendData->getErrorOnSend(this, history);
 }
 
 bool Result::getLocationCoords(LocationCoords *outLocation) const {

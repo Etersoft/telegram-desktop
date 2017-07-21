@@ -20,19 +20,20 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "profile/profile_block_channel_members.h"
 
+#include "profile/profile_channel_controllers.h"
 #include "styles/style_profile.h"
 #include "ui/widgets/buttons.h"
-#include "boxes/members_box.h"
 #include "observer_peer.h"
-#include "lang.h"
+#include "mainwidget.h"
+#include "history/history_admin_log_section.h"
+#include "lang/lang_keys.h"
 
 namespace Profile {
 
 using UpdateFlag = Notify::PeerUpdate::Flag;
 
 ChannelMembersWidget::ChannelMembersWidget(QWidget *parent, PeerData *peer) : BlockWidget(parent, peer, lang(lng_profile_participants_section)) {
-	auto observeEvents = UpdateFlag::ChannelCanViewAdmins
-		| UpdateFlag::ChannelCanViewMembers
+	auto observeEvents = UpdateFlag::ChannelRightsChanged
 		| UpdateFlag::AdminsChanged
 		| UpdateFlag::MembersChanged;
 	subscribe(Notify::PeerUpdated(), Notify::PeerUpdatedHandler(observeEvents, [this](const Notify::PeerUpdate &update) {
@@ -47,10 +48,10 @@ void ChannelMembersWidget::notifyPeerUpdated(const Notify::PeerUpdate &update) {
 		return;
 	}
 
-	if (update.flags & (UpdateFlag::ChannelCanViewAdmins | UpdateFlag::AdminsChanged)) {
+	if (update.flags & (UpdateFlag::ChannelRightsChanged | UpdateFlag::AdminsChanged)) {
 		refreshAdmins();
 	}
-	if (update.flags & (UpdateFlag::ChannelCanViewMembers | UpdateFlag::MembersChanged)) {
+	if (update.flags & (UpdateFlag::ChannelRightsChanged | UpdateFlag::MembersChanged)) {
 		refreshMembers();
 	}
 	refreshVisibility();
@@ -71,23 +72,33 @@ void ChannelMembersWidget::addButton(const QString &text, object_ptr<Ui::LeftOut
 }
 
 void ChannelMembersWidget::refreshButtons() {
-	refreshAdmins();
 	refreshMembers();
+	refreshAdmins();
 
 	refreshVisibility();
 }
 
 void ChannelMembersWidget::refreshAdmins() {
-	auto getAdminsText = [this]() -> QString {
+	auto getAdminsText = [this] {
 		if (auto channel = peer()->asChannel()) {
 			if (!channel->isMegagroup() && channel->canViewAdmins()) {
-				int adminsCount = qMax(channel->adminsCount(), 1);
+				auto adminsCount = qMax(channel->adminsCount(), 1);
 				return lng_channel_admins_link(lt_count, adminsCount);
 			}
 		}
 		return QString();
 	};
 	addButton(getAdminsText(), &_admins, SLOT(onAdmins()));
+
+	auto getRecentActionsText = [this] {
+		if (auto channel = peer()->asChannel()) {
+			if (!channel->isMegagroup() && (channel->hasAdminRights() || channel->amCreator())) {
+				return lang(lng_profile_recent_actions);
+			}
+		}
+		return QString();
+	};
+	addButton(getRecentActionsText(), &_recentActions, SLOT(onRecentActions()));
 }
 
 void ChannelMembersWidget::refreshMembers() {
@@ -123,21 +134,30 @@ int ChannelMembersWidget::resizeGetHeight(int newWidth) {
 		newHeight += button->height();
 	};
 
-	resizeButton(_admins);
 	resizeButton(_members);
+	resizeButton(_admins);
+	resizeButton(_recentActions);
 
 	return newHeight;
 }
 
-void ChannelMembersWidget::onAdmins() {
+void ChannelMembersWidget::onMembers() {
 	if (auto channel = peer()->asChannel()) {
-		Ui::show(Box<MembersBox>(channel, MembersFilter::Admins));
+		ParticipantsBoxController::Start(channel, ParticipantsBoxController::Role::Members);
 	}
 }
 
-void ChannelMembersWidget::onMembers() {
+void ChannelMembersWidget::onAdmins() {
 	if (auto channel = peer()->asChannel()) {
-		Ui::show(Box<MembersBox>(channel, MembersFilter::Recent));
+		ParticipantsBoxController::Start(channel, ParticipantsBoxController::Role::Admins);
+	}
+}
+
+void ChannelMembersWidget::onRecentActions() {
+	if (auto channel = peer()->asChannel()) {
+		if (auto main = App::main()) {
+			main->showWideSection(AdminLog::SectionMemento(channel));
+		}
 	}
 }
 

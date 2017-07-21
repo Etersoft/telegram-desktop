@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "ui/countryinput.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "application.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/widgets/multi_select.h"
@@ -212,11 +212,11 @@ void CountryInput::setText(const QString &newText) {
 }
 
 CountrySelectBox::CountrySelectBox(QWidget*)
-: _select(this, st::contactsMultiSelect, lang(lng_country_ph)) {
+: _select(this, st::contactsMultiSelect, langFactory(lng_country_ph)) {
 }
 
 void CountrySelectBox::prepare() {
-	setTitle(lang(lng_country_select));
+	setTitle(langFactory(lng_country_select));
 
 	_select->resizeToWidth(st::boxWidth);
 	_select->setQueryChangedCallback([this](const QString &query) { onFilterUpdate(query); });
@@ -224,7 +224,7 @@ void CountrySelectBox::prepare() {
 
 	_inner = setInnerWidget(object_ptr<Inner>(this), st::countriesScroll, _select->height());
 
-	addButton(lang(lng_close), [this] { closeBox(); });
+	addButton(langFactory(lng_close), [this] { closeBox(); });
 
 	setDimensions(st::boxWidth, st::boxMaxListHeight);
 
@@ -417,21 +417,8 @@ void CountrySelectBox::Inner::mouseReleaseEvent(QMouseEvent *e) {
 }
 
 void CountrySelectBox::Inner::updateFilter(QString filter) {
-	filter = textSearchKey(filter);
-
-	QStringList f;
-	if (!filter.isEmpty()) {
-		QStringList filterList = filter.split(cWordSplit(), QString::SkipEmptyParts);
-		int l = filterList.size();
-
-		f.reserve(l);
-		for (int i = 0; i < l; ++i) {
-			QString filterName = filterList[i].trimmed();
-			if (filterName.isEmpty()) continue;
-			f.push_back(filterName);
-		}
-		filter = f.join(' ');
-	}
+	auto words = TextUtilities::PrepareSearchWords(filter);
+	filter = words.isEmpty() ? QString() : words.join(' ');
 	if (_filter != filter) {
 		_filter = filter;
 
@@ -441,7 +428,7 @@ void CountrySelectBox::Inner::updateFilter(QString filter) {
 			QChar first = _filter[0].toLower();
 			CountriesIds &ids(countriesByLetter[first]);
 
-			QStringList::const_iterator fb = f.cbegin(), fe = f.cend(), fi;
+			QStringList::const_iterator fb = words.cbegin(), fe = words.cend(), fi;
 
 			countriesFiltered.clear();
 			for (CountriesIds::const_iterator i = ids.cbegin(), e = ids.cend(); i != e; ++i) {

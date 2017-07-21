@@ -73,8 +73,6 @@ void searchByHashtag(const QString &tag, PeerData *inPeer);
 void openPeerByName(const QString &username, MsgId msgId = ShowAtUnreadMsgId, const QString &startToken = QString());
 void joinGroupByHash(const QString &hash);
 void stickersBox(const QString &name);
-void openLocalUrl(const QString &url);
-bool forward(const PeerId &peer, ForwardWhatMessages what);
 void removeDialog(History *history);
 void showSettings();
 
@@ -107,7 +105,7 @@ void hideSettingsAndLayer(bool fast = false);
 bool isLayerShown();
 bool isMediaViewShown();
 
-void repaintHistoryItem(const HistoryItem *item);
+void repaintHistoryItem(gsl::not_null<const HistoryItem*> item);
 void autoplayMediaInlineAsync(const FullMsgId &msgId);
 
 void showPeerProfile(const PeerId &peer);
@@ -218,8 +216,6 @@ void finish();
 
 uint64 UserTag();
 
-DeclareReadOnlyVar(QString, LangSystemISO);
-DeclareReadOnlyVar(int32, LangSystem);
 DeclareVar(QByteArray, LastCrashDump);
 DeclareVar(ProxyData, PreLaunchProxy);
 
@@ -380,11 +376,10 @@ DeclareVar(Notify::ScreenCorner, NotificationsCorner);
 DeclareVar(bool, NotificationsDemoIsShown);
 
 DeclareVar(DBIConnectionType, ConnectionType);
+DeclareVar(DBIConnectionType, LastProxyType);
 DeclareVar(bool, TryIPv6);
 DeclareVar(ProxyData, ConnectionProxy);
 DeclareRefVar(base::Observable<void>, ConnectionTypeChanged);
-
-DeclareRefVar(base::Observable<void>, ChooseCustomLang);
 
 DeclareVar(int, AutoLock);
 DeclareVar(bool, LocalPasscode);

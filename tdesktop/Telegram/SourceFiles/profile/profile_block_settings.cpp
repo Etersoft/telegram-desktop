@@ -20,147 +20,26 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "profile/profile_block_settings.h"
 
+#include "profile/profile_channel_controllers.h"
+#include "history/history_admin_log_section.h"
 #include "styles/style_profile.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/checkbox.h"
-#include "boxes/confirm_box.h"
 #include "boxes/contacts_box.h"
-#include "boxes/peer_list_box.h"
+#include "boxes/confirm_box.h"
 #include "observer_peer.h"
 #include "auth_session.h"
 #include "mainwidget.h"
 #include "apiwrap.h"
-#include "lang.h"
-
-#include "mainwindow.h" // tmp
+#include "lang/lang_keys.h"
 
 namespace Profile {
-namespace {
-
-constexpr auto kBlockedPerPage = 40;
-
-class BlockedBoxController : public PeerListBox::Controller, private base::Subscriber, private MTP::Sender {
-public:
-	BlockedBoxController(ChannelData *channel) : _channel(channel) {
-	}
-
-	void prepare() override;
-	void rowClicked(PeerListBox::Row *row) override;
-	void rowActionClicked(PeerListBox::Row *row) override;
-	void preloadRows() override;
-
-private:
-	bool appendRow(UserData *user);
-	bool prependRow(UserData *user);
-	std::unique_ptr<PeerListBox::Row> createRow(UserData *user) const;
-
-	ChannelData *_channel = nullptr;
-	int _offset = 0;
-	mtpRequestId _loadRequestId = 0;
-	bool _allLoaded = false;
-
-};
-
-void BlockedBoxController::prepare() {
-	view()->setTitle(lang(lng_blocked_list_title));
-	view()->addButton(lang(lng_close), [this] { view()->closeBox(); });
-	view()->setAboutText(lang(lng_contacts_loading));
-	view()->refreshRows();
-
-	preloadRows();
-}
-
-void BlockedBoxController::preloadRows() {
-	if (_loadRequestId || _allLoaded) {
-		return;
-	}
-
-	_loadRequestId = request(MTPchannels_GetParticipants(_channel->inputChannel, MTP_channelParticipantsKicked(), MTP_int(_offset), MTP_int(kBlockedPerPage))).done([this](const MTPchannels_ChannelParticipants &result) {
-		Expects(result.type() == mtpc_channels_channelParticipants);
-
-		_loadRequestId = 0;
-
-		if (!_offset) {
-			view()->setAboutText(lang(lng_group_blocked_list_about));
-		}
-		auto &participants = result.c_channels_channelParticipants();
-		App::feedUsers(participants.vusers);
-
-		auto &list = participants.vparticipants.v;
-		if (list.isEmpty()) {
-			_allLoaded = true;
-		} else {
-			for_const (auto &participant, list) {
-				++_offset;
-				if (participant.type() != mtpc_channelParticipantKicked) {
-					LOG(("API Error: Non kicked participant got while requesting for kicked participants: %1").arg(participant.type()));
-					continue;
-				}
-				auto &kicked = participant.c_channelParticipantKicked();
-				auto userId = kicked.vuser_id.v;
-				if (auto user = App::userLoaded(userId)) {
-					appendRow(user);
-				}
-			}
-		}
-		view()->refreshRows();
-	}).fail([this](const RPCError &error) {
-		_loadRequestId = 0;
-	}).send();
-}
-
-void BlockedBoxController::rowClicked(PeerListBox::Row *row) {
-	Ui::showPeerHistoryAsync(row->peer()->id, ShowAtUnreadMsgId);
-}
-
-void BlockedBoxController::rowActionClicked(PeerListBox::Row *row) {
-	auto user = row->peer()->asUser();
-	Expects(user != nullptr);
-
-	view()->removeRow(row);
-	view()->refreshRows();
-
-	AuthSession::Current().api().unblockParticipant(_channel, user);
-}
-
-bool BlockedBoxController::appendRow(UserData *user) {
-	if (view()->findRow(user->id)) {
-		return false;
-	}
-	view()->appendRow(createRow(user));
-	return true;
-}
-
-bool BlockedBoxController::prependRow(UserData *user) {
-	if (view()->findRow(user->id)) {
-		return false;
-	}
-	view()->prependRow(createRow(user));
-	return true;
-}
-
-std::unique_ptr<PeerListBox::Row> BlockedBoxController::createRow(UserData *user) const {
-	auto row = std::make_unique<PeerListRowWithLink>(user);
-	row->setActionLink(lang(lng_blocked_list_unblock));
-	auto status = [user]() -> QString {
-		if (user->botInfo) {
-			return lang(lng_status_bot);
-		} else if (user->phone().isEmpty()) {
-			return lang(lng_blocked_list_unknown_phone);
-		}
-		return App::formatPhone(user->phone());
-	};
-	row->setCustomStatus(status());
-	return std::move(row);
-}
-
-} // namespace
 
 using UpdateFlag = Notify::PeerUpdate::Flag;
 
 SettingsWidget::SettingsWidget(QWidget *parent, PeerData *peer) : BlockWidget(parent, peer, lang(lng_profile_settings_section))
 , _enableNotifications(this, lang(lng_profile_enable_notifications), true, st::defaultCheckbox) {
-	connect(_enableNotifications, SIGNAL(changed()), this, SLOT(onNotificationsChange()));
+	subscribe(_enableNotifications->checkedChanged, [this](bool checked) { onNotificationsChange(); });
 
 	Notify::PeerUpdate::Flags observeEvents = UpdateFlag::NotificationsEnabled;
 	if (auto chat = peer->asChat()) {
@@ -168,10 +47,7 @@ SettingsWidget::SettingsWidget(QWidget *parent, PeerData *peer) : BlockWidget(pa
 			observeEvents |= UpdateFlag::ChatCanEdit | UpdateFlag::InviteLinkChanged;
 		}
 	} else if (auto channel = peer->asChannel()) {
-		if (channel->amCreator()) {
-			observeEvents |= UpdateFlag::UsernameChanged | UpdateFlag::InviteLinkChanged;
-		}
-		observeEvents |= UpdateFlag::ChannelAmEditor | UpdateFlag::BlockedUsersChanged;
+		observeEvents |= UpdateFlag::ChannelRightsChanged | UpdateFlag::BannedUsersChanged | UpdateFlag::UsernameChanged | UpdateFlag::InviteLinkChanged;
 	}
 	subscribe(Notify::PeerUpdated(), Notify::PeerUpdatedHandler(observeEvents, [this](const Notify::PeerUpdate &update) {
 		notifyPeerUpdated(update);
@@ -191,14 +67,14 @@ void SettingsWidget::notifyPeerUpdated(const Notify::PeerUpdate &update) {
 	if (update.flags & UpdateFlag::NotificationsEnabled) {
 		refreshEnableNotifications();
 	}
-	if (update.flags & (UpdateFlag::ChatCanEdit | UpdateFlag::UsernameChanged | UpdateFlag::InviteLinkChanged)) {
+	if (update.flags & (UpdateFlag::ChannelRightsChanged | UpdateFlag::ChatCanEdit | UpdateFlag::UsernameChanged | UpdateFlag::InviteLinkChanged)) {
 		refreshInviteLinkButton();
 	}
-	if (update.flags & (UpdateFlag::ChatCanEdit)) {
+	if (update.flags & (UpdateFlag::ChannelRightsChanged | UpdateFlag::ChatCanEdit)) {
 		refreshManageAdminsButton();
 	}
-	if ((update.flags & UpdateFlag::ChannelAmEditor) || (update.flags & UpdateFlag::BlockedUsersChanged)) {
-		refreshManageBlockedUsersButton();
+	if (update.flags & (UpdateFlag::ChannelRightsChanged | UpdateFlag::BannedUsersChanged)) {
+		refreshManageBannedUsersButton();
 	}
 
 	contentSizeUpdated();
@@ -221,7 +97,9 @@ int SettingsWidget::resizeGetHeight(int newWidth) {
 		newHeight += button->height();
 	};
 	moveLink(_manageAdmins);
-	moveLink(_manageBlockedUsers);
+	moveLink(_recentActions);
+	moveLink(_manageBannedUsers);
+	moveLink(_manageRestrictedUsers);
 	moveLink(_inviteLink);
 
 	newHeight += st::profileBlockMarginBottom;
@@ -231,7 +109,7 @@ int SettingsWidget::resizeGetHeight(int newWidth) {
 void SettingsWidget::refreshButtons() {
 	refreshEnableNotifications();
 	refreshManageAdminsButton();
-	refreshManageBlockedUsersButton();
+	refreshManageBannedUsersButton();
 	refreshInviteLinkButton();
 }
 
@@ -250,7 +128,7 @@ void SettingsWidget::refreshManageAdminsButton() {
 		if (auto chat = peer()->asChat()) {
 			return (chat->amCreator() && chat->canEdit());
 		} else if (auto channel = peer()->asMegagroup()) {
-			return channel->amCreator();
+			return channel->hasAdminRights() || channel->amCreator();
 		}
 		return false;
 	};
@@ -260,20 +138,46 @@ void SettingsWidget::refreshManageAdminsButton() {
 		_manageAdmins->show();
 		connect(_manageAdmins, SIGNAL(clicked()), this, SLOT(onManageAdmins()));
 	}
-}
 
-void SettingsWidget::refreshManageBlockedUsersButton() {
-	auto hasManageBlockedUsers = [this] {
+	auto hasRecentActions = [this] {
 		if (auto channel = peer()->asMegagroup()) {
-			return (channel->amCreator() || channel->amEditor()) && (channel->kickedCount() > 0);
+			return channel->hasAdminRights() || channel->amCreator();
 		}
 		return false;
 	};
-	_manageBlockedUsers.destroy();
-	if (hasManageBlockedUsers()) {
-		_manageBlockedUsers.create(this, lang(lng_profile_manage_blocklist), st::defaultLeftOutlineButton);
-		_manageBlockedUsers->show();
-		connect(_manageBlockedUsers, SIGNAL(clicked()), this, SLOT(onManageBlockedUsers()));
+	_recentActions.destroy();
+	if (hasRecentActions()) {
+		_recentActions.create(this, lang(lng_profile_recent_actions), st::defaultLeftOutlineButton);
+		_recentActions->show();
+		connect(_recentActions, SIGNAL(clicked()), this, SLOT(onRecentActions()));
+	}
+}
+
+void SettingsWidget::refreshManageBannedUsersButton() {
+	auto hasManageBannedUsers = [this] {
+		if (auto channel = peer()->asMegagroup()) {
+			return channel->canViewBanned() && (channel->kickedCount() > 0);
+		}
+		return false;
+	};
+	_manageBannedUsers.destroy();
+	if (hasManageBannedUsers()) {
+		_manageBannedUsers.create(this, lang(lng_profile_manage_blocklist), st::defaultLeftOutlineButton);
+		_manageBannedUsers->show();
+		connect(_manageBannedUsers, SIGNAL(clicked()), this, SLOT(onManageBannedUsers()));
+	}
+
+	auto hasManageRestrictedUsers = [this] {
+		if (auto channel = peer()->asMegagroup()) {
+			return channel->canViewBanned() && (channel->restrictedCount() > 0);
+		}
+		return false;
+	};
+	_manageRestrictedUsers.destroy();
+	if (hasManageRestrictedUsers()) {
+		_manageRestrictedUsers.create(this, lang(lng_profile_manage_restrictedlist), st::defaultLeftOutlineButton);
+		_manageRestrictedUsers->show();
+		connect(_manageRestrictedUsers, SIGNAL(clicked()), this, SLOT(onManageRestrictedUsers()));
 	}
 }
 
@@ -284,7 +188,7 @@ void SettingsWidget::refreshInviteLinkButton() {
 				return lang(chat->inviteLink().isEmpty() ? lng_group_invite_create : lng_group_invite_create_new);
 			}
 		} else if (auto channel = peer()->asChannel()) {
-			if (channel->amCreator() && !channel->isPublic()) {
+			if (channel->canHaveInviteLink() && !channel->isPublic()) {
 				return lang(channel->inviteLink().isEmpty() ? lng_group_invite_create : lng_group_invite_create_new);
 			}
 		}
@@ -308,13 +212,27 @@ void SettingsWidget::onManageAdmins() {
 	if (auto chat = peer()->asChat()) {
 		Ui::show(Box<ContactsBox>(chat, MembersFilter::Admins));
 	} else if (auto channel = peer()->asChannel()) {
-		Ui::show(Box<MembersBox>(channel, MembersFilter::Admins));
+		ParticipantsBoxController::Start(channel, ParticipantsBoxController::Role::Admins);
 	}
 }
 
-void SettingsWidget::onManageBlockedUsers() {
+void SettingsWidget::onRecentActions() {
+	if (auto channel = peer()->asChannel()) {
+		if (auto main = App::main()) {
+			main->showWideSection(AdminLog::SectionMemento(channel));
+		}
+	}
+}
+
+void SettingsWidget::onManageBannedUsers() {
 	if (auto channel = peer()->asMegagroup()) {
-		Ui::show(Box<PeerListBox>(std::make_unique<BlockedBoxController>(channel)));
+		ParticipantsBoxController::Start(channel, ParticipantsBoxController::Role::Kicked);
+	}
+}
+
+void SettingsWidget::onManageRestrictedUsers() {
+	if (auto channel = peer()->asMegagroup()) {
+		ParticipantsBoxController::Start(channel, ParticipantsBoxController::Role::Restricted);
 	}
 }
 

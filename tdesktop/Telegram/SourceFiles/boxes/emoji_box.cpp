@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/emoji_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
 
@@ -79,10 +79,10 @@ EmojiBox::EmojiBox(QWidget*) : _esize(Ui::Emoji::Size(Ui::Emoji::Index() + 1)) {
 }
 
 void EmojiBox::prepare() {
-	setTitle(lang(lng_settings_emoji_list));
+	setTitle(langFactory(lng_settings_emoji_list));
 	fillBlocks();
 
-	addButton(lang(lng_close), [this] { closeBox(); });
+	addButton(langFactory(lng_close), [this] { closeBox(); });
 
 	_blockHeight = st::emojiReplaceInnerHeight;
 

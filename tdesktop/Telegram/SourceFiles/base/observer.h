@@ -229,10 +229,14 @@ private:
 				break;
 			}
 		} while (_current);
+	}
 
+	bool destroyMeIfEmpty() const {
 		if (empty()) {
 			_observable->_data.reset();
+			return true;
 		}
+		return false;
 	}
 
 	CommonObservable<EventType, Handler> *_observable = nullptr;
@@ -282,6 +286,9 @@ private:
 			this->notifyEnumerate([this, &event]() {
 				this->_current->handler(event);
 			});
+			if (this->destroyMeIfEmpty()) {
+				return;
+			}
 		}
 		_handling = false;
 		UnregisterActiveObservable(&this->_callHandlers);
@@ -329,6 +336,9 @@ private:
 			this->notifyEnumerate([this]() {
 				this->_current->handler();
 			});
+			if (this->destroyMeIfEmpty()) {
+				return;
+			}
 		}
 		_handling = false;
 		UnregisterActiveObservable(&this->_callHandlers);
@@ -357,9 +367,9 @@ class Observable : public internal::BaseObservable<EventType, Handler, base::typ
 public:
 	Observable() = default;
 	Observable(const Observable &other) = delete;
-	Observable(Observable &&other) = default;
+	Observable(Observable &&other) = delete;
 	Observable &operator=(const Observable &other) = delete;
-	Observable &operator=(Observable &&other) = default;
+	Observable &operator=(Observable &&other) = delete;
 
 };
 

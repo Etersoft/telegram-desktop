@@ -219,6 +219,9 @@ QByteArray DcOptions::serialize() const {
 
 	auto size = sizeof(qint32);
 	for (auto &item : _data) {
+		if (isTemporaryDcId(item.first)) {
+			continue;
+		}
 		size += sizeof(qint32) + sizeof(qint32) + sizeof(qint32); // id + flags + port
 		size += sizeof(qint32) + item.second.ip.size();
 	}
@@ -254,6 +257,9 @@ QByteArray DcOptions::serialize() const {
 		stream.setVersion(QDataStream::Qt_5_1);
 		stream << qint32(_data.size());
 		for (auto &item : _data) {
+			if (isTemporaryDcId(item.first)) {
+				continue;
+			}
 			stream << qint32(item.second.id) << qint32(item.second.flags) << qint32(item.second.port);
 			stream << qint32(item.second.ip.size());
 			stream.writeRawData(item.second.ip.data(), item.second.ip.size());
@@ -332,7 +338,9 @@ DcOptions::Ids DcOptions::configEnumDcIds() const {
 		ReadLocker lock(this);
 		result.reserve(_data.size());
 		for (auto &item : _data) {
-			if (!isCdnDc(item.second.flags) && !base::contains(result, item.second.id)) {
+			if (!isCdnDc(item.second.flags)
+				&& !isTemporaryDcId(item.first)
+				&& !base::contains(result, item.second.id)) {
 				result.push_back(item.second.id);
 			}
 		}
@@ -342,6 +350,9 @@ DcOptions::Ids DcOptions::configEnumDcIds() const {
 }
 
 DcType DcOptions::dcType(ShiftedDcId shiftedDcId) const {
+	if (isTemporaryDcId(shiftedDcId)) {
+		return DcType::Temporary;
+	}
 	ReadLocker lock(this);
 	if (_cdnDcIds.find(bareDcId(shiftedDcId)) != _cdnDcIds.cend()) {
 		return DcType::Cdn;
@@ -397,18 +408,24 @@ bool DcOptions::getDcRSAKey(DcId dcId, const QVector<MTPlong> &fingerprints, int
 
 DcOptions::Variants DcOptions::lookup(DcId dcId, DcType type) const {
 	auto lookupDesiredFlags = [type](int address, int protocol) -> std::vector<MTPDdcOption::Flags> {
+		auto throughProxy = (Global::ConnectionType() != dbictAuto);
+
 		switch (type) {
-		case DcType::Regular: {
+		case DcType::Regular:
+		case DcType::Temporary: {
 			switch (address) {
 			case Variants::IPv4: {
 				switch (protocol) {
 				case Variants::Tcp: return {
 					// Regular TCP IPv4
+					throughProxy ? (MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_tcpo_only),
+					throughProxy ? qFlags(MTPDdcOption::Flag::f_static) : MTPDdcOption::Flags(0),
 					qFlags(MTPDdcOption::Flag::f_tcpo_only),
 					MTPDdcOption::Flags(0)
 				};
 				case Variants::Http: return {
 					// Regular HTTP IPv4
+					throughProxy ? qFlags(MTPDdcOption::Flag::f_static) : MTPDdcOption::Flags(0),
 					MTPDdcOption::Flags(0),
 				};
 				}
@@ -417,11 +434,14 @@ DcOptions::Variants DcOptions::lookup(DcId dcId, DcType type) const {
 				switch (protocol) {
 				case Variants::Tcp: return {
 					// Regular TCP IPv6
+					throughProxy ? (MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
+					throughProxy ? (MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_ipv6),
 					(MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
 					qFlags(MTPDdcOption::Flag::f_ipv6),
 				};
 				case Variants::Http: return {
 					// Regular HTTP IPv6
+					throughProxy ? (MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_ipv6),
 					qFlags(MTPDdcOption::Flag::f_ipv6),
 				};
 				}
@@ -434,14 +454,20 @@ DcOptions::Variants DcOptions::lookup(DcId dcId, DcType type) const {
 				switch (protocol) {
 				case Variants::Tcp: return {
 					// Media download TCP IPv4
-					(MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_tcpo_only),
-					qFlags(MTPDdcOption::Flag::f_tcpo_only),
+					throughProxy ? (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_tcpo_only),
+					throughProxy ? (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_tcpo_only),
 					qFlags(MTPDdcOption::Flag::f_media_only),
+					throughProxy ? qFlags(MTPDdcOption::Flag::f_static) : MTPDdcOption::Flags(0),
+					(MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_tcpo_only),
+					throughProxy ? (MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_tcpo_only),
+					throughProxy ? qFlags(MTPDdcOption::Flag::f_tcpo_only) : qFlags(MTPDdcOption::Flag::f_media_only),
 					MTPDdcOption::Flags(0),
 				};
 				case Variants::Http: return {
 					// Media download HTTP IPv4
+					throughProxy ? (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_media_only),
 					qFlags(MTPDdcOption::Flag::f_media_only),
+					throughProxy ? qFlags(MTPDdcOption::Flag::f_static) : MTPDdcOption::Flags(0),
 					MTPDdcOption::Flags(0),
 				};
 				}
@@ -450,14 +476,20 @@ DcOptions::Variants DcOptions::lookup(DcId dcId, DcType type) const {
 				switch (protocol) {
 				case Variants::Tcp: return {
 					// Media download TCP IPv6
-					(MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
-					(MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
+					throughProxy ? (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
+					throughProxy ? (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
 					(MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_ipv6),
+					throughProxy ? (MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_ipv6),
+					(MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
+					throughProxy ? (MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
+					throughProxy ? (MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6) : (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_ipv6),
 					qFlags(MTPDdcOption::Flag::f_ipv6)
 				};
 				case Variants::Http: return {
 					// Media download HTTP IPv6
+					throughProxy ? (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_ipv6),
 					(MTPDdcOption::Flag::f_media_only | MTPDdcOption::Flag::f_ipv6),
+					throughProxy ? (MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_ipv6),
 					qFlags(MTPDdcOption::Flag::f_ipv6),
 				};
 				}
@@ -470,11 +502,14 @@ DcOptions::Variants DcOptions::lookup(DcId dcId, DcType type) const {
 				switch (protocol) {
 				case Variants::Tcp: return {
 					// CDN TCP IPv4
+					throughProxy ? (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_tcpo_only),
+					throughProxy ? (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_cdn),
 					(MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_tcpo_only),
 					qFlags(MTPDdcOption::Flag::f_cdn),
 				};
 				case Variants::Http: return {
 					// CDN HTTP IPv4
+					throughProxy ? (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_static) : qFlags(MTPDdcOption::Flag::f_cdn),
 					qFlags(MTPDdcOption::Flag::f_cdn),
 				};
 				}
@@ -483,11 +518,14 @@ DcOptions::Variants DcOptions::lookup(DcId dcId, DcType type) const {
 				switch (protocol) {
 				case Variants::Tcp: return {
 					// CDN TCP IPv6
+					throughProxy ? (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_tcpo_only),
+					throughProxy ? (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_ipv6),
 					(MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_tcpo_only | MTPDdcOption::Flag::f_ipv6),
 					(MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_ipv6),
 				};
 				case Variants::Http: return {
 					// CDN HTTP IPv6
+					throughProxy ? (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_ipv6 | MTPDdcOption::Flag::f_static) : (MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_ipv6),
 					(MTPDdcOption::Flag::f_cdn | MTPDdcOption::Flag::f_ipv6),
 				};
 				}

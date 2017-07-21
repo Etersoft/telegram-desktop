@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/about_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "autoupdater.h"
@@ -39,9 +39,10 @@ AboutBox::AboutBox(QWidget *parent)
 }
 
 void AboutBox::prepare() {
-	setTitle(qsl("Telegram Desktop"));
+	constexpr auto test = std::is_convertible<const char*, QString>::value;
+	setTitle([] { return qsl("Telegram Desktop"); });
 
-	addButton(lang(lng_close), [this] { closeBox(); });
+	addButton(langFactory(lng_close), [this] { closeBox(); });
 
 	_text3->setRichText(lng_about_text_3(lt_faq_open, qsl("[a href=\"%1\"]").arg(telegramFaqLink()), lt_faq_close, qsl("[/a]")));
 
@@ -88,13 +89,11 @@ void AboutBox::keyPressEvent(QKeyEvent *e) {
 }
 
 QString telegramFaqLink() {
-	QString result = qsl("https://telegram.org/faq");
-	if (cLang() > languageDefault && cLang() < languageCount) {
-		const char *code = LanguageCodes[cLang()].c_str();
-		if (qstr("de") == code || qstr("es") == code || qstr("it") == code || qstr("ko") == code) {
-			result += qsl("/") + code;
-		} else if (qstr("pt_BR") == code) {
-			result += qsl("/br");
+	auto result = qsl("https://telegram.org/faq");
+	auto language = Lang::Current().id();
+	for (auto faqLanguage : { "de", "es", "it", "ko", "br" }) {
+		if (language.startsWith(QLatin1String(faqLanguage))) {
+			result.append('/').append(faqLanguage);
 		}
 	}
 	return result;

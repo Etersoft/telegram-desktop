@@ -118,6 +118,13 @@ mainMenu: Menu(defaultMenu) {
 	itemFont: semiboldFont;
 	itemIconPosition: point(28px, 10px);
 	itemPadding: margins(76px, 13px, 28px, 13px);
+	itemToggle: Toggle(defaultMenuToggle) {
+		toggledFg: mainMenuCoverBg;
+	}
+	itemToggleOver: Toggle(defaultMenuToggleOver) {
+		toggledFg: mainMenuCoverBg;
+	}
+	itemToggleShift: 11px;
 }
 mainMenuNewGroup: icon {{ "menu_new_group", menuIconFg }};
 mainMenuNewGroupOver: icon {{ "menu_new_group", menuIconFgOver }};
@@ -129,8 +136,8 @@ mainMenuCalls: icon {{ "menu_calls", menuIconFg }};
 mainMenuCallsOver: icon {{ "menu_calls", menuIconFgOver }};
 mainMenuSettings: icon {{ "menu_settings", menuIconFg }};
 mainMenuSettingsOver: icon {{ "menu_settings", menuIconFgOver }};
-mainMenuHelp: icon {{ "menu_help", menuIconFg }};
-mainMenuHelpOver: icon {{ "menu_help", menuIconFgOver }};
+mainMenuNightMode: icon {{ "menu_night_mode", menuIconFg }};
+mainMenuNightModeOver: icon {{ "menu_night_mode", menuIconFgOver }};
 mainMenuFooterLeft: 30px;
 mainMenuTelegramLabel: FlatLabel(defaultFlatLabel) {
 	align: align(left);
@@ -247,14 +254,14 @@ topBarClearButton: RoundButton(defaultLightButton) {
 	width: -18px;
 }
 topBarSearch: IconButton {
-	width: 44px;
+	width: 40px;
 	height: topBarHeight;
 
 	icon: icon {{ "title_search-flip_horizontal", menuIconFg }};
 	iconOver: icon {{ "title_search-flip_horizontal", menuIconFgOver }};
-	iconPosition: point(15px, 18px);
+	iconPosition: point(11px, 19px);
 
-	rippleAreaPosition: point(4px, 7px);
+	rippleAreaPosition: point(0px, 7px);
 	rippleAreaSize: 40px;
 	ripple: RippleAnimation(defaultRippleAnimation) {
 		color: windowBgOver;
@@ -264,7 +271,10 @@ topBarCall: IconButton(topBarSearch) {
 	icon: icon {{ "add_contact_phone", menuIconFg }};
 	iconOver: icon {{ "add_contact_phone", menuIconFgOver }};
 }
+topBarCallSkip: 4px;
 topBarMenuToggle: IconButton(topBarSearch) {
+	width: 44px;
+
 	icon: icon {{ "title_menu_dots", menuIconFg }};
 	iconOver: icon {{ "title_menu_dots", menuIconFgOver }};
 	iconPosition: point(16px, 17px);
@@ -273,10 +283,6 @@ topBarMenuToggle: IconButton(topBarSearch) {
 }
 topBarActionSkip: 10px;
 
-PeerAvatarButton {
-	size: pixels;
-	photoSize: pixels;
-}
 topBarInfoButton: PeerAvatarButton {
 	size: topBarHeight;
 	photoSize: 42px;

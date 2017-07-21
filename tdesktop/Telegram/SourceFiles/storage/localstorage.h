@@ -160,8 +160,11 @@ bool readBackground();
 void writeTheme(const QString &pathRelative, const QString &pathAbsolute, const QByteArray &content, const Window::Theme::Cached &cache);
 void clearTheme();
 bool hasTheme();
+QString themeAbsolutePath();
 QString themePaletteAbsolutePath();
 bool copyThemeColorsToPalette(const QString &file);
+
+void writeLangPack();
 
 void writeRecentHashtagsAndBots();
 void readRecentHashtagsAndBots();

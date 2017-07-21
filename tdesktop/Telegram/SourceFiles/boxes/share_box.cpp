@@ -24,7 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_boxes.h"
 #include "styles/style_history.h"
 #include "observer_peer.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "base/qthelp_url.h"
@@ -34,6 +34,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/toast/toast.h"
 #include "ui/widgets/multi_select.h"
 #include "history/history_media_types.h"
+#include "history/history_message.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/scroll_area.h"
 #include "window/themes/window_theme.h"
@@ -45,7 +46,7 @@ ShareBox::ShareBox(QWidget*, CopyCallback &&copyCallback, SubmitCallback &&submi
 : _copyCallback(std::move(copyCallback))
 , _submitCallback(std::move(submitCallback))
 , _filterCallback(std::move(filterCallback))
-, _select(this, st::contactsMultiSelect, lang(lng_participant_filter))
+, _select(this, st::contactsMultiSelect, langFactory(lng_participant_filter))
 , _searchTimer(this) {
 }
 
@@ -53,7 +54,7 @@ void ShareBox::prepare() {
 	_select->resizeToWidth(st::boxWideWidth);
 	myEnsureResized(_select);
 
-	setTitle(lang(lng_share_title));
+	setTitle(langFactory(lng_share_title));
 
 	_inner = setInnerWidget(object_ptr<Inner>(this, std::move(_filterCallback)), getTopScrollSkip());
 	connect(_inner, SIGNAL(mustScrollTo(int,int)), this, SLOT(onMustScrollTo(int,int)));
@@ -207,11 +208,11 @@ void ShareBox::updateButtons() {
 void ShareBox::createButtons() {
 	clearButtons();
 	if (_hasSelected) {
-		addButton(lang(lng_share_confirm), [this] { onSubmit(); });
-	} else {
-		addButton(lang(lng_share_copy_link), [this] { onCopyLink(); });
+		addButton(langFactory(lng_share_confirm), [this] { onSubmit(); });
+	} else if (_copyCallback) {
+		addButton(langFactory(lng_share_copy_link), [this] { onCopyLink(); });
 	}
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 }
 
 void ShareBox::onFilterUpdate(const QString &query) {
@@ -674,21 +675,9 @@ bool ShareBox::Inner::hasSelected() const {
 
 void ShareBox::Inner::updateFilter(QString filter) {
 	_lastQuery = filter.toLower().trimmed();
-	filter = textSearchKey(filter);
 
-	QStringList f;
-	if (!filter.isEmpty()) {
-		QStringList filterList = filter.split(cWordSplit(), QString::SkipEmptyParts);
-		int l = filterList.size();
-
-		f.reserve(l);
-		for (int i = 0; i < l; ++i) {
-			QString filterName = filterList[i].trimmed();
-			if (filterName.isEmpty()) continue;
-			f.push_back(filterName);
-		}
-		filter = f.join(' ');
-	}
+	auto words = TextUtilities::PrepareSearchWords(_lastQuery);
+	filter = words.isEmpty() ? QString() : words.join(' ');
 	if (_filter != filter) {
 		_filter = filter;
 
@@ -701,10 +690,10 @@ void ShareBox::Inner::updateFilter(QString filter) {
 		if (_filter.isEmpty()) {
 			refresh();
 		} else {
-			QStringList::const_iterator fb = f.cbegin(), fe = f.cend(), fi;
+			QStringList::const_iterator fb = words.cbegin(), fe = words.cend(), fi;
 
 			_filtered.clear();
-			if (!f.isEmpty()) {
+			if (!words.isEmpty()) {
 				const Dialogs::List *toFilter = nullptr;
 				if (!_chatsIndexed->isEmpty()) {
 					for (fi = fb; fi != fe; ++fi) {
@@ -809,7 +798,7 @@ QVector<PeerData*> ShareBox::Inner::selected() const {
 	return result;
 }
 
-QString appendShareGameScoreUrl(const QString &url, const FullMsgId &fullId) {
+QString AppendShareGameScoreUrl(const QString &url, const FullMsgId &fullId) {
 	auto shareHashData = QByteArray(0x10, Qt::Uninitialized);
 	auto shareHashDataInts = reinterpret_cast<int32*>(shareHashData.data());
 	auto channel = fullId.channel ? App::channelLoaded(fullId.channel) : static_cast<ChannelData*>(nullptr);
@@ -852,79 +841,7 @@ QString appendShareGameScoreUrl(const QString &url, const FullMsgId &fullId) {
 	return url + shareComponent;
 }
 
-namespace {
-
-void shareGameScoreFromItem(HistoryItem *item) {
-	struct ShareGameScoreData {
-		ShareGameScoreData(const FullMsgId &msgId) : msgId(msgId) {
-		}
-		FullMsgId msgId;
-		OrderedSet<mtpRequestId> requests;
-	};
-	auto data = MakeShared<ShareGameScoreData>(item->fullId());
-
-	auto copyCallback = [data]() {
-		if (auto main = App::main()) {
-			if (auto item = App::histItemById(data->msgId)) {
-				if (auto bot = item->getMessageBot()) {
-					if (auto media = item->getMedia()) {
-						if (media->type() == MediaTypeGame) {
-							auto shortName = static_cast<HistoryGame*>(media)->game()->shortName;
-
-							QApplication::clipboard()->setText(Messenger::Instance().createInternalLinkFull(bot->username + qsl("?game=") + shortName));
-
-							Ui::Toast::Show(lang(lng_share_game_link_copied));
-						}
-					}
-				}
-			}
-		}
-	};
-	auto submitCallback = [data](const QVector<PeerData*> &result) {
-		if (!data->requests.empty()) {
-			return; // Share clicked already.
-		}
-
-		auto doneCallback = [data](const MTPUpdates &updates, mtpRequestId requestId) {
-			if (auto main = App::main()) {
-				main->sentUpdatesReceived(updates);
-			}
-			data->requests.remove(requestId);
-			if (data->requests.empty()) {
-				Ui::Toast::Show(lang(lng_share_done));
-				Ui::hideLayer();
-			}
-		};
-
-		auto sendFlags = MTPmessages_ForwardMessages::Flag::f_with_my_score;
-		MTPVector<MTPint> msgIds = MTP_vector<MTPint>(1, MTP_int(data->msgId.msg));
-		if (auto main = App::main()) {
-			if (auto item = App::histItemById(data->msgId)) {
-				for_const (auto peer, result) {
-					MTPVector<MTPlong> random = MTP_vector<MTPlong>(1, rand_value<MTPlong>());
-					auto request = MTPmessages_ForwardMessages(MTP_flags(sendFlags), item->history()->peer->input, msgIds, random, peer->input);
-					auto callback = doneCallback;
-					auto requestId = MTP::send(request, rpcDone(std::move(callback)));
-					data->requests.insert(requestId);
-				}
-			}
-		}
-	};
-	auto filterCallback = [](PeerData *peer) {
-		if (peer->canWrite()) {
-			if (auto channel = peer->asChannel()) {
-				return !channel->isBroadcast();
-			}
-			return true;
-		}
-		return false;
-	};
-	Ui::show(Box<ShareBox>(std::move(copyCallback), std::move(submitCallback), std::move(filterCallback)));
-}
-
-} // namespace
-
-void shareGameScoreByHash(const QString &hash) {
+void ShareGameScoreByHash(const QString &hash) {
 	auto key128Size = 0x10;
 
 	auto hashEncrypted = QByteArray::fromBase64(hash.toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
@@ -975,12 +892,12 @@ void shareGameScoreByHash(const QString &hash) {
 	}
 
 	if (auto item = App::histItemById(channelId, msgId)) {
-		shareGameScoreFromItem(item);
+		FastShareMessage(item);
 	} else if (App::api()) {
 		auto resolveMessageAndShareScore = [msgId](ChannelData *channel) {
 			App::api()->requestMessageData(channel, msgId, [](ChannelData *channel, MsgId msgId) {
 				if (auto item = App::histItemById(channel, msgId)) {
-					shareGameScoreFromItem(item);
+					FastShareMessage(item);
 				} else {
 					Ui::show(Box<InformBox>(lang(lng_edit_deleted)));
 				}

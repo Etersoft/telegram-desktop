@@ -17,17 +17,24 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "platform/mac/specific_mac.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "application.h"
 #include "mainwidget.h"
-#include "historywidget.h"
+#include "history/history_widget.h"
 
 #include "storage/localstorage.h"
 #include "passcodewidget.h"
 #include "mainwindow.h"
 #include "history/history_location_manager.h"
+#include "platform/mac/mac_utilities.h"
 
 #include <execinfo.h>
+
+#include <Cocoa/Cocoa.h>
+#include <CoreFoundation/CFURL.h>
+#include <IOKit/IOKitLib.h>
+#include <IOKit/hidsystem/ev_keymap.h>
+#include <SPMediaKeyTap.h>
 
 namespace {
 
@@ -322,16 +329,6 @@ void psActivateProcess(uint64 pid) {
 	}
 }
 
-QString psCurrentCountry() {
-	QString country = objc_currentCountry();
-	return country.isEmpty() ? QString::fromLatin1(DefaultCountry) : country;
-}
-
-QString psCurrentLanguage() {
-	QString lng = objc_currentLang();
-	return lng.isEmpty() ? QString::fromLatin1(DefaultLanguage) : lng;
-}
-
 QString psAppDataPath() {
 	return objc_appDataPath();
 }
@@ -402,6 +399,27 @@ void StartTranslucentPaint(QPainter &p, QPaintEvent *e) {
 	p.fillRect(e->rect(), Qt::transparent);
 	p.setCompositionMode(QPainter::CompositionMode_SourceOver);
 #endif // OS_MAC_OLD
+}
+
+QString SystemCountry() {
+	NSLocale *currentLocale = [NSLocale currentLocale];  // get the current locale.
+	NSString *countryCode = [currentLocale objectForKey:NSLocaleCountryCode];
+	return countryCode ? NS2QString(countryCode) : QString();
+}
+
+QString SystemLanguage() {
+	if (auto currentLocale = [NSLocale currentLocale]) { // get the current locale.
+		if (NSString *collator = [currentLocale objectForKey:NSLocaleCollatorIdentifier]) {
+			return NS2QString(collator);
+		}
+		if (NSString *identifier = [currentLocale objectForKey:NSLocaleIdentifier]) {
+			return NS2QString(identifier);
+		}
+		if (NSString *language = [currentLocale objectForKey:NSLocaleLanguageCode]) {
+			return NS2QString(language);
+		}
+	}
+	return QString();
 }
 
 } // namespace Platform

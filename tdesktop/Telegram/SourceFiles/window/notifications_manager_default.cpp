@@ -23,7 +23,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "platform/platform_notifications_manager.h"
 #include "application.h"
 #include "messenger.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/input_fields.h"
 #include "dialogs/dialogs_layout.h"
@@ -486,7 +486,9 @@ Notification::Notification(Manager *manager, History *history, PeerData *peer, P
 , _started(GetTickCount())
 #endif // Q_OS_WIN
 , _close(this, st::notifyClose)
-, _reply(this, lang(lng_notification_reply), st::defaultBoxButton) {
+, _reply(this, langFactory(lng_notification_reply), st::defaultBoxButton) {
+	subscribe(Lang::Current().updated(), [this] { refreshLang(); });
+
 	auto position = computePosition(st::notifyMinHeight);
 	updateGeometry(position.x(), position.y(), st::notifyWidth, st::notifyMinHeight);
 
@@ -507,7 +509,7 @@ Notification::Notification(Manager *manager, History *history, PeerData *peer, P
 		showReplyField();
 	});
 	_replyPadding = st::notifyMinHeight - st::notifyPhotoPos.y() - st::notifyPhotoSize;
-	_reply->moveToRight(_replyPadding, height() - _reply->height() - _replyPadding);
+	updateReplyGeometry();
 	_reply->hide();
 
 	prepareActionsCache();
@@ -528,20 +530,29 @@ Notification::Notification(Manager *manager, History *history, PeerData *peer, P
 	show();
 }
 
+void Notification::updateReplyGeometry() {
+	_reply->moveToRight(_replyPadding, height() - _reply->height() - _replyPadding);
+}
+
+void Notification::refreshLang() {
+	InvokeQueued(this, [this] { updateReplyGeometry(); });
+}
+
 void Notification::prepareActionsCache() {
 	auto replyCache = myGrab(_reply);
 	auto fadeWidth = st::notifyFadeRight.width();
 	auto actionsTop = st::notifyTextTop + st::msgNameFont->height;
-	auto actionsCacheWidth = _reply->width() + _replyPadding + fadeWidth;
-	auto actionsCacheHeight = height() - actionsTop;
-	auto actionsCacheImg = QImage(actionsCacheWidth * cIntRetinaFactor(), actionsCacheHeight * cIntRetinaFactor(), QImage::Format_ARGB32_Premultiplied);
+	auto replyRight = _replyPadding - st::notifyBorderWidth;
+	auto actionsCacheWidth = _reply->width() + replyRight + fadeWidth;
+	auto actionsCacheHeight = height() - actionsTop - st::notifyBorderWidth;
+	auto actionsCacheImg = QImage(QSize(actionsCacheWidth, actionsCacheHeight) * cIntRetinaFactor(), QImage::Format_ARGB32_Premultiplied);
 	actionsCacheImg.setDevicePixelRatio(cRetinaFactor());
 	actionsCacheImg.fill(Qt::transparent);
 	{
 		Painter p(&actionsCacheImg);
 		st::notifyFadeRight.fill(p, rtlrect(0, 0, fadeWidth, actionsCacheHeight, actionsCacheWidth));
 		p.fillRect(rtlrect(fadeWidth, 0, actionsCacheWidth - fadeWidth, actionsCacheHeight, actionsCacheWidth), st::notificationBg);
-		p.drawPixmapRight(_replyPadding, _reply->y() - actionsTop, actionsCacheWidth, replyCache);
+		p.drawPixmapRight(replyRight, _reply->y() - actionsTop, actionsCacheWidth, replyCache);
 	}
 	_buttonsCache = App::pixmapFromImageInPlace(std::move(actionsCacheImg));
 }
@@ -599,9 +610,9 @@ void Notification::paintEvent(QPaintEvent *e) {
 	auto buttonsTop = st::notifyTextTop + st::msgNameFont->height;
 	if (a_actionsOpacity.animating(getms())) {
 		p.setOpacity(a_actionsOpacity.current());
-		p.drawPixmapRight(0, buttonsTop, width(), _buttonsCache);
+		p.drawPixmapRight(st::notifyBorderWidth, buttonsTop, width(), _buttonsCache);
 	} else if (_actionsVisible) {
-		p.drawPixmapRight(0, buttonsTop, width(), _buttonsCache);
+		p.drawPixmapRight(st::notifyBorderWidth, buttonsTop, width(), _buttonsCache);
 	}
 }
 
@@ -743,7 +754,7 @@ void Notification::showReplyField() {
 	_background->setGeometry(0, st::notifyMinHeight, width(), st::notifySendReply.height + st::notifyBorderWidth);
 	_background->show();
 
-	_replyArea.create(this, st::notifyReplyArea, lang(lng_message_ph), QString());
+	_replyArea.create(this, st::notifyReplyArea, langFactory(lng_message_ph), QString());
 	_replyArea->resize(width() - st::notifySendReply.width - 2 * st::notifyBorderWidth, st::notifySendReply.height);
 	_replyArea->moveToLeft(st::notifyBorderWidth, st::notifyMinHeight);
 	_replyArea->show();
@@ -906,7 +917,7 @@ void HideAllButton::paintEvent(QPaintEvent *e) {
 	p.fillRect(width() - st::notifyBorderWidth, st::notifyBorderWidth, st::notifyBorderWidth, height() - 2 * st::notifyBorderWidth, st::notifyBorder);
 
 	p.setFont(st::defaultLinkButton.font);
-	p.setPen(st::defaultLinkButton.color);
+	p.setPen(_mouseOver ? st::lightButtonFgOver : st::lightButtonFg);
 	p.drawText(rect(), lang(lng_notification_hide_all), style::al_center);
 }
 

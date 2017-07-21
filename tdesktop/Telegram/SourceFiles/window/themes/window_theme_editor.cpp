@@ -40,7 +40,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/toast/toast.h"
 #include "core/file_utilities.h"
 #include "boxes/edit_color_box.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 
 namespace Window {
 namespace Theme {
@@ -581,10 +581,10 @@ ThemeExportBox::ThemeExportBox(QWidget*, const QByteArray &paletteContent, const
 }
 
 void ThemeExportBox::prepare() {
-	setTitle(lang(lng_theme_editor_background_image));
+	setTitle(langFactory(lng_theme_editor_background_image));
 
-	addButton(lang(lng_theme_editor_export), [this] { exportTheme(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_theme_editor_export), [this] { exportTheme(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	auto height = st::settingsSmallSkip + st::settingsBackgroundSize + st::settingsSmallSkip + _tileBackground->height();
 
@@ -650,7 +650,8 @@ void ThemeExportBox::chooseBackgroundFromFile() {
 				_background = image;
 				_backgroundContent = content;
 				_isPng = (format == "png");
-				_imageText = (_isPng ? lng_theme_editor_read_from_png : lng_theme_editor_read_from_jpg)(lt_size, formatSizeText(_backgroundContent.size()));
+				auto sizeText = formatSizeText(_backgroundContent.size());
+				_imageText = _isPng ? lng_theme_editor_read_from_png(lt_size, sizeText) : lng_theme_editor_read_from_jpg(lt_size, sizeText);
 				_tileBackground->setChecked(false);
 				updateThumbnail();
 			}
@@ -704,7 +705,7 @@ void ThemeExportBox::exportTheme() {
 Editor::Editor(QWidget*, const QString &path)
 : _scroll(this, st::settingsScroll)
 , _close(this, st::contactsMultiSelect.fieldCancel)
-, _select(this, st::contactsMultiSelect, lang(lng_country_ph))
+, _select(this, st::contactsMultiSelect, langFactory(lng_country_ph))
 , _leftShadow(this)
 , _topShadow(this)
 , _export(this, lang(lng_theme_editor_export_button).toUpper(), st::dialogsUpdateButton) {

@@ -20,9 +20,9 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "intro/introwidget.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "storage/localstorage.h"
-#include "langloaderplain.h"
+#include "lang/lang_file_parser.h"
 #include "intro/introstart.h"
 #include "intro/introphone.h"
 #include "intro/introcode.h"
@@ -44,15 +44,25 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_intro.h"
 #include "styles/style_window.h"
 #include "window/themes/window_theme.h"
+#include "lang/lang_cloud_manager.h"
 #include "auth_session.h"
 
 namespace Intro {
+namespace {
+
+constexpr str_const kDefaultCountry = "US";
+
+} // namespace
 
 Widget::Widget(QWidget *parent) : TWidget(parent)
 , _back(this, object_ptr<Ui::IconButton>(this, st::introBackButton), st::introSlideDuration)
-, _settings(this, object_ptr<Ui::RoundButton>(this, lang(lng_menu_settings), st::defaultBoxButton), st::introCoverDuration)
-, _next(this, QString(), st::introNextButton) {
-	getData()->country = psCurrentCountry();
+, _settings(this, object_ptr<Ui::RoundButton>(this, langFactory(lng_menu_settings), st::defaultBoxButton), st::introCoverDuration)
+, _next(this, base::lambda<QString()>(), st::introNextButton) {
+	auto country = Platform::SystemCountry();
+	if (country.isEmpty()) {
+		country = str_const_toString(kDefaultCountry);
+	}
+	getData()->country = country;
 
 	_back->entity()->setClickedCallback([this] { historyMove(Direction::Back); });
 	_back->hideFast();
@@ -61,25 +71,16 @@ Widget::Widget(QWidget *parent) : TWidget(parent)
 
 	_settings->entity()->setClickedCallback([] { App::wnd()->showSettings(); });
 
-	if (cLang() == languageDefault) {
-		auto systemLangId = Sandbox::LangSystem();
-		if (systemLangId != languageDefault) {
-			LangLoaderPlain loader(qsl(":/langs/lang_") + LanguageCodes[systemLangId].c_str() + qsl(".strings"), langLoaderRequest(lng_switch_to_this));
-			QString text = loader.found().value(lng_switch_to_this);
-			if (!text.isEmpty()) {
-				_changeLanguage.create(this, object_ptr<Ui::LinkButton>(this, text), st::introCoverDuration);
-				_changeLanguage->entity()->setClickedCallback([this, systemLangId] { changeLanguage(systemLangId); });
-			}
-		}
-	} else {
-		_changeLanguage.create(this, object_ptr<Ui::LinkButton>(this, langOriginal(lng_switch_to_this)), st::introCoverDuration);
-		_changeLanguage->entity()->setClickedCallback([this] { changeLanguage(languageDefault); });
-	}
-
-	MTP::send(MTPhelp_GetNearestDc(), rpcDone(&Widget::gotNearestDC));
+	getNearestDC();
 
 	appendStep(new StartWidget(this, getData()));
 	fixOrder();
+
+	subscribe(Lang::CurrentCloudManager().firstLanguageSuggestion(), [this] { createLanguageLink(); });
+	createLanguageLink();
+	if (_changeLanguage) _changeLanguage->finishAnimation();
+
+	subscribe(Lang::Current().updated(), [this] { refreshLang(); });
 
 	show();
 	showControls();
@@ -96,11 +97,47 @@ Widget::Widget(QWidget *parent) : TWidget(parent)
 #endif // !TDESKTOP_DISABLE_AUTOUPDATE
 }
 
+void Widget::refreshLang() {
+	_changeLanguage.destroy();
+	createLanguageLink();
+	InvokeQueued(this, [this] { updateControlsGeometry(); });
+}
+
+void Widget::createLanguageLink() {
+	if (_changeLanguage) return;
+
+	auto createLink = [this](const QString &text, const QString &languageId) {
+		_changeLanguage.create(this, object_ptr<Ui::LinkButton>(this, text), st::introCoverDuration);
+		_changeLanguage->show();
+		_changeLanguage->hideFast();
+		_changeLanguage->entity()->setClickedCallback([this, languageId] {
+			Lang::CurrentCloudManager().switchToLanguage(languageId);
+		});
+		_changeLanguage->toggleAnimated(!_resetAccount);
+		updateControlsGeometry();
+	};
+
+	auto currentId = Lang::Current().id();
+	auto defaultId = Lang::DefaultLanguageId();
+	auto suggestedId = Lang::CurrentCloudManager().suggestedLanguage();
+	if (!currentId.isEmpty() && currentId != defaultId) {
+		createLink(Lang::GetOriginalValue(lng_switch_to_this), defaultId);
+	} else if (!suggestedId.isEmpty() && suggestedId != currentId) {
+		request(MTPlangpack_GetStrings(MTP_string(suggestedId), MTP_vector<MTPstring>(1, MTP_string("lng_switch_to_this")))).done([this, suggestedId, createLink](const MTPVector<MTPLangPackString> &result) {
+			auto strings = Lang::Instance::ParseStrings(result);
+			auto it = strings.find(lng_switch_to_this);
+			if (it != strings.end()) {
+				createLink(it->second, suggestedId);
+			}
+		}).send();
+	}
+}
+
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
 void Widget::onCheckUpdateStatus() {
 	if (Sandbox::updatingState() == Application::UpdatingReady) {
 		if (_update) return;
-		_update.create(this, object_ptr<Ui::RoundButton>(this, lang(lng_menu_update).toUpper(), st::defaultBoxButton), st::introCoverDuration);
+		_update.create(this, object_ptr<Ui::RoundButton>(this, langFactory(lng_menu_update), st::defaultBoxButton), st::introCoverDuration);
 		if (!_a_show.animating()) _update->show();
 		_update->entity()->setClickedCallback([] {
 			checkReadyUpdate();
@@ -113,12 +150,6 @@ void Widget::onCheckUpdateStatus() {
 	updateControlsGeometry();
 }
 #endif // TDESKTOP_DISABLE_AUTOUPDATE
-
-void Widget::changeLanguage(int32 languageId) {
-	cSetLang(languageId);
-	Local::writeSettings();
-	App::restart();
-}
 
 void Widget::setInnerFocus() {
 	if (getStep()->animating()) {
@@ -158,8 +189,8 @@ void Widget::historyMove(Direction direction) {
 	auto stepHasCover = getStep()->hasCover();
 	_settings->toggleAnimated(!stepHasCover);
 	if (_update) _update->toggleAnimated(!stepHasCover);
-	if (_changeLanguage) _changeLanguage->toggleAnimated(stepHasCover);
-	_next->setText(getStep()->nextButtonText());
+	if (_changeLanguage) _changeLanguage->toggleAnimated(!_resetAccount);
+	_next->setText([this] { return getStep()->nextButtonText(); });
 	if (_resetAccount) _resetAccount->hideAnimated();
 	getStep()->showAnimated(direction);
 	fixOrder();
@@ -200,13 +231,14 @@ void Widget::appendStep(Step *step) {
 
 void Widget::showResetButton() {
 	if (!_resetAccount) {
-		auto entity = object_ptr<Ui::RoundButton>(this, lang(lng_signin_reset_account), st::introResetButton);
+		auto entity = object_ptr<Ui::RoundButton>(this, langFactory(lng_signin_reset_account), st::introResetButton);
 		_resetAccount.create(this, std::move(entity), st::introErrorDuration);
 		_resetAccount->hideFast();
 		_resetAccount->entity()->setClickedCallback([this] { resetAccount(); });
 		updateControlsGeometry();
 	}
 	_resetAccount->showAnimated();
+	if (_changeLanguage) _changeLanguage->hideAnimated();
 }
 
 void Widget::resetAccount() {
@@ -214,63 +246,61 @@ void Widget::resetAccount() {
 
 	Ui::show(Box<ConfirmBox>(lang(lng_signin_sure_reset), lang(lng_signin_reset), st::attentionBoxButton, base::lambda_guarded(this, [this] {
 		if (_resetRequest) return;
-		_resetRequest = MTP::send(MTPaccount_DeleteAccount(MTP_string("Forgot password")), rpcDone(&Widget::resetDone), rpcFail(&Widget::resetFail));
+		_resetRequest = request(MTPaccount_DeleteAccount(MTP_string("Forgot password"))).done([this](const MTPBool &result) {
+			_resetRequest = 0;
+
+			Ui::hideLayer();
+			moveToStep(new SignupWidget(this, getData()), Direction::Replace);
+		}).fail([this](const RPCError &error) {
+			_resetRequest = 0;
+
+			auto type = error.type();
+			if (type.startsWith(qstr("2FA_CONFIRM_WAIT_"))) {
+				auto seconds = type.mid(qstr("2FA_CONFIRM_WAIT_").size()).toInt();
+				auto days = (seconds + 59) / 86400;
+				auto hours = ((seconds + 59) % 86400) / 3600;
+				auto minutes = ((seconds + 59) % 3600) / 60;
+				auto when = lng_signin_reset_minutes(lt_count, minutes);
+				if (days > 0) {
+					auto daysCount = lng_signin_reset_days(lt_count, days);
+					auto hoursCount = lng_signin_reset_hours(lt_count, hours);
+					when = lng_signin_reset_in_days(lt_days_count, daysCount, lt_hours_count, hoursCount, lt_minutes_count, when);
+				} else if (hours > 0) {
+					auto hoursCount = lng_signin_reset_hours(lt_count, hours);
+					when = lng_signin_reset_in_hours(lt_hours_count, hoursCount, lt_minutes_count, when);
+				}
+				Ui::show(Box<InformBox>(lng_signin_reset_wait(lt_phone_number, App::formatPhone(getData()->phone), lt_when, when)));
+			} else if (type == qstr("2FA_RECENT_CONFIRM")) {
+				Ui::show(Box<InformBox>(lang(lng_signin_reset_cancelled)));
+			} else {
+				Ui::hideLayer();
+				getStep()->showError(langFactory(lng_server_error));
+			}
+		}).send();
 	})));
 }
 
-void Widget::resetDone(const MTPBool &result) {
-	Ui::hideLayer();
-	moveToStep(new SignupWidget(this, getData()), Direction::Replace);
-}
-
-bool Widget::resetFail(const RPCError &error) {
-	if (MTP::isDefaultHandledError(error)) return false;
-
-	_resetRequest = 0;
-
-	auto type = error.type();
-	if (type.startsWith(qstr("2FA_CONFIRM_WAIT_"))) {
-		int seconds = type.mid(qstr("2FA_CONFIRM_WAIT_").size()).toInt();
-		int days = (seconds + 59) / 86400;
-		int hours = ((seconds + 59) % 86400) / 3600;
-		int minutes = ((seconds + 59) % 3600) / 60;
-		QString when;
-		if (days > 0) {
-			when = lng_signin_reset_in_days(lt_count_days, days, lt_count_hours, hours, lt_count_minutes, minutes);
-		} else if (hours > 0) {
-			when = lng_signin_reset_in_hours(lt_count_hours, hours, lt_count_minutes, minutes);
-		} else {
-			when = lng_signin_reset_in_minutes(lt_count_minutes, minutes);
+void Widget::getNearestDC() {
+	request(MTPhelp_GetNearestDc()).done([this](const MTPNearestDc &result) {
+		auto &nearest = result.c_nearestDc();
+		DEBUG_LOG(("Got nearest dc, country: %1, nearest: %2, this: %3").arg(qs(nearest.vcountry)).arg(nearest.vnearest_dc.v).arg(nearest.vthis_dc.v));
+		Messenger::Instance().suggestMainDcId(nearest.vnearest_dc.v);
+		auto nearestCountry = qs(nearest.vcountry);
+		if (getData()->country != nearestCountry) {
+			getData()->country = nearestCountry;
+			getData()->updated.notify();
 		}
-		Ui::show(Box<InformBox>(lng_signin_reset_wait(lt_phone_number, App::formatPhone(getData()->phone), lt_when, when)));
-	} else if (type == qstr("2FA_RECENT_CONFIRM")) {
-		Ui::show(Box<InformBox>(lang(lng_signin_reset_cancelled)));
-	} else {
-		Ui::hideLayer();
-		getStep()->showError(lang(lng_server_error));
-	}
-	return true;
-}
-
-void Widget::gotNearestDC(const MTPNearestDc &result) {
-	auto &nearest = result.c_nearestDc();
-	DEBUG_LOG(("Got nearest dc, country: %1, nearest: %2, this: %3").arg(qs(nearest.vcountry)).arg(nearest.vnearest_dc.v).arg(nearest.vthis_dc.v));
-	Messenger::Instance().suggestMainDcId(nearest.vnearest_dc.v);
-	auto nearestCountry = qs(nearest.vcountry);
-	if (getData()->country != nearestCountry) {
-		getData()->country = nearestCountry;
-		getData()->updated.notify();
-	}
+	}).send();
 }
 
 void Widget::showControls() {
 	getStep()->show();
 	_next->show();
-	_next->setText(getStep()->nextButtonText());
+	_next->setText([this] { return getStep()->nextButtonText(); });
 	auto hasCover = getStep()->hasCover();
 	_settings->toggleFast(!hasCover);
 	if (_update) _update->toggleFast(!hasCover);
-	if (_changeLanguage) _changeLanguage->toggleFast(hasCover);
+	if (_changeLanguage) _changeLanguage->toggleFast(!_resetAccount);
 	_back->toggleFast(getStep()->hasBack());
 }
 
@@ -357,9 +387,6 @@ void Widget::resizeEvent(QResizeEvent *e) {
 	updateControlsGeometry();
 }
 
-void Widget::moveControls() {
-}
-
 void Widget::updateControlsGeometry() {
 	auto shown = _coverShownAnimation.current(1.);
 
@@ -414,6 +441,15 @@ void Widget::Step::finish(const MTPUser &user, QImage photo) {
 		return;
 	}
 
+	// Save the default language if we've suggested some other and user ignored it.
+	auto currentId = Lang::Current().id();
+	auto defaultId = Lang::DefaultLanguageId();
+	auto suggestedId = Lang::CurrentCloudManager().suggestedLanguage();
+	if (currentId.isEmpty() && !suggestedId.isEmpty() && suggestedId != defaultId) {
+		Lang::Current().switchToId(defaultId);
+		Local::writeLangPack();
+	}
+
 	Messenger::Instance().authSessionCreate(user.c_user().vid.v);
 	Local::writeMtpData();
 	App::wnd()->setupMain(&user);
@@ -453,13 +489,30 @@ void Widget::Step::updateLabelsPosition() {
 	}
 }
 
-void Widget::Step::setTitleText(QString richText) {
-	_title->setRichText(richText);
+void Widget::Step::setTitleText(base::lambda<QString()> richTitleTextFactory) {
+	_titleTextFactory = std::move(richTitleTextFactory);
+	refreshTitle();
 	updateLabelsPosition();
 }
 
-void Widget::Step::setDescriptionText(QString richText) {
-	_description->entity()->setRichText(richText);
+void Widget::Step::refreshTitle() {
+	_title->setRichText(_titleTextFactory());
+}
+
+void Widget::Step::setDescriptionText(base::lambda<QString()> richDescriptionTextFactory) {
+	_descriptionTextFactory = std::move(richDescriptionTextFactory);
+	refreshDescription();
+	updateLabelsPosition();
+}
+
+void Widget::Step::refreshDescription() {
+	_description->entity()->setRichText(_descriptionTextFactory());
+}
+
+void Widget::Step::refreshLang() {
+	refreshTitle();
+	refreshDescription();
+	refreshError();
 	updateLabelsPosition();
 }
 
@@ -635,16 +688,21 @@ void Widget::Step::setErrorBelowLink(bool below) {
 	}
 }
 
-void Widget::Step::showError(const QString &text) {
-	_errorText = text;
-	if (_errorText.isEmpty()) {
+void Widget::Step::showError(base::lambda<QString()> textFactory) {
+	_errorTextFactory = std::move(textFactory);
+	refreshError();
+	updateLabelsPosition();
+}
+
+void Widget::Step::refreshError() {
+	if (!_errorTextFactory) {
 		if (_error) _error->hideAnimated();
 	} else {
 		if (!_error) {
 			_error.create(this, object_ptr<Ui::FlatLabel>(this, _errorCentered ? st::introErrorCentered : st::introError), st::introErrorDuration);
 			_error->hideFast();
 		}
-		_error->entity()->setText(text);
+		_error->entity()->setText(_errorTextFactory());
 		updateLabelsPosition();
 		_error->showAnimated();
 	}
@@ -664,6 +722,7 @@ Widget::Step::Step(QWidget *parent, Data *data, bool hasCover) : TWidget(parent)
 			}
 		}
 	});
+	subscribe(Lang::Current().updated(), [this] { refreshLang(); });
 }
 
 void Widget::Step::prepareShowAnimated(Step *after) {
@@ -740,7 +799,7 @@ bool Widget::Step::hasBack() const {
 void Widget::Step::activate() {
 	_title->show();
 	_description->show();
-	if (!_errorText.isEmpty()) {
+	if (_errorTextFactory) {
 		_error->showFast();
 	}
 }

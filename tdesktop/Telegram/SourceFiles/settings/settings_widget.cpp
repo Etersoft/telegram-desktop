@@ -32,7 +32,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "mainwidget.h"
 #include "storage/localstorage.h"
 #include "boxes/confirm_box.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
+#include "lang/lang_cloud_manager.h"
 #include "messenger.h"
 #include "mtproto/mtp_instance.h"
 #include "mtproto/dc_options.h"
@@ -61,7 +62,7 @@ void fillCodes() {
 		}));
 	});
 	Codes.insert(qsl("loadlang"), [] {
-		Global::RefChooseCustomLang().notify();
+		Lang::CurrentCloudManager().switchToLanguage(qsl("custom"));
 	});
 	Codes.insert(qsl("debugfiles"), [] {
 		if (!cDebug()) return;
@@ -121,6 +122,7 @@ void fillCodes() {
 			}
 		});
 	});
+
 	auto audioFilters = qsl("Audio files (*.wav *.mp3);;") + FileDialog::AllFilesFilter();
 	auto audioKeys = {
 		qsl("msg_incoming"),
@@ -193,11 +195,19 @@ void codesFeedString(const QString &text) {
 } // namespace
 
 Widget::Widget(QWidget *parent) {
-	setTitle(lang(lng_menu_settings));
+	refreshLang();
+	subscribe(Lang::Current().updated(), [this] { refreshLang(); });
+
 	_inner = setInnerWidget(object_ptr<InnerWidget>(this));
 	setCloseClickHandler([]() {
 		Ui::hideSettingsAndLayer();
 	});
+}
+
+void Widget::refreshLang() {
+	setTitle(lang(lng_menu_settings));
+
+	update();
 }
 
 void Widget::showFinished() {

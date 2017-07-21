@@ -42,7 +42,6 @@ namespace Theme {
 struct BackgroundUpdate;
 class WarningWidget;
 } // namespace Theme
-class Controller;
 } // namespace Window
 
 namespace Ui {
@@ -78,21 +77,13 @@ public:
 	MainWindow();
 	~MainWindow();
 
-	Window::Controller *controller() const {
-		return _controller.get();
-	}
-
 	void firstShow();
-
-	void inactivePress(bool inactive);
-	bool inactivePress() const;
 
 	void setupPasscode();
 	void clearPasscode();
 	void setupIntro();
 	void setupMain(const MTPUser *user = nullptr);
 	void serviceNotification(const TextWithEntities &message, const MTPMessageMedia &media = MTP_messageMediaEmpty(), int32 date = 0, bool force = false);
-	void serviceNotificationLocal(QString text);
 	void sendServiceHistoryRequest();
 	void showDelayedServiceMsgs();
 
@@ -161,7 +152,6 @@ protected:
 
 public slots:
 	void showSettings();
-	void layerHidden();
 	void setInnerFocus();
 	void updateConnectingStatus();
 
@@ -169,8 +159,6 @@ public slots:
 	void showFromTray(QSystemTrayIcon::ActivationReason reason = QSystemTrayIcon::Unknown);
 	void toggleTray(QSystemTrayIcon::ActivationReason reason = QSystemTrayIcon::Unknown);
 	void toggleDisplayNotifyFromTray();
-
-	void onInactiveTimer();
 
 	void onClearFinished(int task, void *manager);
 	void onClearFailed(int task, void *manager);
@@ -188,7 +176,6 @@ signals:
 	void checkNewAuthorization();
 
 private:
-	void checkAuthSession();
 	void showConnecting(const QString &text, const QString &reconnect = QString());
 	void hideConnecting();
 
@@ -212,7 +199,6 @@ private:
 	QList<DelayedServiceMsg> _delayedServiceMsgs;
 	mtpRequestId _serviceHistoryRequest = 0;
 
-	std::unique_ptr<Window::Controller> _controller;
 	object_ptr<PasscodeWidget> _passcode = { nullptr };
 	object_ptr<Intro::Widget> _intro = { nullptr };
 	object_ptr<MainWidget> _main = { nullptr };
@@ -223,9 +209,6 @@ private:
 	object_ptr<Window::Theme::WarningWidget> _testingThemeWarning = { nullptr };
 
 	Local::ClearManager *_clearManager = nullptr;
-
-	bool _inactivePress = false;
-	QTimer _inactiveTimer;
 
 };
 

@@ -119,14 +119,14 @@ struct HistoryMessageViews : public RuntimeComponent<HistoryMessageViews> {
 };
 
 struct HistoryMessageSigned : public RuntimeComponent<HistoryMessageSigned> {
-	void create(UserData *from, const QDateTime &date);
+	void create(UserData *from, const QString &date);
 	int maxWidth() const;
 
 	Text _signature;
 };
 
 struct HistoryMessageEdited : public RuntimeComponent<HistoryMessageEdited> {
-	void create(const QDateTime &editDate, const QDateTime &date);
+	void create(const QDateTime &editDate, const QString &date);
 	int maxWidth() const;
 
 	QDateTime _editDate;
@@ -136,6 +136,7 @@ struct HistoryMessageEdited : public RuntimeComponent<HistoryMessageEdited> {
 struct HistoryMessageForwarded : public RuntimeComponent<HistoryMessageForwarded> {
 	void create(const HistoryMessageVia *via) const;
 
+	QDateTime _originalDate;
 	PeerData *_authorOriginal = nullptr;
 	PeerData *_fromOriginal = nullptr;
 	MsgId _originalId = 0;
@@ -297,7 +298,7 @@ public:
 		int buttonHeight() const;
 		virtual int buttonRadius() const = 0;
 
-		virtual void repaint(const HistoryItem *item) const = 0;
+		virtual void repaint(gsl::not_null<const HistoryItem*> item) const = 0;
 		virtual ~Style() {
 		}
 
@@ -329,7 +330,7 @@ public:
 	int naturalHeight() const;
 
 	void paint(Painter &p, int outerWidth, const QRect &clip, TimeMs ms) const;
-	ClickHandlerPtr getState(int x, int y) const;
+	ClickHandlerPtr getState(QPoint point) const;
 
 	void clickHandlerActiveChanged(const ClickHandlerPtr &p, bool active);
 	void clickHandlerPressedChanged(const ClickHandlerPtr &p, bool pressed);
@@ -378,8 +379,8 @@ private:
 
 };
 
-// any HistoryItem can have this Interface for
-// displaying the day mark above the message
+// Any HistoryItem can have this Component for
+// displaying the day mark above the message.
 struct HistoryMessageDate : public RuntimeComponent<HistoryMessageDate> {
 	void init(const QDateTime &date);
 
@@ -390,8 +391,8 @@ struct HistoryMessageDate : public RuntimeComponent<HistoryMessageDate> {
 	int _width = 0;
 };
 
-// any HistoryItem can have this Interface for
-// displaying the unread messages bar above the message
+// Any HistoryItem can have this Component for
+// displaying the unread messages bar above the message.
 struct HistoryMessageUnreadBar : public RuntimeComponent<HistoryMessageUnreadBar> {
 	void init(int count);
 
@@ -403,13 +404,26 @@ struct HistoryMessageUnreadBar : public RuntimeComponent<HistoryMessageUnreadBar
 	QString _text;
 	int _width = 0;
 
-	// if unread bar is freezed the new messages do not
-	// increment the counter displayed by this bar
+	// If unread bar is freezed the new messages do not
+	// increment the counter displayed by this bar.
 	//
-	// it happens when we've opened the conversation and
+	// It happens when we've opened the conversation and
 	// we've seen the bar and new messages are marked as read
-	// as soon as they are added to the chat history
+	// as soon as they are added to the chat history.
 	bool _freezed = false;
+
+};
+
+class HistoryWebPage;
+
+// Special type of Component for the channel actions log.
+struct HistoryMessageLogEntryOriginal : public RuntimeComponent<HistoryMessageLogEntryOriginal> {
+	HistoryMessageLogEntryOriginal();
+	HistoryMessageLogEntryOriginal(HistoryMessageLogEntryOriginal &&other);
+	HistoryMessageLogEntryOriginal &operator=(HistoryMessageLogEntryOriginal &&other);
+	~HistoryMessageLogEntryOriginal();
+
+	std::unique_ptr<HistoryWebPage> _page;
 
 };
 
@@ -427,9 +441,7 @@ public:
 	HistoryMedia *get() const {
 		return _pointer.get();
 	}
-	void reset(std::unique_ptr<HistoryMedia> pointer = nullptr) {
-		*this = std::move(pointer);
-	}
+	void reset(std::unique_ptr<HistoryMedia> pointer = nullptr);
 	bool isNull() const {
 		return !_pointer;
 	}
@@ -444,9 +456,7 @@ public:
 	explicit operator bool() const {
 		return !isNull();
 	}
-	~HistoryMediaPtr() {
-		reset();
-	}
+	~HistoryMediaPtr();
 
 private:
 	std::unique_ptr<HistoryMedia> _pointer;
@@ -455,14 +465,20 @@ private:
 
 namespace internal {
 
-TextSelection unshiftSelection(TextSelection selection, const Text &byText);
-TextSelection shiftSelection(TextSelection selection, const Text &byText);
+TextSelection unshiftSelection(TextSelection selection, uint16 byLength);
+TextSelection shiftSelection(TextSelection selection, uint16 byLength);
+inline TextSelection unshiftSelection(TextSelection selection, const Text &byText) {
+	return ::internal::unshiftSelection(selection, byText.length());
+}
+inline TextSelection shiftSelection(TextSelection selection, const Text &byText) {
+	return ::internal::shiftSelection(selection, byText.length());
+}
 
 } // namespace internal
 
 class HistoryItem : public HistoryElement, public RuntimeComposer, public ClickHandlerHost {
 public:
-	int resizeGetHeight(int width) {
+	int resizeGetHeight(int newWidth) {
 		if (_flags & MTPDmessage_ClientFlag::f_pending_init_dimensions) {
 			_flags &= ~MTPDmessage_ClientFlag::f_pending_init_dimensions;
 			initDimensions();
@@ -470,9 +486,10 @@ public:
 		if (_flags & MTPDmessage_ClientFlag::f_pending_resize) {
 			_flags &= ~MTPDmessage_ClientFlag::f_pending_resize;
 		}
-		return resizeGetHeight_(width);
+		_width = newWidth;
+		return resizeContentGetHeight();
 	}
-	virtual void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const = 0;
+	virtual void draw(Painter &p, QRect clip, TextSelection selection, TimeMs ms) const = 0;
 
 	virtual void dependencyItemRemoved(HistoryItem *dependency) {
 	}
@@ -487,7 +504,7 @@ public:
 	}
 
 	UserData *viaBot() const {
-		if (const HistoryMessageVia *via = Get<HistoryMessageVia>()) {
+		if (auto via = Get<HistoryMessageVia>()) {
 			return via->_bot;
 		}
 		return nullptr;
@@ -502,6 +519,11 @@ public:
 		}
 		return (bot && bot->botInfo) ? bot : nullptr;
 	};
+
+	bool isLogEntry() const {
+		return (id > ServerMaxMsgId);
+	}
+	void addLogEntryOriginal(WebPageId localId, const QString &label, const TextWithEntities &content);
 
 	History *history() const {
 		return _history;
@@ -522,6 +544,7 @@ public:
 		return !_block;
 	}
 	void attachToBlock(HistoryBlock *block, int index) {
+		Expects(!isLogEntry());
 		Expects(_block == nullptr);
 		Expects(_indexInBlock < 0);
 		Expects(block != nullptr);
@@ -609,15 +632,15 @@ public:
 	virtual bool needCheck() const {
 		return out() || (id < 0 && history()->peer->isSelf());
 	}
-	virtual bool hasPoint(int x, int y) const {
+	virtual bool hasPoint(QPoint point) const {
 		return false;
 	}
 
-	virtual HistoryTextState getState(int x, int y, HistoryStateRequest request) const = 0;
-	virtual void updatePressed(int x, int y) {
+	virtual HistoryTextState getState(QPoint point, HistoryStateRequest request) const WARN_UNUSED_RESULT = 0;
+	virtual void updatePressed(QPoint point) {
 	}
 
-	virtual TextSelection adjustSelection(TextSelection selection, TextSelectType type) const {
+	virtual TextSelection adjustSelection(TextSelection selection, TextSelectType type) const WARN_UNUSED_RESULT {
 		return selection;
 	}
 
@@ -669,6 +692,14 @@ public:
 
 	virtual void drawInfo(Painter &p, int32 right, int32 bottom, int32 width, bool selected, InfoDisplayType type) const {
 	}
+	virtual ClickHandlerPtr fastShareLink() const {
+		return ClickHandlerPtr();
+	}
+	virtual bool displayFastShare() const {
+		return false;
+	}
+	virtual void drawFastShare(Painter &p, int left, int top, int outerWidth) const {
+	}
 	virtual void setViewsCount(int32 count) {
 	}
 	virtual void setId(MsgId newId);
@@ -683,16 +714,10 @@ public:
 	bool canEdit(const QDateTime &cur) const;
 	bool canDelete() const;
 	bool canDeleteForEveryone(const QDateTime &cur) const;
+	bool suggestBanReport() const;
+	bool suggestDeleteAllReport() const;
 
-	bool suggestBanReportDeleteAll() const {
-		auto channel = history()->peer->asChannel();
-		if (!channel || (!channel->amEditor() && !channel->amCreator())) return false;
-		return !isPost() && !out() && from()->isUser() && toHistoryMessage();
-	}
-
-	bool hasDirectLink() const {
-		return id > 0 && _history->peer->isChannel() && _history->peer->asChannel()->isPublic() && !_history->peer->isMegagroup();
-	}
+	bool hasDirectLink() const;
 	QString directLink() const;
 
 	int y() const {
@@ -729,14 +754,14 @@ public:
 	virtual int timeWidth() const {
 		return 0;
 	}
-	virtual bool pointInTime(int32 right, int32 bottom, int x, int y, InfoDisplayType type) const {
+	virtual bool pointInTime(int right, int bottom, QPoint point, InfoDisplayType type) const {
 		return false;
 	}
 
-	int32 skipBlockWidth() const {
+	int skipBlockWidth() const {
 		return st::msgDateSpace + infoWidth() - st::msgDateDelta.x();
 	}
-	int32 skipBlockHeight() const {
+	int skipBlockHeight() const {
 		return st::msgDateFont->height - st::msgDateDelta.y();
 	}
 	QString skipBlock() const {
@@ -760,9 +785,15 @@ public:
 		return (!out() || isPost()) && !history()->peer->isUser();
 	}
 	PeerData *author() const {
-		return isPost() ? history()->peer : _from;
+		return isPost() ? history()->peer : from();
 	}
 
+	QDateTime dateOriginal() const {
+		if (auto forwarded = Get<HistoryMessageForwarded>()) {
+			return forwarded->_originalDate;
+		}
+		return date;
+	}
 	PeerData *fromOriginal() const {
 		if (auto forwarded = Get<HistoryMessageForwarded>()) {
 			return forwarded->_fromOriginal;
@@ -798,7 +829,7 @@ public:
 	}
 	void setPendingResize() {
 		_flags |= MTPDmessage_ClientFlag::f_pending_resize;
-		if (!detached()) {
+		if (!detached() || isLogEntry()) {
 			_history->setHasPendingResizedItems();
 		}
 	}
@@ -847,11 +878,29 @@ public:
 	}
 
 	bool isEmpty() const {
-		return _text.isEmpty() && !_media;
+		return _text.isEmpty() && !_media && !Has<HistoryMessageLogEntryOriginal>();
+	}
+
+	int width() const {
+		return _width;
 	}
 
 	void clipCallback(Media::Clip::Notification notification);
 	void audioTrackUpdated();
+
+	bool computeIsAttachToPrevious(gsl::not_null<HistoryItem*> previous);
+	void setLogEntryDisplayDate(bool displayDate) {
+		Expects(isLogEntry());
+		setDisplayDate(displayDate);
+	}
+	void setLogEntryAttachToPrevious(bool attachToPrevious) {
+		Expects(isLogEntry());
+		setAttachToPrevious(attachToPrevious);
+	}
+	void setLogEntryAttachToNext(bool attachToNext) {
+		Expects(isLogEntry());
+		setAttachToNext(attachToNext);
+	}
 
 	~HistoryItem();
 
@@ -865,18 +914,18 @@ protected:
 	// called from resizeGetHeight() when MTPDmessage_ClientFlag::f_pending_init_dimensions is set
 	virtual void initDimensions() = 0;
 
-	virtual int resizeGetHeight_(int width) = 0;
+	virtual int resizeContentGetHeight() = 0;
 
 	void finishEdition(int oldKeyboardTop);
 	void finishEditionToEmpty();
 
-	PeerData *_from;
-	History *_history;
+	gsl::not_null<History*> _history;
+	gsl::not_null<PeerData*> _from;
 	HistoryBlock *_block = nullptr;
 	int _indexInBlock = -1;
-	MTPDmessage::Flags _flags;
+	MTPDmessage::Flags _flags = 0;
 
-	mutable int32 _authorNameVersion;
+	mutable int32 _authorNameVersion = 0;
 
 	HistoryItem *previousItem() const {
 		if (_block && _indexInBlock >= 0) {
@@ -903,18 +952,27 @@ protected:
 		return nullptr;
 	}
 
-	// this should be called only from previousItemChanged()
+	// This should be called only from previousItemChanged()
 	// to add required bits to the Composer mask
-	// after that always use Has<HistoryMessageDate>()
+	// after that always use Has<HistoryMessageDate>().
 	void recountDisplayDate();
 
-	// this should be called only from previousItemChanged() or when
+	// This should be called only from previousItemChanged() or when
 	// HistoryMessageDate or HistoryMessageUnreadBar bit is changed in the Composer mask
-	// then the result should be cached in a client side flag MTPDmessage_ClientFlag::f_attach_to_previous
+	// then the result should be cached in a client side flag MTPDmessage_ClientFlag::f_attach_to_previous.
 	void recountAttachToPrevious();
 
-	// this should be called only recountAttachToPrevious() of the next item
-	// or when the next item is removed through nextItemChanged() call
+	// This should be called only from recountDisplayDate().
+	// Also this is called from setLogEntryDisplayDate() for channel log entries.
+	void setDisplayDate(bool displayDate);
+
+	// This should be called only from recountAttachToPrevious().
+	// Also this is called from setLogEntryAttachToPrevious() for channel log entries.
+	void setAttachToPrevious(bool attachToNext);
+
+	// This should be called only from recountAttachToPrevious() of the next item
+	// or when the next item is removed through nextItemChanged() call.
+	// Also this is called from setLogEntryAttachToNext() for channel log entries.
 	void setAttachToNext(bool attachToNext);
 
 	const HistoryMessageReplyMarkup *inlineReplyMarkup() const {
@@ -938,10 +996,10 @@ protected:
 		return nullptr;
 	}
 
-	TextSelection toMediaSelection(TextSelection selection) const {
+	TextSelection skipTextSelection(TextSelection selection) const WARN_UNUSED_RESULT {
 		return internal::unshiftSelection(selection, _text);
 	}
-	TextSelection fromMediaSelection(TextSelection selection) const {
+	TextSelection unskipTextSelection(TextSelection selection) const WARN_UNUSED_RESULT {
 		return internal::shiftSelection(selection, _text);
 	}
 
@@ -953,6 +1011,7 @@ protected:
 
 private:
 	int _y = 0;
+	int _width = 0;
 
 };
 
@@ -964,8 +1023,8 @@ template <typename T>
 class HistoryItemInstantiated {
 public:
 	template <typename ...Args>
-	static T *_create(Args &&... args) {
-		T *result = new T(std::forward<Args>(args)...);
+	static gsl::not_null<T*> _create(Args &&... args) {
+		auto result = new T(std::forward<Args>(args)...);
 		result->finishCreate();
 		return result;
 	}

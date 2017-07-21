@@ -1,3 +1,43 @@
+1.1.14 alpha (19.07.17)
+
+- Bug fixes and other minor improvements.
+
+1.1.13 alpha (14.07.17)
+
+- Various bug fixes.
+
+1.1.12 alpha (11.07.17)
+
+- Click on forwarded messages bar to change the recipient chat in case you chose a wrong one first.
+- Quickly share posts from channels and media messages from bots.
+- Search in large supergroup members by name.
+- Search in channel members by name if you're a channel admin.
+- Copy links to messages in public supergroups.
+
+1.1.11 alpha (06.07.17)
+
+- Send **bold** and __italic__ text in your messages (in addition to already supported `monospace` and ```multiline monospace```).
+- Search in channel and supergroup admin event log.
+- Ban members from right click menu in supergroup admin event log.
+
+1.1.10 (04.07.17)
+
+- Add event log filter for channel or supergroup event log.
+- Fix search by username in privacy exceptions editor.
+- Fix adding admins in channels.
+
+1.1.9 (30.06.17)
+
+- Supergroups can now have up to 10.000 members.
+- Appoint supergroup admins with granular rights. Choose who can add users, manage messages, block members, edit group info & username, add new admins, etc.
+- Restrict and ban supergroup members with granular precision. Read-only bans, GIF & sticker bans, media bans, temporary bans and restrictions.
+- Check the new event log to see all service actions taken by members and admins of a channel or supergroup in the last 48 hours.
+- Toggle night mode in the main menu.
+
+1.1.8 alpha (30.06.17)
+
+- Toggle night mode in the main menu.
+
 1.1.7 (30.05.17)
 
 - Improved video messages: radial playback progress, Picture-in-Picture support, duration countdown.

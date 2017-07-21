@@ -168,8 +168,6 @@ public:
 
 	void start(const MTPUser *self = nullptr);
 
-	void checkStartUrl();
-	void openLocalUrl(const QString &str);
 	void openPeerByName(const QString &name, MsgId msgId = ShowAtUnreadMsgId, const QString &startToken = QString());
 	void joinGroupByHash(const QString &hash);
 	void stickersBox(const MTPInputStickerSet &set);
@@ -203,7 +201,6 @@ public:
 	void dialogsToUp();
 	void newUnreadMsg(History *history, HistoryItem *item);
 	void markActiveHistoryAsRead();
-	void historyCleared(History *history);
 
 	void peerBefore(const PeerData *inPeer, MsgId inMsg, PeerData *&outPeer, MsgId &outMsg);
 	void peerAfter(const PeerData *inPeer, MsgId inMsg, PeerData *&outPeer, MsgId &outMsg);
@@ -216,7 +213,7 @@ public:
 	int backgroundFromY() const;
 	PeerData *overviewPeer();
 	bool showMediaTypeSwitch() const;
-	void showWideSection(const Window::SectionMemento &memento);
+	void showWideSection(Window::SectionMemento &&memento);
 	void showMediaOverview(PeerData *peer, MediaOverviewType type, bool back = false, int32 lastScrollTop = -1);
 	bool stackIsEmpty() const;
 	void showBackFromStack();
@@ -241,7 +238,8 @@ public:
 
 	int32 dlgsWidth() const;
 
-	void forwardLayer(int forwardSelected = 0); // -1 - send paths
+	void showForwardLayer(const SelectedItemSet &items);
+	void showSendPathsLayer();
 	void deleteLayer(int selectedCount = 0); // 0 - context item
 	void cancelUploadLayer();
 	void shareContactLayer(UserData *contact);
@@ -249,7 +247,8 @@ public:
 	void inlineSwitchLayer(const QString &botAndQuery);
 	void hiderLayer(object_ptr<HistoryHider> h);
 	void noHider(HistoryHider *destroyed);
-	bool onForward(const PeerId &peer, ForwardWhatMessages what);
+	bool setForwardDraft(PeerId peer, ForwardWhatMessages what);
+	bool setForwardDraft(PeerId peer, const SelectedItemSet &items);
 	bool onShareUrl(const PeerId &peer, const QString &url, const QString &text);
 	bool onInlineSwitchChosen(const PeerId &peer, const QString &botAndQuery);
 	void onShareContact(const PeerId &peer, UserData *contact);
@@ -273,7 +272,7 @@ public:
 	void clearHistory(PeerData *peer);
 	void deleteAllFromUser(ChannelData *channel, UserData *from);
 
-	void addParticipants(PeerData *chatOrChannel, const QVector<UserData*> &users);
+	void addParticipants(PeerData *chatOrChannel, const std::vector<gsl::not_null<UserData*>> &users);
 	struct UserAndPeer {
 		UserData *user;
 		PeerData *peer;
@@ -328,7 +327,7 @@ public:
 
 	void checkLastUpdate(bool afterSleep);
 
-	void serviceNotification(const TextWithEntities &message, const MTPMessageMedia &media, int32 date);
+	void insertCheckedServiceNotification(const TextWithEntities &message, const MTPMessageMedia &media, int32 date);
 	void serviceHistoryDone(const MTPmessages_Messages &msgs);
 	bool serviceHistoryFail(const RPCError &error);
 
@@ -348,10 +347,8 @@ public:
 
 	void pushReplyReturn(HistoryItem *item);
 
-	bool hasForwardingItems();
-	void fillForwardingInfo(Text *&from, Text *&text, bool &serviceColor, ImagePtr &preview);
-	void cancelForwarding();
-	void finishForwarding(History *hist, bool silent); // send them
+	void cancelForwarding(History *history);
+	void finishForwarding(History *history, bool silent); // send them
 
 	void mediaMarkRead(DocumentData *data);
 	void mediaMarkRead(const HistoryItemsMap &items);
@@ -368,7 +365,6 @@ public:
 	void ptsWaiterStartTimerFor(ChannelData *channel, int32 ms); // ms <= 0 - stop timer
 	void feedUpdates(const MTPUpdates &updates, uint64 randomId = 0);
 	void feedUpdate(const MTPUpdate &update);
-	void updateAfterDrag();
 
 	void ctrlEnterSubmitUpdated();
 	void setInnerFocus();
@@ -380,15 +376,19 @@ public:
 	void gotRangeDifference(ChannelData *channel, const MTPupdates_ChannelDifference &diff);
 	void onSelfParticipantUpdated(ChannelData *channel);
 
-	bool contentOverlapped(const QRect &globalRect);
+	// Mayde public for ApiWrap, while it is still here.
+	// Better would be for this to be moved to ApiWrap.
+	bool requestingDifference() const {
+		return _ptsWaiter.requesting();
+	}
 
-	bool isItemVisible(HistoryItem *item);
+	bool contentOverlapped(const QRect &globalRect);
 
 	void documentLoadProgress(DocumentData *document);
 
 	void app_sendBotCallback(const HistoryMessageReplyMarkup::Button *button, const HistoryItem *msg, int row, int col);
 
-	void ui_repaintHistoryItem(const HistoryItem *item);
+	void ui_repaintHistoryItem(gsl::not_null<const HistoryItem*> item);
 	void ui_showPeerHistory(quint64 peer, qint32 msgId, Ui::ShowWay way);
 	PeerData *ui_getPeerForMouseAction();
 
@@ -402,7 +402,6 @@ public:
 	void notify_migrateUpdated(PeerData *peer);
 	void notify_historyItemLayoutChanged(const HistoryItem *item);
 	void notify_historyMuteUpdated(History *history);
-	void notify_handlePendingHistoryUpdate();
 
 	bool cmd_search();
 	bool cmd_next_chat();
@@ -506,9 +505,6 @@ private:
 	void updateControlsGeometry();
 	void updateDialogsWidthAnimated();
 
-	void updateForwardingTexts();
-	void updateForwardingItemRemovedSubscription();
-
 	void createPlayer();
 	void switchToPanelPlayer();
 	void switchToFixedPlayer();
@@ -531,7 +527,7 @@ private:
 	void mediaOverviewUpdated(const Notify::PeerUpdate &update);
 
 	Window::SectionSlideParams prepareShowAnimation(bool willHaveTopBarShadow, bool willHaveTabbedSection);
-	void showNewWideSection(const Window::SectionMemento *memento, bool back, bool saveInStack);
+	void showNewWideSection(Window::SectionMemento &&memento, bool back, bool saveInStack);
 
 	// All this methods use the prepareShowAnimation().
 	Window::SectionSlideParams prepareWideSectionAnimation(Window::SectionWidget *section);
@@ -594,13 +590,9 @@ private:
 	QPoint getFloatPlayerHiddenPosition(QPoint position, QSize size, RectPart side) const;
 	RectPart getFloatPlayerSide(QPoint center) const;
 
-	bool ptsUpdated(int32 pts, int32 ptsCount);
-	bool ptsUpdated(int32 pts, int32 ptsCount, const MTPUpdates &updates);
-	bool ptsUpdated(int32 pts, int32 ptsCount, const MTPUpdate &update);
-	void ptsApplySkippedUpdates();
-	bool requestingDifference() const {
-		return _ptsWaiter.requesting();
-	}
+	bool ptsUpdateAndApply(int32 pts, int32 ptsCount, const MTPUpdates &updates);
+	bool ptsUpdateAndApply(int32 pts, int32 ptsCount, const MTPUpdate &update);
+	bool ptsUpdateAndApply(int32 pts, int32 ptsCount);
 	bool getDifferenceTimeChanged(ChannelData *channel, int32 ms, ChannelGetDifferenceTime &channelCurTime, TimeMs &curTime);
 
 	void viewsIncrementDone(QVector<MTPint> ids, const MTPVector<MTPint> &result, mtpRequestId req);
@@ -608,11 +600,6 @@ private:
 
 	gsl::not_null<Window::Controller*> _controller;
 	bool _started = false;
-
-	SelectedItemSet _toForward;
-	Text _toForwardFrom, _toForwardText;
-	int32 _toForwardNameVersion = 0;
-	int _forwardingItemRemovedSubscription = 0;
 
 	OrderedSet<WebPageId> _webPagesUpdated;
 	OrderedSet<GameId> _gamesUpdated;

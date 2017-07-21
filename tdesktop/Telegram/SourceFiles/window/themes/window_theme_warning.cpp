@@ -24,7 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/shadow.h"
 #include "window/themes/window_theme.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 
 namespace Window {
 namespace Theme {
@@ -36,8 +36,8 @@ constexpr int kWaitBeforeRevertMs = 15999;
 
 WarningWidget::WarningWidget(QWidget *parent) : TWidget(parent)
 , _secondsLeft(kWaitBeforeRevertMs / 1000)
-, _keepChanges(this, lang(lng_theme_keep_changes), st::defaultBoxButton)
-, _revert(this, lang(lng_theme_revert), st::defaultBoxButton) {
+, _keepChanges(this, langFactory(lng_theme_keep_changes), st::defaultBoxButton)
+, _revert(this, langFactory(lng_theme_revert), st::defaultBoxButton) {
 	_keepChanges->setClickedCallback([] { Window::Theme::KeepApplied(); });
 	_revert->setClickedCallback([] { Window::Theme::Revert(); });
 	_timer.setTimeoutHandler([this] { handleTimer(); });
@@ -85,10 +85,18 @@ void WarningWidget::paintEvent(QPaintEvent *e) {
 void WarningWidget::resizeEvent(QResizeEvent *e) {
 	_inner = QRect((width() - st::themeWarningWidth) / 2, (height() - st::themeWarningHeight) / 2, st::themeWarningWidth, st::themeWarningHeight);
 	_outer = _inner.marginsAdded(st::boxRoundShadow.extend);
+	updateControlsGeometry();
+	update();
+}
+
+void WarningWidget::updateControlsGeometry() {
 	auto left = _inner.x() + _inner.width() - st::boxButtonPadding.right() - _keepChanges->width();
 	_keepChanges->moveToLeft(left, _inner.y() + _inner.height() - st::boxButtonPadding.bottom() - _keepChanges->height());
 	_revert->moveToLeft(left - st::boxButtonPadding.left() - _revert->width(), _keepChanges->y());
-	update();
+}
+
+void WarningWidget::refreshLang() {
+	InvokeQueued(this, [this] { updateControlsGeometry(); });
 }
 
 void WarningWidget::handleTimer() {

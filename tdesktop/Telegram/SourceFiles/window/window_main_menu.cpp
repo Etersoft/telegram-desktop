@@ -23,15 +23,17 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_window.h"
 #include "styles/style_dialogs.h"
 #include "profile/profile_userpic_button.h"
+#include "window/themes/window_theme.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/menu.h"
 #include "mainwindow.h"
+#include "storage/localstorage.h"
 #include "boxes/contacts_box.h"
 #include "boxes/about_box.h"
 #include "boxes/peer_list_box.h"
 #include "calls/calls_box_controller.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "core/click_handler_types.h"
 #include "observer_peer.h"
 #include "auth_session.h"
@@ -49,6 +51,14 @@ MainMenu::MainMenu(QWidget *parent) : TWidget(parent)
 		checkSelf();
 	});
 	checkSelf();
+
+	_nightThemeSwitch.setCallback([this] {
+		if (auto action = *_nightThemeAction) {
+			if (action->isChecked() != Window::Theme::IsNightTheme()) {
+				Window::Theme::SwitchNightTheme(action->isChecked());
+			}
+		}
+	});
 
 	resize(st::mainMenuWidth, parentWidget()->height());
 	_menu->setTriggeredCallback([](QAction *action, int actionTop, Ui::Menu::TriggeredSource source) {
@@ -70,6 +80,11 @@ MainMenu::MainMenu(QWidget *parent) : TWidget(parent)
 		}
 	}));
 	subscribe(Global::RefPhoneCallsEnabledChanged(), [this] { refreshMenu(); });
+	subscribe(Window::Theme::Background(), [this](const Window::Theme::BackgroundUpdate &update) {
+		if (update.type == Window::Theme::BackgroundUpdate::Type::ApplyingTheme) {
+			refreshMenu();
+		}
+	});
 	updatePhone();
 }
 
@@ -86,15 +101,28 @@ void MainMenu::refreshMenu() {
 	}, &st::mainMenuContacts, &st::mainMenuContactsOver);
 	if (Global::PhoneCallsEnabled()) {
 		_menu->addAction(lang(lng_menu_calls), [] {
-			Ui::show(Box<PeerListBox>(std::make_unique<Calls::BoxController>()));
+			Ui::show(Box<PeerListBox>(std::make_unique<Calls::BoxController>(), [](PeerListBox *box) {
+				box->addButton(langFactory(lng_close), [box] { box->closeBox(); });
+			}));
 		}, &st::mainMenuCalls, &st::mainMenuCallsOver);
 	}
 	_menu->addAction(lang(lng_menu_settings), [] {
 		App::wnd()->showSettings();
 	}, &st::mainMenuSettings, &st::mainMenuSettingsOver);
-	_menu->addAction(lang(lng_settings_faq), [] {
-		QDesktopServices::openUrl(telegramFaqLink());
-	}, &st::mainMenuHelp, &st::mainMenuHelpOver);
+
+	if (!Window::Theme::IsNonDefaultUsed()) {
+		_nightThemeAction = std::make_shared<QPointer<QAction>>(nullptr);
+		auto action = _menu->addAction(lang(lng_menu_night_mode), [this] {
+			if (auto action = *_nightThemeAction) {
+				action->setChecked(!action->isChecked());
+				_nightThemeSwitch.callOnce(st::mainMenu.itemToggle.duration);
+			}
+		}, &st::mainMenuNightMode, &st::mainMenuNightModeOver);
+		*_nightThemeAction = action;
+		action->setCheckable(true);
+		action->setChecked(Window::Theme::IsNightTheme());
+		_menu->finishAnimations();
+	}
 
 	updatePhone();
 }
@@ -131,6 +159,7 @@ void MainMenu::showFinished() {
 }
 
 void MainMenu::resizeEvent(QResizeEvent *e) {
+	_menu->setForceWidth(width());
 	updateControlsGeometry();
 }
 
@@ -141,7 +170,7 @@ void MainMenu::updateControlsGeometry() {
 	if (_cloudButton) {
 		_cloudButton->moveToRight(0, st::mainMenuCoverHeight - _cloudButton->height());
 	}
-	_menu->setGeometry(0, st::mainMenuCoverHeight + st::mainMenuSkip, width(), _menu->height());
+	_menu->moveToLeft(0, st::mainMenuCoverHeight + st::mainMenuSkip);
 	_telegram->moveToLeft(st::mainMenuFooterLeft, height() - st::mainMenuTelegramBottom - _telegram->height());
 	_version->moveToLeft(st::mainMenuFooterLeft, height() - st::mainMenuVersionBottom - _version->height());
 }

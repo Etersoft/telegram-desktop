@@ -31,12 +31,13 @@ QString ConvertTagToMimeTag(const QString &tagId);
 
 EntitiesInText ConvertTextTagsToEntities(const TextWithTags::Tags &tags);
 TextWithTags::Tags ConvertEntitiesToTextTags(const EntitiesInText &entities);
+std::unique_ptr<QMimeData> MimeDataFromTextWithEntities(const TextWithEntities &forClipboard);
 
 class MessageField final : public Ui::FlatTextarea {
 	Q_OBJECT
 
 public:
-	MessageField(QWidget *parent, gsl::not_null<Window::Controller*> controller, const style::FlatTextarea &st, const QString &ph = QString(), const QString &val = QString());
+	MessageField(QWidget *parent, gsl::not_null<Window::Controller*> controller, const style::FlatTextarea &st, base::lambda<QString()> placeholderFactory = base::lambda<QString()>(), const QString &val = QString());
 
 	bool hasSendText() const;
 

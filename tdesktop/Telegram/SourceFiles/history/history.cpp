@@ -18,13 +18,15 @@ to link the code of portions of this program with the OpenSSL library.
 Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
-#include "history.h"
+#include "history/history.h"
 
+#include "history/history_message.h"
 #include "history/history_media_types.h"
+#include "history/history_service.h"
 #include "dialogs/dialogs_indexed_list.h"
 #include "styles/style_dialogs.h"
 #include "data/data_drafts.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "apiwrap.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
@@ -33,6 +35,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "observer_peer.h"
 #include "auth_session.h"
 #include "window/notifications_manager.h"
+#include "calls/calls_instance.h"
 
 namespace {
 
@@ -54,18 +57,17 @@ constexpr auto kNewBlockEachMessage = 50;
 auto GlobalPinnedIndex = 0;
 
 HistoryItem *createUnsupportedMessage(History *history, MsgId msgId, MTPDmessage::Flags flags, MsgId replyTo, int32 viaBotId, QDateTime date, int32 from) {
-	QString text(lng_message_unsupported(lt_link, qsl("https://desktop.telegram.org")));
-	EntitiesInText entities;
-	textParseEntities(text, _historyTextNoMonoOptions.flags, &entities);
-	entities.push_front(EntityInText(EntityInTextItalic, 0, text.size()));
-	return HistoryMessage::create(history, msgId, flags, replyTo, viaBotId, date, from, { text, entities });
+	auto text = TextWithEntities { lng_message_unsupported(lt_link, qsl("https://desktop.telegram.org")) };
+	TextUtilities::ParseEntities(text, _historyTextNoMonoOptions.flags);
+	text.entities.push_front(EntityInText(EntityInTextItalic, 0, text.text.size()));
+	return HistoryMessage::create(history, msgId, flags, replyTo, viaBotId, date, from, text);
 }
 
 } // namespace
 
-void historyInit() {
-	historyInitMessages();
-	historyInitMedia();
+void HistoryInit() {
+	HistoryInitMessages();
+	HistoryInitMedia();
 }
 
 History::History(const PeerId &peerId)
@@ -199,6 +201,28 @@ void History::clearEditDraft() {
 void History::draftSavedToCloud() {
 	updateChatListEntry();
 	if (App::main()) App::main()->writeDrafts(this);
+}
+
+SelectedItemSet History::validateForwardDraft() {
+	auto result = SelectedItemSet();
+	auto count = 0;
+	for_const (auto &fullMsgId, _forwardDraft) {
+		if (auto item = App::histItemById(fullMsgId)) {
+			result.insert(++count, item);
+		}
+	}
+	if (result.size() != _forwardDraft.size()) {
+		setForwardDraft(result);
+	}
+	return result;
+}
+
+void History::setForwardDraft(const SelectedItemSet &items) {
+	_forwardDraft.clear();
+	_forwardDraft.reserve(items.size());
+	for_const (auto item, items) {
+		_forwardDraft.push_back(item->fullId());
+	}
 }
 
 bool History::updateSendActionNeedsAnimating(UserData *user, const MTPSendMessageAction &action) {
@@ -763,9 +787,10 @@ HistoryItem *History::createItem(const MTPMessage &msg, bool applyServiceAction,
 	}
 
 	switch (msg.type()) {
-	case mtpc_messageEmpty:
-		result = HistoryService::create(this, msg.c_messageEmpty().vid.v, date(), lang(lng_message_empty));
-	break;
+	case mtpc_messageEmpty: {
+		auto message = HistoryService::PreparedText { lang(lng_message_empty) };
+		result = HistoryService::create(this, msg.c_messageEmpty().vid.v, date(), message);
+	} break;
 
 	case mtpc_message: {
 		auto &m = msg.c_message();
@@ -829,7 +854,8 @@ HistoryItem *History::createItem(const MTPMessage &msg, bool applyServiceAction,
 		if (badMedia == MediaCheckResult::Unsupported) {
 			result = createUnsupportedMessage(this, m.vid.v, m.vflags.v, m.vreply_to_msg_id.v, m.vvia_bot_id.v, date(m.vdate), m.vfrom_id.v);
 		} else if (badMedia == MediaCheckResult::Empty) {
-			result = HistoryService::create(this, m.vid.v, date(m.vdate), lang(lng_message_empty), m.vflags.v, m.has_from_id() ? m.vfrom_id.v : 0);
+			auto message = HistoryService::PreparedText { lang(lng_message_empty) };
+			result = HistoryService::create(this, m.vid.v, date(m.vdate), message, m.vflags.v, m.has_from_id() ? m.vfrom_id.v : 0);
 		} else {
 			result = HistoryMessage::create(this, m);
 		}
@@ -900,9 +926,9 @@ HistoryItem *History::createItem(const MTPMessage &msg, bool applyServiceAction,
 				if (peer->isMegagroup()) {
 					if (auto user = App::userLoaded(uid)) {
 						auto channel = peer->asChannel();
-						auto megagroupInfo = channel->mgInfo;
+						auto &megagroupInfo = channel->mgInfo;
 
-						int32 index = megagroupInfo->lastParticipants.indexOf(user);
+						auto index = megagroupInfo->lastParticipants.indexOf(user);
 						if (index >= 0) {
 							megagroupInfo->lastParticipants.removeAt(index);
 							Notify::peerUpdatedDelayed(peer, Notify::PeerUpdate::Flag::MembersChanged);
@@ -983,6 +1009,10 @@ HistoryItem *History::createItem(const MTPMessage &msg, bool applyServiceAction,
 					if (App::main()) emit App::main()->peerUpdated(result->history()->peer);
 				}
 			} break;
+
+			case mtpc_messageActionPhoneCall: {
+				Calls::Current().newServiceMessage().notify(result->fullId());
+			} break;
 			}
 		}
 	} break;
@@ -1012,7 +1042,8 @@ HistoryItem *History::createItemGame(MsgId id, MTPDmessage::Flags flags, int32 v
 }
 
 HistoryItem *History::addNewService(MsgId msgId, QDateTime date, const QString &text, MTPDmessage::Flags flags, bool newMsg) {
-	return addNewItem(HistoryService::create(this, msgId, date, text, flags), newMsg);
+	auto message = HistoryService::PreparedText { text };
+	return addNewItem(HistoryService::create(this, msgId, date, message, flags), newMsg);
 }
 
 HistoryItem *History::addNewMessage(const MTPMessage &msg, NewMessageType type) {
@@ -1117,20 +1148,24 @@ HistoryItem *History::addNewItem(HistoryItem *adding, bool newMsg) {
 
 	adding->addToOverview(AddToOverviewNew);
 	if (adding->from()->id) {
-		if (adding->from()->isUser()) {
-			QList<UserData*> *lastAuthors = 0;
-			if (peer->isChat()) {
-				lastAuthors = &peer->asChat()->lastAuthors;
-			} else if (peer->isMegagroup()) {
-				lastAuthors = &peer->asChannel()->mgInfo->lastParticipants;
+		if (auto user = adding->from()->asUser()) {
+			auto getLastAuthors = [this]() -> QList<gsl::not_null<UserData*>>* {
+				if (auto chat = peer->asChat()) {
+					return &chat->lastAuthors;
+				} else if (auto channel = peer->asMegagroup()) {
+					return &channel->mgInfo->lastParticipants;
+				}
+				return nullptr;
+			};
+			if (auto channel = peer->asMegagroup()) {
 				if (adding->from()->asUser()->botInfo) {
-					peer->asChannel()->mgInfo->bots.insert(adding->from()->asUser());
-					if (peer->asChannel()->mgInfo->botStatus != 0 && peer->asChannel()->mgInfo->botStatus < 2) {
-						peer->asChannel()->mgInfo->botStatus = 2;
+					channel->mgInfo->bots.insert(adding->from()->asUser());
+					if (channel->mgInfo->botStatus != 0 && channel->mgInfo->botStatus < 2) {
+						channel->mgInfo->botStatus = 2;
 					}
 				}
 			}
-			if (lastAuthors) {
+			if (auto lastAuthors = getLastAuthors()) {
 				int prev = lastAuthors->indexOf(adding->from()->asUser());
 				if (prev > 0) {
 					lastAuthors->removeAt(prev);
@@ -1146,15 +1181,17 @@ HistoryItem *History::addNewItem(HistoryItem *adding, bool newMsg) {
 			}
 		}
 		if (adding->definesReplyKeyboard()) {
-			MTPDreplyKeyboardMarkup::Flags markupFlags = adding->replyKeyboardFlags();
+			auto markupFlags = adding->replyKeyboardFlags();
 			if (!(markupFlags & MTPDreplyKeyboardMarkup::Flag::f_selective) || adding->mentionsMe()) {
-				OrderedSet<PeerData*> *markupSenders = 0;
-				if (peer->isChat()) {
-					markupSenders = &peer->asChat()->markupSenders;
-				} else if (peer->isMegagroup()) {
-					markupSenders = &peer->asChannel()->mgInfo->markupSenders;
-				}
-				if (markupSenders) {
+				auto getMarkupSenders = [this]() -> OrderedSet<gsl::not_null<PeerData*>>* {
+					if (auto chat = peer->asChat()) {
+						return &chat->markupSenders;
+					} else if (auto channel = peer->asMegagroup()) {
+						return &channel->mgInfo->markupSenders;
+					}
+					return nullptr;
+				};
+				if (auto markupSenders = getMarkupSenders()) {
 					markupSenders->insert(adding->from());
 				}
 				if (markupFlags & MTPDreplyKeyboardMarkup_ClientFlag::f_zero) { // zero markup means replyKeyboardHide
@@ -1299,8 +1336,8 @@ void History::addOlderSlice(const QVector<MTPMessage> &slice) {
 	} else if (loadedAtBottom()) { // add photos to overview and authors to lastAuthors
 		bool channel = isChannel();
 		int32 mask = 0;
-		QList<UserData*> *lastAuthors = nullptr;
-		OrderedSet<PeerData*> *markupSenders = nullptr;
+		QList<gsl::not_null<UserData*>> *lastAuthors = nullptr;
+		OrderedSet<gsl::not_null<PeerData*>> *markupSenders = nullptr;
 		if (peer->isChat()) {
 			lastAuthors = &peer->asChat()->lastAuthors;
 			markupSenders = &peer->asChat()->markupSenders;
@@ -2029,7 +2066,9 @@ void History::clear(bool leaveItems) {
 			peer->asChannel()->mgInfo->markupSenders.clear();
 		}
 	}
-	if (leaveItems && App::main()) App::main()->historyCleared(this);
+	if (leaveItems) {
+		AuthSession::Current().data().historyCleared().notify(this, true);
+	}
 }
 
 void History::clearBlocks(bool leaveItems) {

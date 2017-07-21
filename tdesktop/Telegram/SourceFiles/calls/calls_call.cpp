@@ -22,7 +22,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "auth_session.h"
 #include "mainwidget.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "boxes/confirm_box.h"
 #include "boxes/rate_call_box.h"
 #include "calls/calls_instance.h"
@@ -231,7 +231,7 @@ void Call::hangup() {
 		_delegate->callFinished(this);
 	} else {
 		auto missed = (_state == State::Ringing || (_state == State::Waiting && _type == Type::Outgoing));
-		auto declined = (_state == State::WaitingIncoming);
+		auto declined = isIncomingWaiting();
 		auto reason = missed ? MTP_phoneCallDiscardReasonMissed() :
 			declined ? MTP_phoneCallDiscardReasonBusy() : MTP_phoneCallDiscardReasonHangup();
 		finish(FinishType::Ended, reason);
@@ -597,7 +597,7 @@ void Call::setState(State state) {
 			break;
 		case State::Ended:
 			_delegate->playSound(Delegate::Sound::Ended);
-			// fallthrough
+			// [[fallthrough]]
 		case State::EndedByOtherDevice:
 			_delegate->callFinished(this);
 			break;

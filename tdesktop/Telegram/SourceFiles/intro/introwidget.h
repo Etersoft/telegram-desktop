@@ -20,6 +20,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
+#include "mtproto/sender.h"
+
 namespace Ui {
 class IconButton;
 class RoundButton;
@@ -33,7 +35,7 @@ class WidgetFadeWrap;
 
 namespace Intro {
 
-class Widget : public TWidget, public RPCSender {
+class Widget : public TWidget, private MTP::Sender, private base::Subscriber {
 	Q_OBJECT
 
 public:
@@ -122,9 +124,9 @@ public:
 
 		void setErrorCentered(bool centered);
 		void setErrorBelowLink(bool below);
-		void showError(const QString &text);
+		void showError(base::lambda<QString()> textFactory);
 		void hideError() {
-			showError(QString());
+			showError(base::lambda<QString()>());
 		}
 
 		~Step();
@@ -133,8 +135,8 @@ public:
 		void paintEvent(QPaintEvent *e) override;
 		void resizeEvent(QResizeEvent *e) override;
 
-		void setTitleText(QString richText);
-		void setDescriptionText(QString richText);
+		void setTitleText(base::lambda<QString()> richTitleTextFactory);
+		void setDescriptionText(base::lambda<QString()> richDescriptionTextFactory);
 		bool paintAnimated(Painter &p, QRect clip);
 
 		void fillSentCodeData(const MTPauth_SentCodeType &type);
@@ -176,6 +178,10 @@ public:
 		};
 		void updateLabelsPosition();
 		void paintContentSnapshot(Painter &p, const QPixmap &snapshot, float64 alpha, float64 howMuchHidden);
+		void refreshError();
+		void refreshTitle();
+		void refreshDescription();
+		void refreshLang();
 
 		CoverAnimation prepareCoverAnimation(Step *step);
 		QPixmap prepareContentSnapshot();
@@ -191,11 +197,13 @@ public:
 		base::lambda<void()> _showResetCallback;
 
 		object_ptr<Ui::FlatLabel> _title;
+		base::lambda<QString()> _titleTextFactory;
 		object_ptr<Ui::WidgetFadeWrap<Ui::FlatLabel>> _description;
+		base::lambda<QString()> _descriptionTextFactory;
 
 		bool _errorCentered = false;
 		bool _errorBelowLink = false;
-		QString _errorText;
+		base::lambda<QString()> _errorTextFactory;
 		object_ptr<Ui::WidgetFadeWrap<Ui::FlatLabel>> _error = { nullptr };
 
 		Animation _a_show;
@@ -206,9 +214,10 @@ public:
 	};
 
 private:
+	void refreshLang();
 	void animationCallback();
+	void createLanguageLink();
 
-	void changeLanguage(int32 languageId);
 	void updateControlsGeometry();
 	Data *getData() {
 		return &_data;
@@ -217,19 +226,11 @@ private:
 	void fixOrder();
 	void showControls();
 	void hideControls();
-	void moveControls();
 	QRect calculateStepRect() const;
 
 	void showResetButton();
 	void resetAccount();
-	void resetDone(const MTPBool &result);
-	bool resetFail(const RPCError &error);
 
-	Animation _a_show;
-	bool _showBack = false;
-	QPixmap _cacheUnder, _cacheOver;
-
-	QVector<Step*> _stepHistory;
 	Step *getStep(int skip = 0) {
 		t_assert(_stepHistory.size() + skip > 0);
 		return _stepHistory.at(_stepHistory.size() - skip - 1);
@@ -238,7 +239,13 @@ private:
 	void moveToStep(Step *step, Direction direction);
 	void appendStep(Step *step);
 
-	void gotNearestDC(const MTPNearestDc &dc);
+	void getNearestDC();
+
+	Animation _a_show;
+	bool _showBack = false;
+	QPixmap _cacheUnder, _cacheOver;
+
+	QVector<Step*> _stepHistory;
 
 	Data _data;
 

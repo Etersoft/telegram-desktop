@@ -27,7 +27,9 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/buttons.h"
 #include "base/zlib_help.h"
-#include "lang.h"
+#include "lang/lang_cloud_manager.h"
+#include "lang/lang_instance.h"
+#include "lang/lang_keys.h"
 #include "shortcuts.h"
 #include "messenger.h"
 #include "application.h"
@@ -39,6 +41,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "boxes/confirm_box.h"
 #include "boxes/contacts_box.h"
 #include "boxes/add_contact_box.h"
+#include "boxes/connection_box.h"
 #include "observer_peer.h"
 #include "autoupdater.h"
 #include "mediaview.h"
@@ -53,6 +56,27 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "base/task_queue.h"
 #include "auth_session.h"
 #include "window/window_controller.h"
+
+namespace {
+
+// Code for testing languages is F7-F6-F7-F8
+void FeedLangTestingKey(int key) {
+	static auto codeState = 0;
+	if ((codeState == 0 && key == Qt::Key_F7)
+		|| (codeState == 1 && key == Qt::Key_F6)
+		|| (codeState == 2 && key == Qt::Key_F7)
+		|| (codeState == 3 && key == Qt::Key_F8)) {
+		++codeState;
+	} else {
+		codeState = 0;
+	}
+	if (codeState == 4) {
+		codeState = 0;
+		Lang::CurrentCloudManager().switchToTestLanguage();
+	}
+}
+
+} // namespace
 
 ConnectingWidget::ConnectingWidget(QWidget *parent, const QString &text, const QString &reconnect) : TWidget(parent)
 , _reconnect(this, QString()) {
@@ -90,7 +114,12 @@ void ConnectingWidget::paintEvent(QPaintEvent *e) {
 }
 
 void ConnectingWidget::onReconnect() {
-	MTP::restart();
+	auto throughProxy = (Global::ConnectionType() != dbictAuto);
+	if (throughProxy) {
+		Ui::show(Box<ConnectionBox>());
+	} else {
+		MTP::restart();
+	}
 }
 
 MainWindow::MainWindow() {
@@ -108,44 +137,14 @@ MainWindow::MainWindow() {
 
 	setLocale(QLocale(QLocale::English, QLocale::UnitedStates));
 
-	_inactiveTimer.setSingleShot(true);
-	connect(&_inactiveTimer, SIGNAL(timeout()), this, SLOT(onInactiveTimer()));
-
 	subscribe(Global::RefSelfChanged(), [this] { updateGlobalMenu(); });
 	subscribe(Window::Theme::Background(), [this](const Window::Theme::BackgroundUpdate &data) {
 		themeUpdated(data);
 	});
-	subscribe(Messenger::Instance().authSessionChanged(), [this] { checkAuthSession(); });
 	subscribe(Messenger::Instance().passcodedChanged(), [this] { updateGlobalMenu(); });
-	checkAuthSession();
 
 	setAttribute(Qt::WA_NoSystemBackground);
 	setAttribute(Qt::WA_OpaquePaintEvent);
-}
-
-void MainWindow::checkAuthSession() {
-	if (AuthSession::Exists()) {
-		_controller = std::make_unique<Window::Controller>(this);
-	} else {
-		_controller = nullptr;
-	}
-}
-
-void MainWindow::inactivePress(bool inactive) {
-	_inactivePress = inactive;
-	if (_inactivePress) {
-		_inactiveTimer.start(200);
-	} else {
-		_inactiveTimer.stop();
-	}
-}
-
-bool MainWindow::inactivePress() const {
-	return _inactivePress;
-}
-
-void MainWindow::onInactiveTimer() {
-	inactivePress(false);
 }
 
 void MainWindow::initHook() {
@@ -219,7 +218,7 @@ void MainWindow::clearPasscode() {
 	} else {
 		t_assert(_main != nullptr);
 		_main->showAnimated(bg, true);
-		_main->checkStartUrl();
+		Messenger::Instance().checkStartUrl();
 	}
 }
 
@@ -277,13 +276,7 @@ void MainWindow::serviceNotification(const TextWithEntities &message, const MTPM
 		return sendServiceHistoryRequest();
 	}
 
-	_main->serviceNotification(message, media, date);
-}
-
-void MainWindow::serviceNotificationLocal(QString text) {
-	EntitiesInText entities;
-	textParseEntities(text, _historyTextNoMonoOptions.flags, &entities);
-	serviceNotification({ text, entities });
+	_main->insertCheckedServiceNotification(message, media, date);
 }
 
 void MainWindow::showDelayedServiceMsgs() {
@@ -351,9 +344,9 @@ void MainWindow::showMainMenu() {
 
 void MainWindow::ensureLayerCreated() {
 	if (!_layerBg) {
-		_layerBg.create(bodyWidget(), _controller.get());
-		if (_controller) {
-			_controller->enableGifPauseReason(Window::GifPauseReason::Layer);
+		_layerBg.create(bodyWidget(), controller());
+		if (controller()) {
+			controller()->enableGifPauseReason(Window::GifPauseReason::Layer);
 		}
 	}
 }
@@ -361,8 +354,8 @@ void MainWindow::ensureLayerCreated() {
 void MainWindow::destroyLayerDelayed() {
 	if (_layerBg) {
 		_layerBg.destroyDelayed();
-		if (_controller) {
-			_controller->disableGifPauseReason(Window::GifPauseReason::Layer);
+		if (controller()) {
+			controller()->disableGifPauseReason(Window::GifPauseReason::Layer);
 		}
 	}
 }
@@ -384,13 +377,14 @@ void MainWindow::mtpStateChanged(int32 dc, int32 state) {
 }
 
 void MainWindow::updateConnectingStatus() {
-	int32 state = MTP::dcstate();
+	auto state = MTP::dcstate();
+	auto throughProxy = (Global::ConnectionType() != dbictAuto);
 	if (state == MTP::ConnectingState || state == MTP::DisconnectedState || (state < 0 && state > -600)) {
 		if (_main || getms() > 5000 || _connecting) {
-			showConnecting(lang(lng_connecting));
+			showConnecting(lang(throughProxy ? lng_connecting_to_proxy : lng_connecting), throughProxy ? lang(lng_connecting_settings) : QString());
 		}
 	} else if (state < 0) {
-		showConnecting(lng_reconnecting(lt_count, ((-state) / 1000) + 1), lang(lng_reconnecting_try_now));
+		showConnecting(lng_reconnecting(lt_count, ((-state) / 1000) + 1), lang(throughProxy ? lng_connecting_settings : lng_reconnecting_try_now));
 		QTimer::singleShot((-state) % 1000, this, SLOT(updateConnectingStatus()));
 	} else {
 		hideConnecting();
@@ -539,13 +533,6 @@ void MainWindow::checkHistoryActivation() {
 	}
 }
 
-void MainWindow::layerHidden() {
-	destroyLayerDelayed();
-	hideMediaview();
-	setInnerFocus();
-	checkHistoryActivation();
-}
-
 bool MainWindow::contentOverlapped(const QRect &globalRect) {
 	if (_main && _main->contentOverlapped(globalRect)) return true;
 	if (_layerBg && _layerBg->contentOverlapped(globalRect)) return true;
@@ -568,8 +555,13 @@ void MainWindow::setInnerFocus() {
 
 bool MainWindow::eventFilter(QObject *object, QEvent *e) {
 	switch (e->type()) {
-	case QEvent::MouseButtonPress:
 	case QEvent::KeyPress:
+		if (cDebug() && e->type() == QEvent::KeyPress && object == windowHandle()) {
+			auto key = static_cast<QKeyEvent*>(e)->key();
+			FeedLangTestingKey(key);
+		}
+		// [[fallthrough]];
+	case QEvent::MouseButtonPress:
 	case QEvent::TouchBegin:
 	case QEvent::Wheel:
 		psUserActionDone();
@@ -590,7 +582,7 @@ bool MainWindow::eventFilter(QObject *object, QEvent *e) {
 		return true;
 
 	case QEvent::Shortcut:
-		DEBUG_LOG(("Shortcut event catched: %1").arg(static_cast<QShortcutEvent*>(e)->key().toString()));
+		DEBUG_LOG(("Shortcut event caught: %1").arg(static_cast<QShortcutEvent*>(e)->key().toString()));
 		if (Shortcuts::launch(static_cast<QShortcutEvent*>(e)->shortcutId())) {
 			return true;
 		}
@@ -610,9 +602,7 @@ bool MainWindow::eventFilter(QObject *object, QEvent *e) {
 			QString url = static_cast<QFileOpenEvent*>(e)->url().toEncoded().trimmed();
 			if (url.startsWith(qstr("tg://"), Qt::CaseInsensitive)) {
 				cSetStartUrl(url.mid(0, 8192));
-				if (_main) {
-					_main->checkStartUrl();
-				}
+				Messenger::Instance().checkStartUrl();
 			}
 			activate();
 		}
@@ -734,15 +724,19 @@ void MainWindow::noIntro(Intro::Widget *was) {
 void MainWindow::noLayerStack(LayerStackWidget *was) {
 	if (was == _layerBg) {
 		_layerBg = nullptr;
-		if (_controller) {
-			_controller->disableGifPauseReason(Window::GifPauseReason::Layer);
+		if (controller()) {
+			controller()->disableGifPauseReason(Window::GifPauseReason::Layer);
 		}
 	}
 }
 
 void MainWindow::layerFinishedHide(LayerStackWidget *was) {
 	if (was == _layerBg) {
-		QTimer::singleShot(0, this, SLOT(layerHidden()));
+		destroyLayerDelayed();
+		InvokeQueued(this, [this] {
+			setInnerFocus();
+			checkHistoryActivation();
+		});
 	}
 }
 

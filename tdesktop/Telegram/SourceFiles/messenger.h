@@ -21,6 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #pragma once
 
 #include "base/observer.h"
+#include "mtproto/auth_key.h"
 
 namespace App {
 void quit();
@@ -29,6 +30,9 @@ void quit();
 namespace MTP {
 class DcOptions;
 class Instance;
+class AuthKey;
+using AuthKeyPtr = std::shared_ptr<AuthKey>;
+using AuthKeysList = std::vector<AuthKeyPtr>;
 } // namespace MTP
 
 class AuthSession;
@@ -46,6 +50,12 @@ namespace Audio {
 class Instance;
 } // namespace Audio
 } // namespace Media
+
+namespace Lang {
+class Instance;
+class Translator;
+class CloudManager;
+} // namespace Lang
 
 class Messenger final : public QObject, public RPCSender, private base::Subscriber {
 	Q_OBJECT
@@ -101,6 +111,12 @@ public:
 	AuthSession *authSession() {
 		return _authSession.get();
 	}
+	Lang::Instance &langpack() {
+		return *_langpack;
+	}
+	Lang::CloudManager *langCloudManager() {
+		return _langCloudManager.get();
+	}
 	void authSessionCreate(UserId userId);
 	void authSessionDestroy();
 	base::Observable<void> &authSessionChanged() {
@@ -112,9 +128,12 @@ public:
 		return *_audio;
 	}
 
+	// Internal links.
 	void setInternalLinkDomain(const QString &domain) const;
 	QString createInternalLink(const QString &query) const;
 	QString createInternalLinkFull(const QString &query) const;
+	void checkStartUrl();
+	bool openLocalUrl(const QString &url);
 
 	FileUploader *uploader();
 	void uploadProfilePhoto(const QImage &tosend, const PeerId &peerId);
@@ -135,7 +154,6 @@ public:
 	void killDownloadSessionsStop(MTP::DcId dcId);
 
 	void checkLocalTime();
-	void checkMapVersion();
 	void setupPasscode();
 	void clearPasscode();
 	base::Observable<void> &passcodedChanged() {
@@ -171,7 +189,6 @@ public slots:
 private:
 	void destroyMtpKeys(MTP::AuthKeysList &&keys);
 	void startLocalStorage();
-	void loadLanguage();
 
 	friend void App::quit();
 	static void QuitAttempt();
@@ -189,7 +206,9 @@ private:
 	std::unique_ptr<MainWindow> _window;
 	FileUploader *_uploader = nullptr;
 
-	std::unique_ptr<Translator> _translator;
+	std::unique_ptr<Lang::Instance> _langpack;
+	std::unique_ptr<Lang::CloudManager> _langCloudManager;
+	std::unique_ptr<Lang::Translator> _translator;
 	std::unique_ptr<MTP::DcOptions> _dcOptions;
 	std::unique_ptr<MTP::Instance> _mtproto;
 	std::unique_ptr<MTP::Instance> _mtprotoForKeysDestroy;

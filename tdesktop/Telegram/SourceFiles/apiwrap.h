@@ -24,6 +24,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "core/single_timer.h"
 #include "mtproto/sender.h"
 
+class AuthSession;
+
 namespace Api {
 
 inline const MTPVector<MTPChat> *getChatsFromMessagesChats(const MTPmessages_Chats &chats) {
@@ -36,9 +38,12 @@ inline const MTPVector<MTPChat> *getChatsFromMessagesChats(const MTPmessages_Cha
 
 } // namespace Api
 
-class ApiWrap : private MTP::Sender {
+class ApiWrap : private MTP::Sender, private base::Subscriber {
 public:
-	ApiWrap();
+	ApiWrap(gsl::not_null<AuthSession*> session);
+
+	void start();
+	void applyUpdates(const MTPUpdates &updates, uint64 sentMessageRandomId = 0);
 
 	using RequestMessageDataCallback = base::lambda<void(ChannelData*, MsgId)>;
 	void requestMessageData(ChannelData *channel, MsgId msgId, RequestMessageDataCallback callback);
@@ -54,7 +59,7 @@ public:
 	void processFullPeer(UserData *user, const MTPUserFull &result);
 
 	void requestSelfParticipant(ChannelData *channel);
-	void kickParticipant(PeerData *peer, UserData *user);
+	void kickParticipant(PeerData *peer, UserData *user, const MTPChannelBannedRights &currentRights);
 	void unblockParticipant(PeerData *peer, UserData *user);
 
 	void requestWebPageDelayed(WebPageData *page);
@@ -86,6 +91,9 @@ public:
 
 	bool isQuitPrevent();
 
+	void applyUpdatesNoPtsCheck(const MTPUpdates &updates);
+	void applyUpdateNoPtsCheck(const MTPUpdate &update);
+
 	~ApiWrap();
 
 private:
@@ -96,6 +104,8 @@ private:
 	};
 	using MessageDataRequests = QMap<MsgId, MessageDataRequest>;
 
+	void requestAppChangelogs();
+	void addLocalChangelogs(int oldAppVersion);
 	void updatesReceived(const MTPUpdates &updates);
 	void checkQuitPreventFinished();
 
@@ -118,6 +128,9 @@ private:
 
 	void stickerSetDisenabled(mtpRequestId requestId);
 	void stickersSaveOrder();
+
+	gsl::not_null<AuthSession*> _session;
+	mtpRequestId _changelogSubscription = 0;
 
 	MessageDataRequests _messageDataRequests;
 	QMap<ChannelData*, MessageDataRequests> _channelMessageDataRequests;

@@ -28,7 +28,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "mainwidget.h"
 #include "observer_peer.h"
 #include "apiwrap.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "messenger.h"
 
 namespace Profile {
@@ -149,14 +149,13 @@ void InfoWidget::refreshAbout() {
 	};
 
 	_about.destroy();
-	auto aboutText = textClean(getAboutText());
-	if (!aboutText.isEmpty()) {
+	auto aboutText = TextWithEntities { TextUtilities::Clean(getAboutText()) };
+	if (!aboutText.text.isEmpty()) {
 		_about.create(this, st::profileBlockTextPart);
 		_about->show();
 
-		EntitiesInText aboutEntities;
-		textParseEntities(aboutText, TextParseLinks | TextParseMentions | TextParseHashtags | TextParseBotCommands, &aboutEntities);
-		_about->setMarkedText({ aboutText, aboutEntities });
+		TextUtilities::ParseEntities(aboutText, TextParseLinks | TextParseMentions | TextParseHashtags | TextParseBotCommands);
+		_about->setMarkedText(aboutText);
 		_about->setSelectable(true);
 		_about->setClickHandlerHook([this](const ClickHandlerPtr &handler, Qt::MouseButton button) {
 			BotCommandClickHandler::setPeerForCommand(peer());

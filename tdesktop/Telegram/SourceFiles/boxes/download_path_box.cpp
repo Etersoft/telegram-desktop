@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/download_path_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "storage/localstorage.h"
 #include "core/file_utilities.h"
 #include "ui/widgets/checkbox.h"
@@ -39,10 +39,10 @@ DownloadPathBox::DownloadPathBox(QWidget *parent)
 }
 
 void DownloadPathBox::prepare() {
-	addButton(lang(lng_connection_save), [this] { save(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_connection_save), [this] { save(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
-	setTitle(lang(lng_download_path_header));
+	setTitle(langFactory(lng_download_path_header));
 
 	_group->setChangedCallback([this](Directory value) { radioChanged(value); });
 
@@ -57,11 +57,11 @@ void DownloadPathBox::updateControlsVisibility() {
 	auto custom = (_group->value() == Directory::Custom);
 	_pathLink->setVisible(custom);
 
-	auto newHeight = st::boxOptionListPadding.top() + _default->heightNoMargins() + st::boxOptionListSkip + _temp->heightNoMargins() + st::boxOptionListSkip + _dir->heightNoMargins();
+	auto newHeight = st::boxOptionListPadding.top() + _default->getMargins().top() + _default->heightNoMargins() + st::boxOptionListSkip + _temp->heightNoMargins() + st::boxOptionListSkip + _dir->heightNoMargins();
 	if (custom) {
 		newHeight += st::downloadPathSkip + _pathLink->height();
 	}
-	newHeight += st::boxOptionListPadding.bottom();
+	newHeight += st::boxOptionListPadding.bottom() + _dir->getMargins().bottom();
 
 	setDimensions(st::boxWideWidth, newHeight);
 }
@@ -69,10 +69,10 @@ void DownloadPathBox::updateControlsVisibility() {
 void DownloadPathBox::resizeEvent(QResizeEvent *e) {
 	BoxContent::resizeEvent(e);
 
-	_default->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), st::boxOptionListPadding.top());
+	_default->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), st::boxOptionListPadding.top() + _default->getMargins().top());
 	_temp->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), _default->bottomNoMargins() + st::boxOptionListSkip);
 	_dir->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), _temp->bottomNoMargins() + st::boxOptionListSkip);
-	auto inputx = st::boxPadding.left() + st::boxOptionListPadding.left() + st::defaultBoxCheckbox.textPosition.x();
+	auto inputx = st::boxPadding.left() + st::boxOptionListPadding.left() + st::defaultCheck.diameter + st::defaultBoxCheckbox.textPosition.x();
 	auto inputy = _dir->bottomNoMargins() + st::downloadPathSkip;
 
 	_pathLink->moveToLeft(inputx, inputy);
@@ -132,6 +132,6 @@ void DownloadPathBox::save() {
 }
 
 void DownloadPathBox::setPathText(const QString &text) {
-	auto availw = st::boxWideWidth - st::boxPadding.left() - st::defaultBoxCheckbox.textPosition.x() - st::boxPadding.right();
+	auto availw = st::boxWideWidth - st::boxPadding.left() - st::defaultCheck.diameter - st::defaultBoxCheckbox.textPosition.x() - st::boxPadding.right();
 	_pathLink->setText(st::boxTextFont->elided(text, availw));
 }

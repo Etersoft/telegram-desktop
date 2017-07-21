@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/username_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "application.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
@@ -31,7 +31,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "messenger.h"
 
 UsernameBox::UsernameBox(QWidget*)
-: _username(this, st::defaultInputField, qsl("@username"), App::self()->username, false)
+: _username(this, st::defaultInputField, [] { return qsl("@username"); }, App::self()->username, false)
 , _link(this, QString(), st::boxLinkButton)
 , _about(st::boxWidth - st::usernamePadding.left())
 , _checkTimer(this) {
@@ -40,10 +40,10 @@ UsernameBox::UsernameBox(QWidget*)
 void UsernameBox::prepare() {
 	_goodText = App::self()->username.isEmpty() ? QString() : lang(lng_username_available);
 
-	setTitle(lang(lng_username_title));
+	setTitle(langFactory(lng_username_title));
 
-	addButton(lang(lng_settings_save), [this] { onSave(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_settings_save), [this] { onSave(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	connect(_username, SIGNAL(changed()), this, SLOT(onChanged()));
 	connect(_username, SIGNAL(submitted(bool)), this, SLOT(onSave()));
@@ -175,7 +175,7 @@ bool UsernameBox::onUpdateFail(const RPCError &error) {
 	_saveRequestId = 0;
 	QString err(error.type());
 	if (err == qstr("USERNAME_NOT_MODIFIED") || _sentUsername == App::self()->username) {
-		App::self()->setName(textOneLine(App::self()->firstName), textOneLine(App::self()->lastName), textOneLine(App::self()->nameOrPhone), textOneLine(_sentUsername));
+		App::self()->setName(TextUtilities::SingleLine(App::self()->firstName), TextUtilities::SingleLine(App::self()->lastName), TextUtilities::SingleLine(App::self()->nameOrPhone), TextUtilities::SingleLine(_sentUsername));
 		closeBox();
 		return true;
 	} else if (err == qstr("USERNAME_INVALID")) {

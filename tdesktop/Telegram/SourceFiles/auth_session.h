@@ -57,6 +57,22 @@ public:
 	base::Observable<void> &savedGifsUpdated() {
 		return _savedGifsUpdated;
 	}
+	base::Observable<gsl::not_null<History*>> &historyCleared() {
+		return _historyCleared;
+	}
+	base::Observable<gsl::not_null<const HistoryItem*>> &repaintLogEntry() {
+		return _repaintLogEntry;
+	}
+	base::Observable<void> &pendingHistoryResize() {
+		return _pendingHistoryResize;
+	}
+	struct ItemVisibilityQuery {
+		gsl::not_null<HistoryItem*> item;
+		gsl::not_null<bool*> isVisible;
+	};
+	base::Observable<ItemVisibilityQuery> &queryItemVisibility() {
+		return _queryItemVisibility;
+	}
 
 	void copyFrom(const AuthSessionData &other) {
 		_variables = other._variables;
@@ -131,6 +147,10 @@ private:
 	base::Variable<bool> _allChatsLoaded = { false };
 	base::Observable<void> _moreChatsLoaded;
 	base::Observable<void> _savedGifsUpdated;
+	base::Observable<gsl::not_null<History*>> _historyCleared;
+	base::Observable<gsl::not_null<const HistoryItem*>> _repaintLogEntry;
+	base::Observable<void> _pendingHistoryResize;
+	base::Observable<ItemVisibilityQuery> _queryItemVisibility;
 	Variables _variables;
 	TimeMs _lastTimeVideoPlayedAt = 0;
 

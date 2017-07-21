@@ -25,11 +25,13 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "messenger.h"
+#include "auth_session.h"
 #include "boxes/confirm_box.h"
 #include "layerwidget.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "base/observer.h"
 #include "base/task_queue.h"
+#include "history/history_media.h"
 
 Q_DECLARE_METATYPE(ClickHandlerPtr);
 Q_DECLARE_METATYPE(Qt::MouseButton);
@@ -165,15 +167,6 @@ void stickersBox(const QString &name) {
 	if (MainWidget *m = main()) m->stickersBox(MTP_inputStickerSetShortName(MTP_string(name)));
 }
 
-void openLocalUrl(const QString &url) {
-	if (MainWidget *m = main()) m->openLocalUrl(url);
-}
-
-bool forward(const PeerId &peer, ForwardWhatMessages what) {
-	if (MainWidget *m = main()) return m->onForward(peer, what);
-	return false;
-}
-
 void removeDialog(History *history) {
 	if (MainWidget *m = main()) {
 		m->removeDialog(history);
@@ -253,7 +246,7 @@ bool isMediaViewShown() {
 	return false;
 }
 
-void repaintHistoryItem(const HistoryItem *item) {
+void repaintHistoryItem(gsl::not_null<const HistoryItem*> item) {
 	if (auto main = App::main()) {
 		main->ui_repaintHistoryItem(item);
 	}
@@ -368,9 +361,11 @@ void historyMuteUpdated(History *history) {
 }
 
 void handlePendingHistoryUpdate() {
-	if (auto main = App::main()) {
-		main->notify_handlePendingHistoryUpdate();
+	if (!AuthSession::Exists()) {
+		return;
 	}
+	AuthSession::Current().data().pendingHistoryResize().notify(true);
+
 	for (auto item : base::take(Global::RefPendingRepaintItems())) {
 		Ui::repaintHistoryItem(item);
 
@@ -379,7 +374,7 @@ void handlePendingHistoryUpdate() {
 			if (auto media = item->getMedia()) {
 				if (auto reader = media->getClipReader()) {
 					if (!reader->started() && reader->mode() == Media::Clip::Reader::Mode::Video) {
-						item->history()->resizeGetHeight(item->history()->width);
+						item->resizeGetHeight(item->width());
 					}
 				}
 			}
@@ -412,9 +407,6 @@ namespace Sandbox {
 namespace internal {
 
 struct Data {
-	QString LangSystemISO;
-	int32 LangSystem = languageDefault;
-
 	QByteArray LastCrashDump;
 	ProxyData PreLaunchProxy;
 };
@@ -523,16 +515,6 @@ void start() {
 		base::TaskQueue::ProcessMainTasks();
 	});
 	SandboxData = std::make_unique<internal::Data>();
-
-	SandboxData->LangSystemISO = psCurrentLanguage();
-	if (SandboxData->LangSystemISO.isEmpty()) SandboxData->LangSystemISO = qstr("en");
-	auto l = LangSystemISO().toLatin1();
-	for (auto i = 0; i < languageCount; ++i) {
-		if (l.at(0) == LanguageCodes[i][0] && l.at(1) == LanguageCodes[i][1]) {
-			SandboxData->LangSystem = i;
-			break;
-		}
-	}
 }
 
 bool started() {
@@ -548,8 +530,6 @@ uint64 UserTag() {
 	return SandboxUserTag;
 }
 
-DefineReadOnlyVar(Sandbox, QString, LangSystemISO);
-DefineReadOnlyVar(Sandbox, int32, LangSystem);
 DefineVar(Sandbox, QByteArray, LastCrashDump);
 DefineVar(Sandbox, ProxyData, PreLaunchProxy);
 
@@ -624,7 +604,7 @@ struct Data {
 
 	// config
 	int32 ChatSizeMax = 200;
-	int32 MegagroupSizeMax = 1000;
+	int32 MegagroupSizeMax = 10000;
 	int32 ForwardedCountMax = 100;
 	int32 OnlineUpdatePeriod = 120000;
 	int32 OfflineBlurTimeout = 5000;
@@ -682,11 +662,10 @@ struct Data {
 	bool NotificationsDemoIsShown = false;
 
 	DBIConnectionType ConnectionType = dbictAuto;
+	DBIConnectionType LastProxyType = dbictAuto;
 	bool TryIPv6 = (cPlatform() == dbipWindows) ? false : true;
 	ProxyData ConnectionProxy;
 	base::Observable<void> ConnectionTypeChanged;
-
-	base::Observable<void> ChooseCustomLang;
 
 	int AutoLock = 3600;
 	bool LocalPasscode = false;
@@ -804,11 +783,10 @@ DefineVar(Global, Notify::ScreenCorner, NotificationsCorner);
 DefineVar(Global, bool, NotificationsDemoIsShown);
 
 DefineVar(Global, DBIConnectionType, ConnectionType);
+DefineVar(Global, DBIConnectionType, LastProxyType);
 DefineVar(Global, bool, TryIPv6);
 DefineVar(Global, ProxyData, ConnectionProxy);
 DefineRefVar(Global, base::Observable<void>, ConnectionTypeChanged);
-
-DefineRefVar(Global, base::Observable<void>, ChooseCustomLang);
 
 DefineVar(Global, int, AutoLock);
 DefineVar(Global, bool, LocalPasscode);

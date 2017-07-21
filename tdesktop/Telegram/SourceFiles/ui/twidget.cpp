@@ -18,6 +18,8 @@ to link the code of portions of this program with the OpenSSL library.
 Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
+#include "twidget.h"
+
 #include "application.h"
 #include "mainwindow.h"
 
@@ -152,6 +154,8 @@ QPixmap myGrab(TWidget *target, QRect rect, QColor bg) {
 	if (!target->testAttribute(Qt::WA_OpaquePaintEvent)) {
 		result.fill(bg);
 	}
+
+	App::wnd()->widgetGrabbed().notify(true);
 
 	target->grabStart();
 	target->render(&result, QPoint(0, 0), rect, QWidget::DrawChildren | QWidget::IgnoreMask);

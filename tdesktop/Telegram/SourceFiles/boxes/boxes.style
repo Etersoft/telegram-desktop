@@ -55,7 +55,7 @@ attentionBoxButton: RoundButton(defaultBoxButton) {
 
 defaultBoxCheckbox: Checkbox(defaultCheckbox) {
 	width: -46px;
-	textPosition: point(34px, 1px);
+	textPosition: point(12px, 1px);
 	style: boxTextStyle;
 }
 
@@ -459,7 +459,7 @@ newGroupNamePosition: point(27px, 5px);
 newGroupDescriptionPadding: margins(0px, 13px, 0px, 4px);
 newGroupDescription: InputField(defaultInputField) {
 	textMargins: margins(1px, 26px, 1px, 4px);
-	heightMax: 135px;
+	heightMax: 116px;
 }
 
 setupChannelLink: InputField(defaultInputField) {
@@ -631,3 +631,55 @@ changePhoneLabel: FlatLabel(defaultFlatLabel) {
 changePhoneError: FlatLabel(changePhoneLabel) {
 	textFg: boxTextFgError;
 }
+
+adminLogFilterUserpicLeft: 15px;
+adminLogFilterLittleSkip: 16px;
+adminLogFilterCheckbox: Checkbox(defaultBoxCheckbox) {
+	style: TextStyle(boxTextStyle) {
+		font: font(boxFontSize semibold);
+		linkFont: font(boxFontSize semibold);
+		linkFontOver: font(boxFontSize semibold underline);
+	}
+}
+adminLogFilterSkip: 32px;
+adminLogFilterUserCheckbox: Checkbox(defaultBoxCheckbox) {
+	margin: margins(8px, 6px, 8px, 6px);
+}
+
+rightsCheckbox: Checkbox(defaultBoxCheckbox) {
+	rippleBg: attentionButtonBgOver;
+}
+rightsToggle: Toggle(defaultToggle) {
+	toggledFg: windowBgActive;
+	untoggledFg: attentionButtonFg;
+	xsize: 8px;
+	vsize: 5px;
+	vshift: 1px;
+	stroke: 2px;
+	duration: 120;
+}
+rightsDividerHeight: 11px;
+rightsHeaderMargin: margins(23px, 20px, 23px, 8px);
+rightsToggleMargin: margins(23px, 8px, 23px, 8px);
+rightsAboutMargin: margins(23px, 8px, 23px, 8px);
+rightsPhotoButton: PeerAvatarButton {
+	size: 60px;
+	photoSize: 60px;
+}
+rightsPhotoMargin: margins(20px, 0px, 15px, 18px);
+rightsNameStyle: TextStyle(semiboldTextStyle) {
+	font: font(15px semibold);
+	linkFont: font(15px semibold);
+	linkFontOver: font(15px semibold underline);
+}
+rightsNameTop: 8px;
+rightsStatusTop: 32px;
+rightsHeaderLabel: FlatLabel(boxLabel) {
+	style: TextStyle(semiboldTextStyle) {
+		font: font(boxFontSize semibold);
+		linkFont: font(boxFontSize semibold);
+		linkFontOver: font(boxFontSize semibold underline);
+	}
+	textFg: windowActiveTextFg;
+}
+rightsUntilMargin: margins(0px, 8px, 0px, 0px);

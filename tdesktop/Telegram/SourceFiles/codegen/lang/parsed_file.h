@@ -22,6 +22,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include <memory>
 #include <string>
+#include <array>
 #include <functional>
 #include <QImage>
 #include "codegen/common/basic_tokenized_file.h"
@@ -30,19 +31,33 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 namespace codegen {
 namespace lang {
 
-struct Langpack {
+constexpr auto kPluralPartCount = 6;
+extern const std::array<QString, kPluralPartCount> kPluralParts;
+extern const QString kPluralTag;
+QString ComputePluralKey(const QString &base, int index);
+
+struct LangPack {
 	struct Tag {
 		QString tag;
 	};
 	struct Entry {
 		QString key;
 		QString value;
+		QString keyBase; // Empty for not plural entries.
 		std::vector<Tag> tags;
 	};
 	std::vector<Entry> entries;
 	std::vector<Tag> tags;
 
 };
+
+inline bool operator==(const LangPack::Tag &a, const LangPack::Tag &b) {
+	return a.tag == b.tag;
+}
+
+inline bool operator!=(const LangPack::Tag &a, const LangPack::Tag &b) {
+	return !(a == b);
+}
 
 // Parses an input file to the internal struct.
 class ParsedFile {
@@ -53,7 +68,7 @@ public:
 
 	bool read();
 
-	Langpack getResult() {
+	LangPack getResult() {
 		return result_;
 	}
 
@@ -83,15 +98,17 @@ private:
 	using BasicToken = common::BasicTokenizedFile::Token;
 	BasicToken assertNextToken(BasicToken::Type type);
 
-	void addEntity(const QString &key, const QString &value);
-	QString extractTagsData(const QString &value, Langpack *to);
-	QString extractTagData(const QString &tag, Langpack *to);
+	void addEntity(QString key, const QString &value);
+	QString extractTagsData(const QString &value, LangPack *to);
+	QString extractTagData(const QString &tag, LangPack *to);
+
+	void fillPluralTags();
 
 	QString filePath_;
 	common::BasicTokenizedFile file_;
 	Options options_;
 	bool failed_ = false;
-	Langpack result_;
+	LangPack result_;
 
 };
 

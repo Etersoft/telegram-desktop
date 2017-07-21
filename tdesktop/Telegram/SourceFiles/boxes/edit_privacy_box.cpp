@@ -27,57 +27,56 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/effects/widget_slide_wrap.h"
 #include "boxes/peer_list_box.h"
 #include "apiwrap.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 
 namespace {
 
 class PrivacyExceptionsBoxController : public ChatsListBoxController {
 public:
-	PrivacyExceptionsBoxController(const QString &title, const QVector<UserData*> &selected, base::lambda_once<void(QVector<UserData*> &&result)> saveCallback);
-	void rowClicked(PeerListBox::Row *row) override;
+	PrivacyExceptionsBoxController(base::lambda<QString()> titleFactory, const std::vector<gsl::not_null<UserData*>> &selected);
+	void rowClicked(gsl::not_null<PeerListRow*> row) override;
+
+	std::vector<gsl::not_null<UserData*>> getResult() const;
 
 protected:
 	void prepareViewHook() override;
-	std::unique_ptr<Row> createRow(History *history) override;
+	std::unique_ptr<Row> createRow(gsl::not_null<History*> history) override;
 
 private:
-	QString _title;
-	QVector<UserData*> _selected;
-	base::lambda_once<void(QVector<UserData*> &&result)> _saveCallback;
+	base::lambda<QString()> _titleFactory;
+	std::vector<gsl::not_null<UserData*>> _selected;
 
 };
 
-PrivacyExceptionsBoxController::PrivacyExceptionsBoxController(const QString &title, const QVector<UserData*> &selected, base::lambda_once<void(QVector<UserData*> &&result)> saveCallback)
-: _title(title)
-, _selected(selected)
-, _saveCallback(std::move(saveCallback)) {
+PrivacyExceptionsBoxController::PrivacyExceptionsBoxController(base::lambda<QString()> titleFactory, const std::vector<gsl::not_null<UserData*>> &selected)
+: _titleFactory(std::move(titleFactory))
+, _selected(selected) {
 }
 
 void PrivacyExceptionsBoxController::prepareViewHook() {
-	view()->setTitle(_title);
-	view()->addButton(lang(lng_settings_save), [this] {
-		auto peers = view()->collectSelectedRows();
-		auto users = QVector<UserData*>();
-		if (!peers.empty()) {
-			users.reserve(peers.size());
-			for_const (auto peer, peers) {
-				auto user = peer->asUser();
-				t_assert(user != nullptr);
-				users.push_back(user);
-			}
+	delegate()->peerListSetTitle(_titleFactory);
+	delegate()->peerListAddSelectedRows(_selected);
+}
+
+std::vector<gsl::not_null<UserData*>> PrivacyExceptionsBoxController::getResult() const {
+	auto peers = delegate()->peerListCollectSelectedRows();
+	auto users = std::vector<gsl::not_null<UserData*>>();
+	if (!peers.empty()) {
+		users.reserve(peers.size());
+		for_const (auto peer, peers) {
+			auto user = peer->asUser();
+			t_assert(user != nullptr);
+			users.push_back(user);
 		}
-		_saveCallback(std::move(users));
-		view()->closeBox();
-	});
-	view()->addButton(lang(lng_cancel), [this] { view()->closeBox(); });
-	view()->addSelectedRows(_selected);
+	}
+	return users;
 }
 
-void PrivacyExceptionsBoxController::rowClicked(PeerListBox::Row *row) {
-	view()->setRowChecked(row, !row->checked());
+void PrivacyExceptionsBoxController::rowClicked(gsl::not_null<PeerListRow*> row) {
+	delegate()->peerListSetRowChecked(row, !row->checked());
 }
 
-std::unique_ptr<PrivacyExceptionsBoxController::Row> PrivacyExceptionsBoxController::createRow(History *history) {
+std::unique_ptr<PrivacyExceptionsBoxController::Row> PrivacyExceptionsBoxController::createRow(gsl::not_null<History*> history) {
 	if (auto user = history->peer->asUser()) {
 		if (!user->isSelf()) {
 			return std::make_unique<Row>(history);
@@ -96,8 +95,8 @@ EditPrivacyBox::EditPrivacyBox(QWidget*, std::unique_ptr<Controller> controller)
 void EditPrivacyBox::prepare() {
 	_controller->setView(this);
 
-	setTitle(_controller->title());
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	setTitle([this] { return _controller->title(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	loadData();
 
@@ -146,7 +145,7 @@ int EditPrivacyBox::countDefaultHeight(int newWidth) {
 		if (!_controller->hasOption(option)) {
 			return 0;
 		}
-		return st::editPrivacyOptionMargin.top() + st::defaultBoxCheckbox.height + st::editPrivacyOptionMargin.bottom();
+		return st::editPrivacyOptionMargin.top() + st::defaultCheck.diameter + st::editPrivacyOptionMargin.bottom();
 	};
 	auto labelHeight = [this, newWidth](const QString &text, const style::FlatLabel &st, style::margins padding) {
 		if (text.isEmpty()) {
@@ -174,29 +173,37 @@ int EditPrivacyBox::countDefaultHeight(int newWidth) {
 }
 
 void EditPrivacyBox::editExceptionUsers(Exception exception) {
-	auto controller = std::make_unique<PrivacyExceptionsBoxController>(_controller->exceptionBoxTitle(exception), exceptionUsers(exception), base::lambda_guarded(this, [this, exception](QVector<UserData*> &&users) {
-		exceptionUsers(exception) = std::move(users);
-		exceptionLink(exception)->entity()->setText(exceptionLinkText(exception));
-		auto removeFrom = ([exception] {
-			switch (exception) {
-			case Exception::Always: return Exception::Never;
-			case Exception::Never: return Exception::Always;
+	auto controller = std::make_unique<PrivacyExceptionsBoxController>(base::lambda_guarded(this, [this, exception] {
+		return _controller->exceptionBoxTitle(exception);
+	}), exceptionUsers(exception));
+	auto initBox = [this, exception, controller = controller.get()](PeerListBox *box) {
+		box->addButton(langFactory(lng_settings_save), base::lambda_guarded(this, [this, box, exception, controller] {
+			exceptionUsers(exception) = controller->getResult();
+			exceptionLink(exception)->entity()->setText(exceptionLinkText(exception));
+			auto removeFrom = ([exception] {
+				switch (exception) {
+				case Exception::Always: return Exception::Never;
+				case Exception::Never: return Exception::Always;
+				}
+				Unexpected("Invalid exception value.");
+			})();
+			auto &removeFromUsers = exceptionUsers(removeFrom);
+			auto removedSome = false;
+			for (auto user : exceptionUsers(exception)) {
+				auto removedStart = std::remove(removeFromUsers.begin(), removeFromUsers.end(), user);
+				if (removedStart != removeFromUsers.end()) {
+					removeFromUsers.erase(removedStart, removeFromUsers.end());
+					removedSome = true;
+				}
 			}
-			Unexpected("Invalid exception value.");
-		})();
-		auto &removeFromUsers = exceptionUsers(removeFrom);
-		auto removedSome = false;
-		for (auto user : exceptionUsers(exception)) {
-			if (removeFromUsers.contains(user)) {
-				removeFromUsers.erase(std::remove(removeFromUsers.begin(), removeFromUsers.end(), user), removeFromUsers.end());
-				removedSome = true;
+			if (removedSome) {
+				exceptionLink(removeFrom)->entity()->setText(exceptionLinkText(removeFrom));
 			}
-		}
-		if (removedSome) {
-			exceptionLink(removeFrom)->entity()->setText(exceptionLinkText(removeFrom));
-		}
-	}));
-	Ui::show(Box<PeerListBox>(std::move(controller)), KeepOtherLayers);
+			box->closeBox();
+		}));
+		box->addButton(langFactory(lng_cancel), [box] { box->closeBox(); });
+	};
+	Ui::show(Box<PeerListBox>(std::move(controller), std::move(initBox)), KeepOtherLayers);
 }
 
 QString EditPrivacyBox::exceptionLinkText(Exception exception) {
@@ -235,7 +242,7 @@ style::margins EditPrivacyBox::exceptionLinkMargins() const {
 	return st::editPrivacyLinkMargin;
 }
 
-QVector<UserData*> &EditPrivacyBox::exceptionUsers(Exception exception) {
+std::vector<gsl::not_null<UserData*>> &EditPrivacyBox::exceptionUsers(Exception exception) {
 	switch (exception) {
 	case Exception::Always: return _alwaysUsers;
 	case Exception::Never: return _neverUsers;
@@ -292,14 +299,14 @@ void EditPrivacyBox::createWidgets() {
 	createLabel(_exceptionsDescription, _controller->exceptionsDescription(), st::editPrivacyLabel);
 
 	clearButtons();
-	addButton(lang(lng_settings_save), [this] {
+	addButton(langFactory(lng_settings_save), [this] {
 		auto someAreDisallowed = (_option != Option::Everyone) || !_neverUsers.empty();
 		_controller->confirmSave(someAreDisallowed, base::lambda_guarded(this, [this] {
 			App::api()->savePrivacy(_controller->key(), collectResult());
 			closeBox();
 		}));
 	});
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	_optionGroup->setChangedCallback([this](Option value) {
 		_option = value;
@@ -337,7 +344,7 @@ void EditPrivacyBox::loadData() {
 				_alwaysUsers.reserve(_alwaysUsers.size() + users.size());
 				for (auto &userId : users) {
 					auto user = App::user(UserId(userId.v));
-					if (!_neverUsers.contains(user) && !_alwaysUsers.contains(user)) {
+					if (!base::contains(_neverUsers, user) && !base::contains(_alwaysUsers, user)) {
 						_alwaysUsers.push_back(user);
 					}
 				}
@@ -349,7 +356,7 @@ void EditPrivacyBox::loadData() {
 				_neverUsers.reserve(_neverUsers.size() + users.size());
 				for (auto &userId : users) {
 					auto user = App::user(UserId(userId.v));
-					if (!_alwaysUsers.contains(user) && !_neverUsers.contains(user)) {
+					if (!base::contains(_alwaysUsers, user) && !base::contains(_neverUsers, user)) {
 						_neverUsers.push_back(user);
 					}
 				}

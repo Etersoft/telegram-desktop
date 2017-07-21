@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "chat_helpers/message_field.h"
 
-#include "historywidget.h"
+#include "history/history_widget.h"
 #include "base/qthelp_regex.h"
 #include "styles/style_history.h"
 #include "window/window_controller.h"
@@ -94,7 +94,24 @@ TextWithTags::Tags ConvertEntitiesToTextTags(const EntitiesInText &entities) {
 	return result;
 }
 
-MessageField::MessageField(QWidget *parent, gsl::not_null<Window::Controller*> controller, const style::FlatTextarea &st, const QString &ph, const QString &val) : Ui::FlatTextarea(parent, st, ph, val)
+std::unique_ptr<QMimeData> MimeDataFromTextWithEntities(const TextWithEntities &forClipboard) {
+	if (forClipboard.text.isEmpty()) {
+		return nullptr;
+	}
+
+	auto result = std::make_unique<QMimeData>();
+	result->setText(forClipboard.text);
+	auto tags = ConvertEntitiesToTextTags(forClipboard.entities);
+	if (!tags.isEmpty()) {
+		for (auto &tag : tags) {
+			tag.id = ConvertTagToMimeTag(tag.id);
+		}
+		result->setData(Ui::FlatTextarea::tagsMimeType(), Ui::FlatTextarea::serializeTagsList(tags));
+	}
+	return result;
+}
+
+MessageField::MessageField(QWidget *parent, gsl::not_null<Window::Controller*> controller, const style::FlatTextarea &st, base::lambda<QString()> placeholderFactory, const QString &val) : Ui::FlatTextarea(parent, st, std::move(placeholderFactory), val)
 , _controller(controller) {
 	setMinHeight(st::historySendSize.height() - 2 * st::historySendPadding);
 	setMaxHeight(st::historyComposeFieldMaxHeight);

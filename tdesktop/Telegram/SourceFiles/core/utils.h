@@ -27,20 +27,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include <set>
 #include <gsl/gsl>
 
-#ifdef OS_MAC_OLD
-namespace gsl {
-
-inline span<char> make_span(QByteArray &container) {
-	return span<char>(container.begin(), container.end());
-}
-
-inline span<const char> make_span(const QByteArray &container) {
-	return span<const char>(container.begin(), container.end());
-}
-
-} // namespace gsl
-#endif // OS_MAC_OLD
-
 // Release build assertions.
 inline void t_noop() {
 }
@@ -214,6 +200,11 @@ inline void copy_bytes(byte_span destination, const_byte_span source) {
 	memcpy(destination.data(), source.data(), source.size());
 }
 
+inline void move_bytes(byte_span destination, const_byte_span source) {
+	Expects(destination.size() >= source.size());
+	memmove(destination.data(), source.data(), source.size());
+}
+
 inline void set_bytes(byte_span destination, gsl::byte value) {
 	memset(destination.data(), gsl::to_integer<unsigned char>(value), destination.size());
 }
@@ -221,6 +212,28 @@ inline void set_bytes(byte_span destination, gsl::byte value) {
 inline int compare_bytes(const_byte_span a, const_byte_span b) {
 	auto aSize = a.size(), bSize = b.size();
 	return (aSize > bSize) ? 1 : (aSize < bSize) ? -1 : memcmp(a.data(), b.data(), aSize);
+}
+
+// Thanks https://stackoverflow.com/a/28139075
+
+template <typename Container>
+struct reversion_wrapper {
+	Container &container;
+};
+
+template <typename Container>
+auto begin(reversion_wrapper<Container> wrapper) {
+	return std::rbegin(wrapper.container);
+}
+
+template <typename Container>
+auto end(reversion_wrapper<Container> wrapper) {
+	return std::rend(wrapper.container);
+}
+
+template <typename Container>
+reversion_wrapper<Container> reversed(Container &&container) {
+	return { container };
 }
 
 } // namespace base
@@ -432,23 +445,30 @@ inline void memsetrnd_bad(T &value) {
 
 class ReadLockerAttempt {
 public:
-
-	ReadLockerAttempt(QReadWriteLock *_lock) : success(_lock->tryLockForRead()), lock(_lock) {
+	ReadLockerAttempt(gsl::not_null<QReadWriteLock*> lock) : _lock(lock), _locked(_lock->tryLockForRead()) {
+	}
+	ReadLockerAttempt(const ReadLockerAttempt &other) = delete;
+	ReadLockerAttempt &operator=(const ReadLockerAttempt &other) = delete;
+	ReadLockerAttempt(ReadLockerAttempt &&other) : _lock(other._lock), _locked(base::take(other._locked)) {
+	}
+	ReadLockerAttempt &operator=(ReadLockerAttempt &&other) {
+		_lock = other._lock;
+		_locked = base::take(other._locked);
+		return *this;
 	}
 	~ReadLockerAttempt() {
-		if (success) {
-			lock->unlock();
+		if (_locked) {
+			_lock->unlock();
 		}
 	}
 
 	operator bool() const {
-		return success;
+		return _locked;
 	}
 
 private:
-
-	bool success;
-	QReadWriteLock *lock;
+	gsl::not_null<QReadWriteLock*> _lock;
+	bool _locked = false;
 
 };
 

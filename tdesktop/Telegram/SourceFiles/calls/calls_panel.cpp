@@ -30,7 +30,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/effects/widget_fade_wrap.h"
 #include "messenger.h"
 #include "mainwindow.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "auth_session.h"
 #include "apiwrap.h"
 #include "observer_peer.h"
@@ -473,6 +473,7 @@ void Panel::createUserpicCache(ImagePtr image) {
 		if (cRetina()) _userPhoto.setDevicePixelRatio(cRetinaFactor());
 	} else {
 		auto filled = QImage(QSize(st::callWidth, st::callWidth) * cIntRetinaFactor(), QImage::Format_ARGB32_Premultiplied);
+		filled.setDevicePixelRatio(cRetinaFactor());
 		{
 			Painter p(&filled);
 			EmptyUserpic(_user->colorIndex(), _user->name).paintSquare(p, 0, 0, st::callWidth, st::callWidth);

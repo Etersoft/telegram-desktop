@@ -20,7 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/send_files_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "storage/localstorage.h"
 #include "mainwidget.h"
 #include "history/history_media_types.h"
@@ -46,7 +46,7 @@ bool ValidatePhotoDimensions(int width, int height) {
 SendFilesBox::SendFilesBox(QWidget*, QImage image, CompressConfirm compressed)
 : _image(image)
 , _compressConfirm(compressed)
-, _caption(this, st::confirmCaptionArea, lang(lng_photo_caption)) {
+, _caption(this, st::confirmCaptionArea, langFactory(lng_photo_caption)) {
 	_files.push_back(QString());
 	prepareSingleFileLayout();
 }
@@ -54,7 +54,7 @@ SendFilesBox::SendFilesBox(QWidget*, QImage image, CompressConfirm compressed)
 SendFilesBox::SendFilesBox(QWidget*, const QStringList &files, CompressConfirm compressed)
 : _files(files)
 , _compressConfirm(compressed)
-, _caption(this, st::confirmCaptionArea, lang(_files.size() > 1 ? lng_photos_comment : lng_photo_caption)) {
+, _caption(this, st::confirmCaptionArea, langFactory(_files.size() > 1 ? lng_photos_comment : lng_photo_caption)) {
 	if (_files.size() == 1) {
 		prepareSingleFileLayout();
 	}
@@ -237,14 +237,14 @@ void SendFilesBox::prepare() {
 		updateTitleText();
 	}
 
-	_send = addButton(lang(lng_send_button), [this] { onSend(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	_send = addButton(langFactory(lng_send_button), [this] { onSend(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	if (_compressConfirm != CompressConfirm::None) {
 		auto compressed = (_compressConfirm == CompressConfirm::Auto) ? cCompressPastedImage() : (_compressConfirm == CompressConfirm::Yes);
 		auto text = lng_send_images_compress(lt_count, _files.size());
 		_compressed.create(this, text, compressed, st::defaultBoxCheckbox);
-		connect(_compressed, SIGNAL(changed()), this, SLOT(onCompressedChange()));
+		subscribe(_compressed->checkedChanged, [this](bool checked) { onCompressedChange(); });
 	}
 	if (_caption) {
 		_caption->setMaxLength(MaxPhotoCaption);
@@ -258,13 +258,13 @@ void SendFilesBox::prepare() {
 	updateBoxSize();
 }
 
-QString SendFilesBox::getSendButtonText() const {
+base::lambda<QString()> SendFilesBox::getSendButtonText() const {
 	if (!_contactPhone.isEmpty()) {
-		return lang(lng_send_button);
+		return langFactory(lng_send_button);
 	} else if (_compressed && _compressed->checked()) {
-		return lng_send_photos(lt_count, _files.size());
+		return [count = _files.size()] { return lng_send_photos(lt_count, count); };
 	}
-	return lng_send_files(lt_count, _files.size());
+	return [count = _files.size()] { return lng_send_files(lt_count, count); };
 }
 
 void SendFilesBox::onCompressedChange() {
@@ -438,7 +438,7 @@ void SendFilesBox::onSend(bool ctrlShiftEnter) {
 	_confirmed = true;
 	if (_confirmedCallback) {
 		auto compressed = _compressed ? _compressed->checked() : false;
-		auto caption = _caption ? prepareText(_caption->getLastText(), true) : QString();
+		auto caption = _caption ? TextUtilities::PrepareForSending(_caption->getLastText(), TextUtilities::PrepareTextOption::CheckLinks) : QString();
 		_confirmedCallback(_files, _animated ? QImage() : _image, std::move(_information), compressed, caption, ctrlShiftEnter);
 	}
 	closeBox();
@@ -564,7 +564,7 @@ EditCaptionBox::EditCaptionBox(QWidget*, HistoryMedia *media, FullMsgId msgId) :
 	}
 	t_assert(_animated || _photo || _doc);
 
-	_field.create(this, st::confirmCaptionArea, lang(lng_photo_caption), caption);
+	_field.create(this, st::confirmCaptionArea, langFactory(lng_photo_caption), caption);
 	_field->setMaxLength(MaxPhotoCaption);
 	_field->setCtrlEnterSubmit(Ui::CtrlEnterSubmit::Both);
 }
@@ -607,8 +607,8 @@ void EditCaptionBox::clipCallback(Media::Clip::Notification notification) {
 }
 
 void EditCaptionBox::prepare() {
-	addButton(lang(lng_settings_save), [this] { onSave(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_settings_save), [this] { onSave(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	updateBoxSize();
 	connect(_field, SIGNAL(submitted(bool)), this, SLOT(onSave(bool)));
@@ -766,7 +766,7 @@ void EditCaptionBox::onSave(bool ctrlShiftEnter) {
 	if (!sentEntities.v.isEmpty()) {
 		flags |= MTPmessages_EditMessage::Flag::f_entities;
 	}
-	auto text = prepareText(_field->getLastText(), true);
+	auto text = TextUtilities::PrepareForSending(_field->getLastText(), TextUtilities::PrepareTextOption::CheckLinks);
 	_saveRequestId = MTP::send(MTPmessages_EditMessage(MTP_flags(flags), item->history()->peer->input, MTP_int(item->id), MTP_string(text), MTPnullMarkup, sentEntities), rpcDone(&EditCaptionBox::saveDone), rpcFail(&EditCaptionBox::saveFail));
 }
 

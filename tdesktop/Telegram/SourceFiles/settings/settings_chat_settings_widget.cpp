@@ -21,7 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "settings/settings_chat_settings_widget.h"
 
 #include "styles/style_settings.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "ui/effects/widget_slide_wrap.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/buttons.h"
@@ -41,10 +41,6 @@ LabeledLink::LabeledLink(QWidget *parent, const QString &label, const QString &t
 , _label(this, label, Ui::FlatLabel::InitType::Simple, (type == Type::Primary) ? st::settingsPrimaryLabel : st::defaultFlatLabel)
 , _link(this, text, (type == Type::Primary) ? st::boxLinkButton : st::defaultLinkButton) {
 	connect(_link, SIGNAL(clicked()), parent, slot);
-}
-
-void LabeledLink::setLink(const QString &text) {
-	_link.create(this, text);
 }
 
 Ui::LinkButton *LabeledLink::link() const {
@@ -158,8 +154,8 @@ void ChatSettingsWidget::createControls() {
 	style::margins marginSub(0, 0, 0, st::settingsSubSkip);
 	style::margins slidedPadding(0, marginSub.bottom() / 2, 0, marginSub.bottom() - (marginSub.bottom() / 2));
 
-	addChildRow(_replaceEmoji, marginSub, lang(lng_settings_replace_emojis), SLOT(onReplaceEmoji()), cReplaceEmojis());
-	style::margins marginList(st::defaultBoxCheckbox.textPosition.x(), 0, 0, st::settingsSkip);
+	addChildRow(_replaceEmoji, marginSub, lang(lng_settings_replace_emojis), [this](bool) { onReplaceEmoji(); }, cReplaceEmojis());
+	style::margins marginList(st::defaultCheck.diameter + st::defaultBoxCheckbox.textPosition.x(), 0, 0, st::settingsSkip);
 	addChildRow(_viewList, marginList, slidedPadding, lang(lng_settings_view_emojis), SLOT(onViewList()), st::defaultLinkButton);
 	if (!cReplaceEmojis()) {
 		_viewList->hideFast();
@@ -170,10 +166,10 @@ void ChatSettingsWidget::createControls() {
 #else // OS_WIN_STORE
 	auto pathMargin = marginSkip;
 #endif // OS_WIN_STORE
-	addChildRow(_dontAskDownloadPath, pathMargin, lang(lng_download_path_dont_ask), SLOT(onDontAskDownloadPath()), !Global::AskDownloadPath());
+	addChildRow(_dontAskDownloadPath, pathMargin, lang(lng_download_path_dont_ask), [this](bool) { onDontAskDownloadPath(); }, !Global::AskDownloadPath());
 
 #ifndef OS_WIN_STORE
-	style::margins marginPath(st::defaultBoxCheckbox.textPosition.x(), 0, 0, st::settingsSkip);
+	style::margins marginPath(st::defaultCheck.diameter + st::defaultBoxCheckbox.textPosition.x(), 0, 0, st::settingsSkip);
 	addChildRow(_downloadPath, marginPath, slidedPadding);
 	if (Global::AskDownloadPath()) {
 		_downloadPath->hideFast();

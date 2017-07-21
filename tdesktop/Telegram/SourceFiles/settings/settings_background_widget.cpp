@@ -21,7 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "settings/settings_background_widget.h"
 
 #include "styles/style_settings.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "boxes/background_box.h"
 #include "ui/effects/widget_slide_wrap.h"
@@ -54,7 +54,7 @@ BackgroundRow::BackgroundRow(QWidget *parent) : TWidget(parent)
 }
 
 void BackgroundRow::checkNonDefaultTheme() {
-	if (Local::hasTheme()) {
+	if (Window::Theme::IsNonDefaultUsed()) {
 		if (!_useDefaultTheme) {
 			_useDefaultTheme.create(this, lang(lng_settings_bg_use_default), st::boxLinkButton);
 			_useDefaultTheme->show();
@@ -222,8 +222,8 @@ void BackgroundWidget::createControls() {
 	connect(_background, SIGNAL(editTheme()), this, SLOT(onEditTheme()));
 	connect(_background, SIGNAL(useDefault()), this, SLOT(onUseDefaultTheme()));
 
-	addChildRow(_tile, margin, lang(lng_settings_bg_tile), SLOT(onTile()), Window::Theme::Background()->tile());
-	addChildRow(_adaptive, margin, slidedPadding, lang(lng_settings_adaptive_wide), SLOT(onAdaptive()), Global::AdaptiveForWide());
+	addChildRow(_tile, margin, lang(lng_settings_bg_tile), [this](bool) { onTile(); }, Window::Theme::Background()->tile());
+	addChildRow(_adaptive, margin, slidedPadding, lang(lng_settings_adaptive_wide), [this](bool) { onAdaptive(); }, Global::AdaptiveForWide());
 	if (Global::AdaptiveChatLayout() != Adaptive::ChatLayout::Wide) {
 		_adaptive->hideFast();
 	}

@@ -31,7 +31,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "boxes/confirm_box.h"
 #include "boxes/contacts_box.h"
 #include "boxes/photo_crop_box.h"
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "apiwrap.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
@@ -45,8 +45,7 @@ using UpdateFlag = Notify::PeerUpdate::Flag;
 const auto ButtonsUpdateFlags = UpdateFlag::UserCanShareContact
 	| UpdateFlag::BotCanAddToGroups
 	| UpdateFlag::ChatCanEdit
-	| UpdateFlag::ChannelCanEditPhoto
-	| UpdateFlag::ChannelCanAddMembers
+	| UpdateFlag::ChannelRightsChanged
 	| UpdateFlag::ChannelAmIn;
 
 } // namespace
@@ -59,6 +58,8 @@ CoverWidget::CoverWidget(QWidget *parent, PeerData *peer) : TWidget(parent)
 , _peerMegagroup(peer->isMegagroup() ? _peerChannel : nullptr)
 , _userpicButton(this, peer)
 , _name(this, st::profileNameLabel) {
+	subscribe(Lang::Current().updated(), [this] { refreshLang(); });
+
 	setAttribute(Qt::WA_OpaquePaintEvent);
 	setAcceptDrops(true);
 
@@ -84,6 +85,10 @@ CoverWidget::CoverWidget(QWidget *parent, PeerData *peer) : TWidget(parent)
 	refreshStatusText();
 
 	refreshButtons();
+}
+
+void CoverWidget::refreshLang() {
+	InvokeQueued(this, [this] { moveAndToggleButtons(width()); });
 }
 
 PhotoData *CoverWidget::validatePhoto() const {
@@ -226,9 +231,9 @@ void CoverWidget::dropAreaHidden(CoverDropArea *dropArea) {
 bool CoverWidget::canEditPhoto() const {
 	if (_peerChat && _peerChat->canEdit()) {
 		return true;
-	} else if (_peerMegagroup && _peerMegagroup->canEditPhoto()) {
+	} else if (_peerMegagroup && _peerMegagroup->canEditInformation()) {
 		return true;
-	} else if (_peerChannel && _peerChannel->canEditPhoto()) {
+	} else if (_peerChannel && _peerChannel->canEditInformation()) {
 		return true;
 	}
 	return false;
@@ -367,23 +372,29 @@ void CoverWidget::refreshStatusText() {
 	}
 
 	_cancelPhotoUpload.destroy();
-	int currentTime = unixtime();
+	auto currentTime = unixtime();
 	if (_peerUser) {
 		_statusText = App::onlineText(_peerUser, currentTime, true);
 		_statusTextIsOnline = App::onlineColorUse(_peerUser, currentTime);
 	} else if (_peerChat && _peerChat->amIn()) {
-		int fullCount = qMax(_peerChat->count, _peerChat->participants.size());
+		auto fullCount = qMax(_peerChat->count, _peerChat->participants.size());
 		if (_onlineCount > 0 && _onlineCount <= fullCount) {
-			_statusText = lng_chat_status_members_online(lt_count, fullCount, lt_count_online, _onlineCount);
-		} else {
+			auto membersCount = lng_chat_status_members(lt_count, fullCount);
+			auto onlineCount = lng_chat_status_online(lt_count, _onlineCount);
+			_statusText = lng_chat_status_members_online(lt_members_count, membersCount, lt_online_count, onlineCount);
+		} else if (_peerChat->count > 0) {
 			_statusText = lng_chat_status_members(lt_count, _peerChat->count);
+		} else {
+			_statusText = lang(lng_group_status);
 		}
 	} else if (_peerChannel) {
-		int fullCount = _peerChannel->membersCount();
+		auto fullCount = _peerChannel->membersCount();
 		if (_onlineCount > 0 && _onlineCount <= fullCount) {
-			_statusText = lng_chat_status_members_online(lt_count, fullCount, lt_count_online, _onlineCount);
-		} else if (fullCount > 0 ) {
-			_statusText = lng_chat_status_members(lt_count, _peerChannel->membersCount());
+			auto membersCount = lng_chat_status_members(lt_count, fullCount);
+			auto onlineCount = lng_chat_status_online(lt_count, _onlineCount);
+			_statusText = lng_chat_status_members_online(lt_members_count, membersCount, lt_online_count, onlineCount);
+		} else if (fullCount > 0) {
+			_statusText = lng_chat_status_members(lt_count, fullCount);
 		} else {
 			_statusText = lang(_peerChannel->isMegagroup() ? lng_group_status : lng_channel_status);
 		}
@@ -408,41 +419,41 @@ void CoverWidget::refreshButtons() {
 }
 
 void CoverWidget::setUserButtons() {
-	addButton(lang(lng_profile_send_message), SLOT(onSendMessage()));
+	addButton(langFactory(lng_profile_send_message), SLOT(onSendMessage()));
 	if (_peerUser->botInfo && !_peerUser->botInfo->cantJoinGroups) {
-		addButton(lang(lng_profile_invite_to_group), SLOT(onAddBotToGroup()), &st::profileAddMemberButton);
+		addButton(langFactory(lng_profile_invite_to_group), SLOT(onAddBotToGroup()), &st::profileAddMemberButton);
 	} else if (_peerUser->canShareThisContact()) {
-		addButton(lang(lng_profile_share_contact), SLOT(onShareContact()));
+		addButton(langFactory(lng_profile_share_contact), SLOT(onShareContact()));
 	}
 }
 
 void CoverWidget::setChatButtons() {
 	if (_peerChat->canEdit()) {
-		addButton(lang(lng_profile_set_group_photo), SLOT(onSetPhoto()));
-		addButton(lang(lng_profile_add_participant), SLOT(onAddMember()), &st::profileAddMemberButton);
+		addButton(langFactory(lng_profile_set_group_photo), SLOT(onSetPhoto()));
+		addButton(langFactory(lng_profile_add_participant), SLOT(onAddMember()), &st::profileAddMemberButton);
 	}
 }
 
 void CoverWidget::setMegagroupButtons() {
 	if (_peerMegagroup->amIn()) {
-		if (_peerMegagroup->canEditPhoto()) {
-			addButton(lang(lng_profile_set_group_photo), SLOT(onSetPhoto()));
+		if (canEditPhoto()) {
+			addButton(langFactory(lng_profile_set_group_photo), SLOT(onSetPhoto()));
 		}
 	} else {
-		addButton(lang(lng_profile_join_channel), SLOT(onJoin()));
+		addButton(langFactory(lng_profile_join_channel), SLOT(onJoin()));
 	}
 	if (_peerMegagroup->canAddMembers()) {
-		addButton(lang(lng_profile_add_participant), SLOT(onAddMember()), &st::profileAddMemberButton);
+		addButton(langFactory(lng_profile_add_participant), SLOT(onAddMember()), &st::profileAddMemberButton);
 	}
 }
 
 void CoverWidget::setChannelButtons() {
-	if (_peerChannel->amCreator()) {
-		addButton(lang(lng_profile_set_group_photo), SLOT(onSetPhoto()));
+	if (canEditPhoto()) {
+		addButton(langFactory(lng_profile_set_group_photo), SLOT(onSetPhoto()));
 	} else if (_peerChannel->amIn()) {
-		addButton(lang(lng_profile_view_channel), SLOT(onViewChannel()));
+		addButton(langFactory(lng_profile_view_channel), SLOT(onViewChannel()));
 	} else {
-		addButton(lang(lng_profile_join_channel), SLOT(onJoin()));
+		addButton(langFactory(lng_profile_join_channel), SLOT(onJoin()));
 	}
 }
 
@@ -454,13 +465,13 @@ void CoverWidget::clearButtons() {
 	}
 }
 
-void CoverWidget::addButton(const QString &text, const char *slot, const style::RoundButton *replacementStyle) {
+void CoverWidget::addButton(base::lambda<QString()> textFactory, const char *slot, const style::RoundButton *replacementStyle) {
 	auto &buttonStyle = _buttons.isEmpty() ? st::profilePrimaryButton : st::profileSecondaryButton;
-	auto button = new Ui::RoundButton(this, text, buttonStyle);
+	auto button = new Ui::RoundButton(this, std::move(textFactory), buttonStyle);
 	connect(button, SIGNAL(clicked()), this, slot);
 	button->show();
 
-	auto replacement = replacementStyle ? new Ui::RoundButton(this, QString(), *replacementStyle) : nullptr;
+	auto replacement = replacementStyle ? new Ui::RoundButton(this, base::lambda<QString()>(), *replacementStyle) : nullptr;
 	if (replacement) {
 		connect(replacement, SIGNAL(clicked()), this, slot);
 		replacement->hide();

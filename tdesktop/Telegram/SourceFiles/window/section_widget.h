@@ -96,13 +96,22 @@ public:
 	// Attempt to show the required section inside the existing one.
 	// For example if this section already shows exactly the required
 	// memento it can simply return true - it is shown already.
-	virtual bool showInternal(const SectionMemento *memento) = 0;
+	//
+	// If this method returns false it is not supposed to modify the memento.
+	// If this method returns true it may modify the memento ("take" heavy items).
+	virtual bool showInternal(gsl::not_null<SectionMemento*> memento) = 0;
 
 	// Create a memento of that section to store it in the history stack.
-	virtual std::unique_ptr<SectionMemento> createMemento() const = 0;
+	// This method may modify the section ("take" heavy items).
+	virtual std::unique_ptr<SectionMemento> createMemento() = 0;
 
 	void setInnerFocus() {
 		doSetInnerFocus();
+	}
+
+	// Global shortcut handler. For now that ugly :(
+	virtual bool cmd_search() {
+		return false;
 	}
 
 protected:
@@ -124,6 +133,10 @@ protected:
 
 	virtual void doSetInnerFocus() {
 		setFocus();
+	}
+
+	bool animating() const {
+		return _showAnimation != nullptr;
 	}
 
 private:

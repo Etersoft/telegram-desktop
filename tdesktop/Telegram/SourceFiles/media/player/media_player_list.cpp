@@ -23,6 +23,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "media/player/media_player_instance.h"
 #include "overview/overview_layout.h"
 #include "styles/style_media_player.h"
+#include "history/history_media.h"
 
 namespace Media {
 namespace Player {
@@ -95,7 +96,7 @@ void ListWidget::mouseMoveEvent(QMouseEvent *e) {
 			if (y <= m.y()) {
 				if (auto media = layout->toMediaItem()) {
 					item = media->getItem();
-					media->getState(lnk, cursorState, m.x(), m.y() - y);
+					media->getState(lnk, cursorState, m - QPoint(0, y));
 					lnkhost = media;
 				}
 			}
@@ -117,7 +118,7 @@ void ListWidget::mouseMoveEvent(QMouseEvent *e) {
 	}
 }
 
-void ListWidget::ui_repaintHistoryItem(const HistoryItem *item) {
+void ListWidget::ui_repaintHistoryItem(gsl::not_null<const HistoryItem*> item) {
 	repaintItem(item);
 }
 

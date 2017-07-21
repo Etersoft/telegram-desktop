@@ -24,6 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 namespace Ui {
 
+class ToggleView;
 class RippleAnimation;
 
 class Menu : public TWidget {
@@ -37,6 +38,7 @@ public:
 	QAction *addAction(const QString &text, base::lambda<void()> callback, const style::icon *icon = nullptr, const style::icon *iconOver = nullptr);
 	QAction *addSeparator();
 	void clearActions();
+	void finishAnimations();
 
 	void clearSelection();
 
@@ -48,6 +50,7 @@ public:
 		_childShown = shown;
 	}
 	void setShowSource(TriggeredSource source);
+	void setForceWidth(int forceWidth);
 
 	using Actions = QList<QAction*>;
 	Actions &actions();
@@ -104,6 +107,7 @@ private:
 	QAction *addAction(QAction *a, const style::icon *icon = nullptr, const style::icon *iconOver = nullptr);
 
 	void setSelected(int selected);
+	void setPressed(int pressed);
 	void clearMouseSelection();
 
 	int itemTop(int index);
@@ -123,19 +127,27 @@ private:
 	base::lambda<void(QPoint globalPosition)> _mouseReleaseDelegate;
 
 	struct ActionData {
+		ActionData() = default;
+		ActionData(const ActionData &other) = delete;
+		ActionData &operator=(const ActionData &other) = delete;
+		ActionData(ActionData &&other) = default;
+		ActionData &operator=(ActionData &&other) = default;
+		~ActionData();
+
 		bool hasSubmenu = false;
 		QString text;
 		QString shortcut;
 		const style::icon *icon = nullptr;
 		const style::icon *iconOver = nullptr;
-		QSharedPointer<RippleAnimation> ripple;
+		std::unique_ptr<RippleAnimation> ripple;
+		std::unique_ptr<ToggleView> toggle;
 	};
-	using ActionsData = QList<ActionData>;
 
 	QMenu *_wappedMenu = nullptr;
 	Actions _actions;
-	ActionsData _actionsData;
+	std::vector<ActionData> _actionsData;
 
+	int _forceWidth = 0;
 	int _itemHeight, _separatorHeight;
 
 	bool _mouseSelection = false;

@@ -20,7 +20,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/connection_box.h"
 
-#include "lang.h"
+#include "boxes/confirm_box.h"
+#include "lang/lang_keys.h"
 #include "storage/localstorage.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
@@ -30,11 +31,36 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "history/history_location_manager.h"
 #include "styles/style_boxes.h"
 
+void ConnectionBox::ShowApplyProxyConfirmation(const QMap<QString, QString> &fields) {
+	auto server = fields.value(qsl("server"));
+	auto port = fields.value(qsl("port")).toInt();
+	if (!server.isEmpty() && port != 0) {
+		auto weakBox = std::make_shared<QPointer<ConfirmBox>>(nullptr);
+		auto box = Ui::show(Box<ConfirmBox>(lng_sure_enable_socks(lt_server, server, lt_port, QString::number(port)), lang(lng_sure_enable), [fields, weakBox] {
+			auto p = ProxyData();
+			p.host = fields.value(qsl("server"));
+			p.user = fields.value(qsl("user"));
+			p.password = fields.value(qsl("pass"));
+			p.port = fields.value(qsl("port")).toInt();
+			Global::SetConnectionType(dbictTcpProxy);
+			Global::SetLastProxyType(dbictTcpProxy);
+			Global::SetConnectionProxy(p);
+			Local::writeSettings();
+			Global::RefConnectionTypeChanged().notify();
+			MTP::restart();
+			reinitLocationManager();
+			reinitWebLoadManager();
+			if (*weakBox) (*weakBox)->closeBox();
+		}), KeepOtherLayers);
+		*weakBox = box;
+	}
+}
+
 ConnectionBox::ConnectionBox(QWidget *parent)
-: _hostInput(this, st::connectionHostInputField, lang(lng_connection_host_ph), Global::ConnectionProxy().host)
-, _portInput(this, st::connectionPortInputField, lang(lng_connection_port_ph), QString::number(Global::ConnectionProxy().port))
-, _userInput(this, st::connectionUserInputField, lang(lng_connection_user_ph), Global::ConnectionProxy().user)
-, _passwordInput(this, st::connectionPasswordInputField, lang(lng_connection_password_ph), Global::ConnectionProxy().password)
+: _hostInput(this, st::connectionHostInputField, langFactory(lng_connection_host_ph), Global::ConnectionProxy().host)
+, _portInput(this, st::connectionPortInputField, langFactory(lng_connection_port_ph), QString::number(Global::ConnectionProxy().port))
+, _userInput(this, st::connectionUserInputField, langFactory(lng_connection_user_ph), Global::ConnectionProxy().user)
+, _passwordInput(this, st::connectionPasswordInputField, langFactory(lng_connection_password_ph), Global::ConnectionProxy().password)
 , _typeGroup(std::make_shared<Ui::RadioenumGroup<DBIConnectionType>>(Global::ConnectionType()))
 , _autoRadio(this, _typeGroup, dbictAuto, lang(lng_connection_auto_rb), st::defaultBoxCheckbox)
 , _httpProxyRadio(this, _typeGroup, dbictHttpProxy, lang(lng_connection_http_proxy_rb), st::defaultBoxCheckbox)
@@ -43,10 +69,10 @@ ConnectionBox::ConnectionBox(QWidget *parent)
 }
 
 void ConnectionBox::prepare() {
-	setTitle(lang(lng_connection_header));
+	setTitle(langFactory(lng_connection_header));
 
-	addButton(lang(lng_connection_save), [this] { onSave(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_connection_save), [this] { onSave(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	_typeGroup->setChangedCallback([this](DBIConnectionType value) { typeChanged(value); });
 
@@ -54,13 +80,21 @@ void ConnectionBox::prepare() {
 	connect(_portInput, SIGNAL(submitted(bool)), this, SLOT(onSubmit()));
 	connect(_userInput, SIGNAL(submitted(bool)), this, SLOT(onSubmit()));
 	connect(_passwordInput, SIGNAL(submitted(bool)), this, SLOT(onSubmit()));
+	connect(_hostInput, SIGNAL(focused()), this, SLOT(onFieldFocus()));
+	connect(_portInput, SIGNAL(focused()), this, SLOT(onFieldFocus()));
+	connect(_userInput, SIGNAL(focused()), this, SLOT(onFieldFocus()));
+	connect(_passwordInput, SIGNAL(focused()), this, SLOT(onFieldFocus()));
 
 	updateControlsVisibility();
 }
 
+bool ConnectionBox::badProxyValue() const {
+	return (_hostInput->getLastText().isEmpty() || !_portInput->getLastText().toInt());
+}
+
 void ConnectionBox::updateControlsVisibility() {
 	auto newHeight = st::boxOptionListPadding.top() + _autoRadio->heightNoMargins() + st::boxOptionListSkip + _httpProxyRadio->heightNoMargins() + st::boxOptionListSkip + _tcpProxyRadio->heightNoMargins() + st::boxOptionListSkip + st::connectionIPv6Skip + _tryIPv6->heightNoMargins() + st::boxOptionListPadding.bottom() + st::boxPadding.bottom();
-	if (_typeGroup->value() == dbictAuto) {
+	if (_typeGroup->value() == dbictAuto && badProxyValue()) {
 		_hostInput->hide();
 		_portInput->hide();
 		_userInput->hide();
@@ -78,7 +112,7 @@ void ConnectionBox::updateControlsVisibility() {
 }
 
 void ConnectionBox::setInnerFocus() {
-	if (_hostInput->isHidden()) {
+	if (_typeGroup->value() == dbictAuto) {
 		setFocus();
 	} else {
 		_hostInput->setFocusFast();
@@ -93,34 +127,41 @@ void ConnectionBox::resizeEvent(QResizeEvent *e) {
 
 void ConnectionBox::updateControlsPosition() {
 	auto type = _typeGroup->value();
-	_autoRadio->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), st::boxOptionListPadding.top());
+	_autoRadio->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), _autoRadio->getMargins().top() + st::boxOptionListPadding.top());
 	_httpProxyRadio->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), _autoRadio->bottomNoMargins() + st::boxOptionListSkip);
 
 	auto inputy = 0;
-	if (type == dbictHttpProxy) {
+	auto fieldsVisible = (type != dbictAuto) || (!badProxyValue() && Global::LastProxyType() != dbictAuto);
+	auto fieldsBelowHttp = fieldsVisible && (type == dbictHttpProxy || (type == dbictAuto && Global::LastProxyType() == dbictHttpProxy));
+	auto fieldsBelowTcp = fieldsVisible && (type == dbictTcpProxy || (type == dbictAuto && Global::LastProxyType() == dbictTcpProxy));
+	if (fieldsBelowHttp) {
 		inputy = _httpProxyRadio->bottomNoMargins() + st::boxOptionInputSkip;
 		_tcpProxyRadio->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), inputy + st::boxOptionInputSkip + 2 * _hostInput->height() + st::boxOptionListSkip);
 	} else {
 		_tcpProxyRadio->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), _httpProxyRadio->bottomNoMargins() + st::boxOptionListSkip);
-		if (type == dbictTcpProxy) {
+		if (fieldsBelowTcp) {
 			inputy = _tcpProxyRadio->bottomNoMargins() + st::boxOptionInputSkip;
 		}
 	}
 
 	if (inputy) {
-		_hostInput->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left() + st::defaultBoxCheckbox.textPosition.x() - st::defaultInputField.textMargins.left(), inputy);
+		_hostInput->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left() + st::defaultCheck.diameter + st::defaultBoxCheckbox.textPosition.x() - st::defaultInputField.textMargins.left(), inputy);
 		_portInput->moveToRight(st::boxPadding.right(), inputy);
-		_userInput->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left() + st::defaultBoxCheckbox.textPosition.x() - st::defaultInputField.textMargins.left(), _hostInput->y() + _hostInput->height() + st::boxOptionInputSkip);
+		_userInput->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left() + st::defaultCheck.diameter + st::defaultBoxCheckbox.textPosition.x() - st::defaultInputField.textMargins.left(), _hostInput->y() + _hostInput->height() + st::boxOptionInputSkip);
 		_passwordInput->moveToRight(st::boxPadding.right(), _userInput->y());
 	}
 
-	auto tryipv6y = ((type == dbictTcpProxy) ? _userInput->bottomNoMargins() : _tcpProxyRadio->bottomNoMargins()) + st::boxOptionListSkip + st::connectionIPv6Skip;
+	auto tryipv6y = (fieldsBelowTcp ? _userInput->bottomNoMargins() : _tcpProxyRadio->bottomNoMargins()) + st::boxOptionListSkip + st::connectionIPv6Skip;
 	_tryIPv6->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), tryipv6y);
 }
 
 void ConnectionBox::typeChanged(DBIConnectionType type) {
+	if (type == dbictAuto) {
+		setFocus();
+	}
 	updateControlsVisibility();
 	if (type != dbictAuto) {
+		Global::SetLastProxyType(type);
 		if (!_hostInput->hasFocus() && !_portInput->hasFocus() && !_userInput->hasFocus() && !_passwordInput->hasFocus()) {
 			_hostInput->setFocusFast();
 		}
@@ -132,7 +173,16 @@ void ConnectionBox::typeChanged(DBIConnectionType type) {
 	update();
 }
 
+void ConnectionBox::onFieldFocus() {
+	if (Global::LastProxyType() == dbictHttpProxy) {
+		_typeGroup->setValue(dbictHttpProxy);
+	} else if (Global::LastProxyType() == dbictTcpProxy) {
+		_typeGroup->setValue(dbictTcpProxy);
+	}
+}
+
 void ConnectionBox::onSubmit() {
+	onFieldFocus();
 	if (_hostInput->hasFocus()) {
 		if (!_hostInput->getLastText().trimmed().isEmpty()) {
 			_portInput->setFocus();
@@ -161,30 +211,33 @@ void ConnectionBox::onSubmit() {
 }
 
 void ConnectionBox::onSave() {
+	auto p = ProxyData();
+	p.host = _hostInput->getLastText().trimmed();
+	p.user = _userInput->getLastText().trimmed();
+	p.password = _passwordInput->getLastText().trimmed();
+	p.port = _portInput->getLastText().toInt();
+
 	auto type = _typeGroup->value();
 	if (type == dbictAuto) {
-		Global::SetConnectionType(type);
-		Global::SetConnectionProxy(ProxyData());
+		if (p.host.isEmpty() || !p.port) {
+			p = ProxyData();
+		}
 #ifndef TDESKTOP_DISABLE_NETWORK_PROXY
 		QNetworkProxyFactory::setUseSystemConfiguration(false);
 		QNetworkProxyFactory::setUseSystemConfiguration(true);
 #endif // !TDESKTOP_DISABLE_NETWORK_PROXY
 	} else {
-		ProxyData p;
-		p.host = _hostInput->getLastText().trimmed();
-		p.user = _userInput->getLastText().trimmed();
-		p.password = _passwordInput->getLastText().trimmed();
-		p.port = _portInput->getLastText().toInt();
 		if (p.host.isEmpty()) {
-			_hostInput->setFocus();
+			_hostInput->showError();
 			return;
 		} else if (!p.port) {
-			_portInput->setFocus();
+			_portInput->showError();
 			return;
 		}
-		Global::SetConnectionType(type);
-		Global::SetConnectionProxy(p);
+		Global::SetLastProxyType(type);
 	}
+	Global::SetConnectionType(type);
+	Global::SetConnectionProxy(p);
 	if (cPlatform() == dbipWindows && Global::TryIPv6() != _tryIPv6->checked()) {
 		Global::SetTryIPv6(_tryIPv6->checked());
 		Local::writeSettings();
@@ -211,12 +264,12 @@ AutoDownloadBox::AutoDownloadBox(QWidget *parent)
 , _gifPrivate(this, lang(lng_media_auto_private_chats), !(cAutoDownloadGif() & dbiadNoPrivate), st::defaultBoxCheckbox)
 , _gifGroups(this, lang(lng_media_auto_groups), !(cAutoDownloadGif() & dbiadNoGroups), st::defaultBoxCheckbox)
 , _gifPlay(this, lang(lng_media_auto_play), cAutoPlayGif(), st::defaultBoxCheckbox)
-, _sectionHeight(st::boxTitleHeight + 2 * (st::defaultBoxCheckbox.height + st::setLittleSkip)) {
+, _sectionHeight(st::boxTitleHeight + 2 * (st::defaultCheck.diameter + st::setLittleSkip)) {
 }
 
 void AutoDownloadBox::prepare() {
-	addButton(lang(lng_connection_save), [this] { onSave(); });
-	addButton(lang(lng_cancel), [this] { closeBox(); });
+	addButton(langFactory(lng_connection_save), [this] { onSave(); });
+	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 
 	setDimensions(st::boxWidth, 3 * _sectionHeight - st::autoDownloadTopDelta + st::setLittleSkip + _gifPlay->heightNoMargins() + st::setLittleSkip);
 }

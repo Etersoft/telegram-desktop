@@ -28,6 +28,11 @@ switchPmButton: RoundButton(defaultBoxButton) {
 	height: 34px;
 	textTop: 7px;
 }
+stickersRestrictedLabel: FlatLabel(defaultFlatLabel) {
+	width: 320px;
+	align: align(center);
+	textFg: noContactsColor;
+}
 
 stickersTrendingHeader: 45px;
 stickersTrendingSkip: 15px;
@@ -96,8 +101,6 @@ stickersReorderFg: windowSubTextFg;
 stickersRowDisabledOpacity: 0.4;
 stickersRowDuration: 200;
 
-emojiIconFg: checkboxFg;
-emojiIconFgActive: windowBgActive;
 stickersSettings: icon {{ "emoji_settings", emojiIconFg }};
 stickersTrending: icon {{ "emoji_trending", emojiIconFg }};
 stickersTrendingActive: icon {{ "emoji_trending", emojiIconFgActive }};

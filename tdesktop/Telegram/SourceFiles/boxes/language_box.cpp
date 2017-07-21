@@ -20,90 +20,146 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/language_box.h"
 
-#include "lang.h"
+#include "lang/lang_keys.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/buttons.h"
 #include "storage/localstorage.h"
 #include "boxes/confirm_box.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
-#include "langloaderplain.h"
+#include "lang/lang_instance.h"
+#include "lang/lang_cloud_manager.h"
 #include "styles/style_boxes.h"
 
+class LanguageBox::Inner : public TWidget, private base::Subscriber {
+public:
+	Inner(QWidget *parent, gsl::not_null<Languages*> languages);
+
+	void setSelected(int index);
+	void refresh();
+
+private:
+	void activateCurrent();
+	void languageChanged(int languageIndex);
+
+	gsl::not_null<Languages*> _languages;
+	std::shared_ptr<Ui::RadiobuttonGroup> _group;
+	std::vector<object_ptr<Ui::Radiobutton>> _buttons;
+
+};
+
+LanguageBox::Inner::Inner(QWidget *parent, gsl::not_null<Languages*> languages) : TWidget(parent)
+, _languages(languages) {
+	_group = std::make_shared<Ui::RadiobuttonGroup>(0);
+	_group->setChangedCallback([this](int value) { languageChanged(value); });
+	subscribe(Lang::Current().updated(), [this] {
+		activateCurrent();
+		refresh();
+	});
+}
+
+void LanguageBox::Inner::setSelected(int index) {
+	_group->setValue(index);
+}
+
+void LanguageBox::Inner::refresh() {
+	for (auto &button : _buttons) {
+		button.destroy();
+	}
+	_buttons.clear();
+
+	auto y = st::boxOptionListPadding.top() + st::langsButton.margin.top();
+	_buttons.reserve(_languages->size());
+	auto index = 0;
+	for_const (auto &language, *_languages) {
+		_buttons.emplace_back(this, _group, index++, language.nativeName, st::langsButton);
+		auto button = _buttons.back().data();
+		button->moveToLeft(st::boxPadding.left() + st::boxOptionListPadding.left(), y);
+		button->show();
+		y += button->heightNoMargins() + st::boxOptionListSkip;
+	}
+	auto newHeight = y - st::boxOptionListSkip + st::boxOptionListPadding.bottom() + st::langsButton.margin.bottom();
+	resize(st::langsWidth, newHeight);
+}
+
+void LanguageBox::Inner::languageChanged(int languageIndex) {
+	Expects(languageIndex >= 0 && languageIndex < _languages->size());
+
+	activateCurrent();
+	auto languageId = (*_languages)[languageIndex].id;
+	if (Lang::Current().id() != languageId) {
+		// "custom" is applied each time it is passed to switchToLanguage().
+		// So we check that the language really has changed.
+		Lang::CurrentCloudManager().switchToLanguage(languageId);
+	}
+}
+
+void LanguageBox::Inner::activateCurrent() {
+	auto currentId = Lang::Current().id();
+	for (auto i = 0, count = _languages->size(); i != count; ++i) {
+		auto languageId = (*_languages)[i].id;
+		auto isCurrent = (languageId == currentId) || (languageId == Lang::DefaultLanguageId() && currentId.isEmpty());
+		if (isCurrent) {
+			_group->setValue(i);
+			return;
+		}
+	}
+}
+
 void LanguageBox::prepare() {
-	addButton(lang(lng_box_ok), [this] { closeBox(); });
+	refreshLang();
+	subscribe(Lang::Current().updated(), [this] {
+		refreshLang();
+	});
 
-	setTitle(lang(lng_languages));
+	_inner = setInnerWidget(object_ptr<Inner>(this, &_languages), st::boxLayerScroll);
 
-	auto haveTestLang = (cLang() == languageTest);
-
-	_langGroup = std::make_shared<Ui::RadiobuttonGroup>(cLang());
-	auto y = st::boxOptionListPadding.top();
-	_langs.reserve(languageCount + (haveTestLang ? 1 : 0));
-	if (haveTestLang) {
-		_langs.emplace_back(this, _langGroup, languageTest, qsl("Custom Lang"), st::langsButton);
-		_langs.back()->move(st::boxPadding.left() + st::boxOptionListPadding.left(), y);
-		y += _langs.back()->heightNoMargins() + st::boxOptionListSkip;
-	}
-	for (auto i = 0; i != languageCount; ++i) {
-		LangLoaderResult result;
-		if (i) {
-			LangLoaderPlain loader(qsl(":/langs/lang_") + LanguageCodes[i].c_str() + qsl(".strings"), langLoaderRequest(lng_language_name));
-			result = loader.found();
-		} else {
-			result.insert(lng_language_name, langOriginal(lng_language_name));
-		}
-		_langs.emplace_back(this, _langGroup, i, result.value(lng_language_name, LanguageCodes[i].c_str() + qsl(" language")), st::langsButton);
-		_langs.back()->move(st::boxPadding.left() + st::boxOptionListPadding.left(), y);
-		y += _langs.back()->heightNoMargins() + st::boxOptionListSkip;
-	}
-	_langGroup->setChangedCallback([this](int value) { languageChanged(value); });
-
-	auto optionsCount = languageCount + (haveTestLang ? 1 : 0);
-	setDimensions(st::langsWidth, st::boxOptionListPadding.top() + optionsCount * st::langsButton.height + (optionsCount - 1) * st::boxOptionListSkip + st::boxOptionListPadding.bottom() + st::boxPadding.bottom());
+	refresh();
+	subscribe(Lang::CurrentCloudManager().languageListChanged(), [this] {
+		refresh();
+	});
 }
 
-void LanguageBox::mousePressEvent(QMouseEvent *e) {
-	if ((e->modifiers() & Qt::CTRL) && (e->modifiers() & Qt::ALT) && (e->modifiers() & Qt::SHIFT)) {
-		for (int32 i = 1; i < languageCount; ++i) {
-			LangLoaderPlain loader(qsl(":/langs/lang_") + LanguageCodes[i].c_str() + qsl(".strings"), langLoaderRequest(lngkeys_cnt));
-			if (!loader.errors().isEmpty()) {
-				Ui::show(Box<InformBox>(qsl("Lang \"") + LanguageCodes[i].c_str() + qsl("\" error :(\n\nError: ") + loader.errors()));
-				return;
-			} else if (!loader.warnings().isEmpty()) {
-				QString warn = loader.warnings();
-				if (warn.size() > 256) warn = warn.mid(0, 253) + qsl("...");
-				Ui::show(Box<InformBox>(qsl("Lang \"") + LanguageCodes[i].c_str() + qsl("\" warnings :(\n\nWarnings: ") + warn));
-				return;
+void LanguageBox::refreshLang() {
+	clearButtons();
+	addButton(langFactory(lng_box_ok), [this] { closeBox(); });
+
+	setTitle(langFactory(lng_languages));
+
+	update();
+}
+
+void LanguageBox::refresh() {
+	refreshLanguages();
+
+	_inner->refresh();
+	setDimensions(st::langsWidth, qMin(_inner->height(), st::boxMaxListHeight));
+}
+
+void LanguageBox::refreshLanguages() {
+	_languages = Languages();
+	auto list = Lang::CurrentCloudManager().languageList();
+	_languages.reserve(list.size() + 1);
+	auto currentId = Lang::Current().id();
+	auto currentIndex = -1;
+	_languages.push_back({ qsl("en"), qsl("English"), qsl("English") });
+	for (auto &language : list) {
+		auto isCurrent = (language.id == currentId) || (language.id == Lang::DefaultLanguageId() && currentId.isEmpty());
+		if (language.id != qstr("en")) {
+			if (isCurrent) {
+				currentIndex = _languages.size();
 			}
+			_languages.push_back(language);
+		} else if (isCurrent) {
+			currentIndex = 0;
 		}
-		Ui::show(Box<InformBox>(qsl("Everything seems great in all %1 languages!").arg(languageCount - 1)));
 	}
-}
-
-void LanguageBox::languageChanged(int languageId) {
-	Expects(languageId == languageTest || (languageId >= 0 && languageId < base::array_size(LanguageCodes)));
-
-	if (languageId == cLang()) {
-		return;
+	if (currentId == qstr("custom")) {
+		_languages.insert(_languages.begin(), { currentId, qsl("Custom LangPack"), qsl("Custom LangPack") });
+		currentIndex = 0;
+	} else if (currentIndex < 0) {
+		currentIndex = _languages.size();
+		_languages.push_back({ currentId, lang(lng_language_name), lang(lng_language_name) });
 	}
-
-	LangLoaderResult result;
-	if (languageId > 0) {
-		LangLoaderPlain loader(qsl(":/langs/lang_") + LanguageCodes[languageId].c_str() + qsl(".strings"), langLoaderRequest(lng_sure_save_language, lng_cancel, lng_box_ok));
-		result = loader.found();
-	} else if (languageId == languageTest) {
-		LangLoaderPlain loader(cLangFile(), langLoaderRequest(lng_sure_save_language, lng_cancel, lng_box_ok));
-		result = loader.found();
-	}
-	auto text = result.value(lng_sure_save_language, langOriginal(lng_sure_save_language)),
-		save = result.value(lng_box_ok, langOriginal(lng_box_ok)),
-		cancel = result.value(lng_cancel, langOriginal(lng_cancel));
-	Ui::show(Box<ConfirmBox>(text, save, cancel, base::lambda_guarded(this, [this, languageId] {
-		cSetLang(languageId);
-		Local::writeSettings();
-		App::restart();
-	}), base::lambda_guarded(this, [this] {
-		_langGroup->setValue(cLang());
-	})), KeepOtherLayers);
+	_inner->setSelected(currentIndex);
 }

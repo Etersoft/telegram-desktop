@@ -242,6 +242,7 @@ void Application::newInstanceConnected() {
 }
 
 void Application::readClients() {
+	// This method can be called before Messenger is constructed.
 	QString startUrl;
 	QStringList toSend;
 	for (LocalClients::iterator i = _localClients.begin(), e = _localClients.end(); i != e; ++i) {
@@ -286,8 +287,8 @@ void Application::readClients() {
 	if (!startUrl.isEmpty()) {
 		cSetStartUrl(startUrl);
 	}
-	if (auto main = App::main()) {
-		main->checkStartUrl();
+	if (auto messenger = Messenger::InstancePointer()) {
+		messenger->checkStartUrl();
 	}
 }
 
