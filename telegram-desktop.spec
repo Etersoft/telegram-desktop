@@ -104,6 +104,15 @@ cp %SOURCE2 Telegram/
 # MacOS things will conflicts with binary name
 rm -rf Telegram/Telegram/
 
+# set App ID
+subst "s|../../../TelegramPrivate/|../../|" Telegram/SourceFiles/config.h
+cat <<EOF >custom_api_id.h
+// Telegram Desktop - altdesktop
+// got from https://core.telegram.org/api/obtaining_api_id
+static const int32 ApiId = 182015;
+static const char *ApiHash = "bb6c3f8fffd8fe6804fc5131a08e1c44";
+EOF
+
 %build
 cd Telegram
 %cmake_insource

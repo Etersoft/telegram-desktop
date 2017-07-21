@@ -148,6 +148,7 @@ add_precompiled_header(Telegram SourceFiles/stdafx.h)
 
 target_compile_definitions(Telegram PUBLIC
     Q_OS_LINUX64
+    CUSTOM_API_ID
     TDESKTOP_DISABLE_UNITY_INTEGRATION
     TDESKTOP_DISABLE_DESKTOP_FILE_GENERATION
     TDESKTOP_DISABLE_REGISTER_CUSTOM_SCHEME
