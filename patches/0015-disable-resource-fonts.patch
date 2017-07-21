@@ -1,0 +1,16 @@
+diff --git a/tdesktop/Telegram/SourceFiles/ui/twidget.cpp b/tdesktop/Telegram/SourceFiles/ui/twidget.cpp
+index e9848ef..2896077 100644
+--- a/Telegram/SourceFiles/ui/twidget.cpp
++++ b/Telegram/SourceFiles/ui/twidget.cpp
+@@ -83,9 +83,11 @@ void Start() {
+ 	}
+ 	Started = true;
+ 
++/*
+ 	auto regular = LoadCustomFont(qsl(":/gui/fonts/OpenSans-Regular.ttf"), qsl("Open Sans"));
+ 	auto bold = LoadCustomFont(qsl(":/gui/fonts/OpenSans-Bold.ttf"), qsl("Open Sans"), style::internal::FontBold);
+ 	auto semibold = LoadCustomFont(qsl(":/gui/fonts/OpenSans-Semibold.ttf"), qsl("Open Sans Semibold"));
++*/
+ 
+ #ifdef Q_OS_WIN
+ 	// Attempt to workaround a strange font bug with Open Sans Semibold not loading.
