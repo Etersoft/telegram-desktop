@@ -1,0 +1,27 @@
+diff --git a/tdesktop/Telegram/SourceFiles/autoupdater.cpp b/tdesktop/Telegram/SourceFiles/autoupdater.cpp
+index 5dcda0f..c3f3d17 100644
+--- a/Telegram/SourceFiles/autoupdater.cpp
++++ b/Telegram/SourceFiles/autoupdater.cpp
+@@ -26,17 +26,17 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
+ #include <openssl/bio.h>
+ #include <openssl/err.h>
+ 
++#include "application.h"
++#include "platform/platform_specific.h"
++
++#ifndef TDESKTOP_DISABLE_AUTOUPDATE
++
+ #ifdef Q_OS_WIN // use Lzma SDK for win
+ #include <LzmaLib.h>
+ #else // Q_OS_WIN
+ #include <lzma.h>
+ #endif // else of Q_OS_WIN
+ 
+-#include "application.h"
+-#include "platform/platform_specific.h"
+-
+-#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+-
+ #ifdef Q_OS_WIN
+ typedef DWORD VerInt;
+ typedef WCHAR VerChar;

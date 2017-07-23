@@ -28,6 +28,7 @@ Patch8: 0008_add_locales.patch
 Patch9: 0001-use-correct-executable-path.patch
 Patch14: 0014-get-language-name-and-country-name-from-QLocale.patch
 Patch15: 0015-disable-resource-fonts.patch
+Patch16: 0016-fix-lzma.patch
 
 BuildRequires(pre): rpm-build-licenses rpm-macros-qt5 rpm-macros-cmake
 BuildRequires(pre): rpm-macros-kde-common-devel
@@ -100,6 +101,7 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 %patch9 -p1
 %patch14 -p1
 %patch15 -p1
+%patch16 -p1
 
 cp %SOURCE2 Telegram/
 # MacOS things will conflicts with binary name, so delete Telegram dir
