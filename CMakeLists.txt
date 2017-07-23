@@ -24,8 +24,8 @@ message(STATUS "Using Qt private include directories: ${QT_PRIVATE_INCLUDE_DIRS}
 
 find_package(PkgConfig REQUIRED)
 
-pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libswresample libswscale libavutil)
-pkg_check_modules(OPUS REQUIRED opus)
+pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample libswscale)
+pkg_check_modules(TGVOIP REQUIRED libtgvoip)
 pkg_check_modules(LIBDRM REQUIRED libdrm)
 pkg_check_modules(LIBVA REQUIRED libva-x11 libva-drm libva)
 pkg_check_modules(MINIZIP REQUIRED minizip)
@@ -38,12 +38,9 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 find_package(OpenAL REQUIRED)
 find_package(OpenSSL REQUIRED)
-find_package(LibLZMA REQUIRED)
+#find_package(LibLZMA REQUIRED)
 find_package(X11 REQUIRED)
 
-set(TGVOIP_LIBS tgvoip dl opus)
-
-set(TGVOIP_INCLUDE_DIR /usr/include/tgvoip)
 set(GSL_INCLUDE_DIR /usr/include/libmicrosoft-gsl)
 set(VARIANT_INCLUDE_DIR /usr/include/libvariant)
 
@@ -56,12 +53,6 @@ file(MAKE_DIRECTORY ${GENERATED_DIR})
 
 include(ExternalProject)
 
-#ExternalProject_Add(libtgvoip
-#	PREFIX ${CMAKE_SOURCE_DIR}/ThirdParty/libtgvoip
-#	SOURCE_DIR ${CMAKE_SOURCE_DIR}/ThirdParty/libtgvoip
-#	BUILD_IN_SOURCE 1
-#)
-#
 #find_package(Breakpad REQUIRED)
 
 include(TelegramCodegenTools)
@@ -114,32 +105,31 @@ target_link_libraries(Telegram
     OpenSSL::Crypto
 #    breakpad
     ${FFMPEG_LIBRARIES}
-    ${OPUS_LIBRARIES}
     ${LIBVA_LIBRARIES}
     ${LIBDRM_LIBRARIES}
     ${ZLIB_LIBRARY_RELEASE}
     ${GTK3_LIBRARIES}
-    ${TGVOIP_LIBS}
+    ${TGVOIP_LIBRARIES}
     ${MINIZIP_LIBRARIES}
     ${OPENAL_LIBRARY}
     ${APPINDICATOR_LIBRARIES}
-    ${LIBLZMA_LIBRARIES}
-    ${X11_X11_LIB})
+#    ${LIBLZMA_LIBRARIES}
+    ${X11_X11_LIB}
+    )
 target_include_directories(Telegram PUBLIC
     ${QT_PRIVATE_INCLUDE_DIRS}
     ${FFMPEG_INCLUDE_DIRS}
-    ${OPUS_INCLUDE_DIRS}
     ${LIBVA_INCLUDE_DIRS}
     ${LIBDRM_INCLUDE_DIRS}
     ${ZLIB_INCLUDE_DIR}
     ${GTK3_INCLUDE_DIRS}
-    ${TGVOIP_INCLUDE_DIR}
+    ${TGVOIP_INCLUDE_DIRS}
     ${GSL_INCLUDE_DIR}
     ${VARIANT_INCLUDE_DIR}
     ${MINIZIP_INCLUDE_DIRS}
     ${OPENAL_INCLUDE_DIR}
     ${APPINDICATOR_INCLUDE_DIRS}
-    ${LIBLZMA_INCLUDE_DIRS}
+#    ${LIBLZMA_INCLUDE_DIRS}
     ${GENERATED_DIR})
 
 target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
