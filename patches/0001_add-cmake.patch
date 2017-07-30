@@ -23,7 +23,7 @@
 +set_property(TARGET breakpad PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${BREAKPAD_INCLUDE_DIRS})
 --- /dev/null
 +++ b/Telegram/cmake/TelegramCodegen.cmake
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,65 @@
 +
 +set(TELEGRAM_GENERATED_SOURCES)
 +
@@ -60,13 +60,15 @@
 +list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_STYLES})
 +
 +add_custom_command(
-+    OUTPUT ${GENERATED_DIR}/emoji.h ${GENERATED_DIR}/emoji.cpp
-+    COMMAND ${CMAKE_BINARY_DIR}/codegen_emoji -o${GENERATED_DIR}
-+    DEPENDS codegen_emoji
++    OUTPUT ${GENERATED_DIR}/emoji.h ${GENERATED_DIR}/emoji.cpp ${GENERATED_DIR}/emoji_suggestions_data.h ${GENERATED_DIR}/emoji_suggestions_data.cpp
++    COMMAND ${CMAKE_BINARY_DIR}/codegen_emoji ${TELEGRAM_RESOURCES_DIR}/emoji_autocomplete.json -o${GENERATED_DIR}
++    DEPENDS codegen_emoji ${TELEGRAM_RESOURCES_DIR}/emoji_autocomplete.json
 +    COMMENT "Codegen emoji"
 +)
 +list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/emoji.h)
 +list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/emoji.cpp)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/emoji_suggestions_data.h)
++list(APPEND TELEGRAM_GENERATED_SOURCES ${GENERATED_DIR}/emoji_suggestions_data.cpp)
 +
 +add_custom_command(
 +    OUTPUT ${GENERATED_DIR}/lang_auto.h ${GENERATED_DIR}/lang_auto.cpp

@@ -93,7 +93,10 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/settings/*.cpp SourceFiles/settings/*.h
     SourceFiles/storage/*.cpp SourceFiles/storage/*.h
     SourceFiles/ui/*.cpp SourceFiles/ui/*.h
-    SourceFiles/window/*.cpp SourceFiles/window/*.h)
+    SourceFiles/window/*.cpp SourceFiles/window/*.h
+    ThirdParty/emoji_suggestions/*.cpp
+    ThirdParty/emoji_suggestions/*.h
+)
 
 add_executable(Telegram WIN32 ${QRC_FILES} ${FLAT_SOURCE_FILES} ${SUBDIRS_SOURCE_FILES})
 
@@ -130,6 +133,7 @@ target_include_directories(Telegram PUBLIC
     ${OPENAL_INCLUDE_DIR}
     ${APPINDICATOR_INCLUDE_DIRS}
 #    ${LIBLZMA_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/ThirdParty/emoji_suggestions
     ${GENERATED_DIR})
 
 target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
