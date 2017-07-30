@@ -1,0 +1,14 @@
+diff --git a/tdesktop/Telegram/SourceFiles/lang/lang_cloud_manager.cpp b/tdesktop/Telegram/SourceFiles/lang/lang_cloud_manager.cpp
+index 7627394..83d48ee 100644
+--- a/tdesktop/Telegram/SourceFiles/lang/lang_cloud_manager.cpp
++++ b/tdesktop/Telegram/SourceFiles/lang/lang_cloud_manager.cpp
+@@ -128,6 +128,9 @@ void CloudManager::requestLanguageList() {
+ 	}).fail([this](const RPCError &error) {
+ 		_languagesRequestId = 0;
+ 	}).send();
++	// force russian support
++	auto languages = Languages();
++	languages.push_back({ qstr("ru_RU"), qstr("ru_RU"), qstr("Русский") });
+ }
+ 
+ bool CloudManager::needToApplyLangPack(const QString &id) {
