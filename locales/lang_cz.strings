@@ -135,7 +135,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 "lng_server_error" = "Chyba na straně serveru.";
 "lng_flood_error" = "Příliš mnoho pokusů. Zkuste to prosím později.";
-"lng_gif_error" = "Při načítání GIF animace se vyskytla chyba :(";
+"lng_gif_error" = "Během načítání animace GIF došlo k chybě :(";
 "lng_edit_error" = "Tuto zprávu nemůžete upravit";
 "lng_join_channel_error" = "Litujeme, jste připojený k příliš mnoho kanálům a superskupinám. Před připojením k dalším prosím nějaké opusťte.";
 "lng_error_phone_flood" = "Litujeme, v poslední době jste svůj účet odstranil/a a obnovil/a příliš mockrát. Před dalším přihlášením prosím počkejte pár dnů.";
@@ -145,6 +145,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_error_public_groups_denied" = "Litujeme, byl jste zablokován a nemůžete se účastnit veřejných skupin.\n{more_info}";
 "lng_error_cant_edit_admin" = "Litujeme, nemůžete měnit oprávnění pro tohoto administrátora.";
 "lng_error_cant_add_member" = "Litujeme, nemůžete přidat bot do této skupiny. Požádejte o to administrátora skupiny.";
+"lng_error_cant_add_bot" = "Litujeme, tento bot nemůže být přidán do skupin.";
 "lng_error_cant_add_admin_invite" = "Litujeme, tohoto uživatele nemůžete přidat jako administrátora, protože není součástí této skupiny. Nemáte oprávnění ho pozvat.";
 "lng_error_cant_add_admin_unban" = "Litujeme, tohoto uživatele nemůžete přidat jako administrátora, protože je zablokovaný a vy nemáte oprávnění ho odblokovat.";
 "lng_error_cant_ban_admin" = "Litujeme, nemůžete zablokovat tohoto uživatele, protože je administrátorem této skupiny. Nemáte oprávnění ho práv zbavit.";
@@ -270,10 +271,15 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_username_link" = "Tento odkaz otevře konverzaci s tebou:";
 "lng_username_copied" = "Odkaz zkopírován do schránky.";
 
+"lng_bio_title" = "Upravit O mně";
+"lng_bio_placeholder" = "O mně";
+"lng_bio_about" = "Můžete přidat několik řádků o sobě. Každému, kdo otevře váš profil, se zobrazí tento text.";
+
 "lng_settings_section_info" = "Info";
 "lng_settings_phone_number" = "Telefonní číslo:";
 "lng_settings_username" = "Uživatelské jméno:";
 "lng_settings_choose_username" = "Zvolte uživatelské jméno";
+"lng_settings_empty_bio" = "Nikdo";
 
 "lng_settings_section_notify" = "Upozornění";
 "lng_settings_desktop_notify" = "Upozornění na ploše";
@@ -556,6 +562,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_profile_invite_link_section" = "Pozvat přes odkaz";
 "lng_profile_create_public_link" = "Vytvořit veřejný odkaz";
 "lng_profile_edit_public_link" = "Upravit veřejný odkaz";
+"lng_profile_search_members" = "Hledat členy";
 "lng_profile_manage_admins" = "Spravovat administrátory";
 "lng_profile_manage_blocklist" = "Spravovat blokované uživatele";
 "lng_profile_manage_restrictedlist" = "Spravovat omezené uživatele";
@@ -568,6 +575,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_profile_mobile_number" = "Mobil:";
 "lng_profile_username" = "Uživatelské jméno:";
 "lng_profile_link" = "Odkaz:";
+"lng_profile_bio" = "O mně:";
 "lng_profile_add_contact" = "Přidat kontakt";
 "lng_profile_edit_contact" = "Upravit";
 "lng_profile_enable_notifications" = "Upozornění";
@@ -638,7 +646,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_report_button" = "Nahlásit";
 "lng_report_thanks" = "Děkujeme! Velmi brzo ověříme váš report.";
 
-"lng_channel_add_admins" = "Nový administrátor";
 "lng_channel_add_members" = "Přidat členy";
 "lng_channel_add_banned" = "Zablokovat uživatele";
 "lng_channel_add_restricted" = "Omezit práva uživatele";
@@ -650,6 +657,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_channel_admins_too_much" = "Litujeme, dosáhl jste maximálního limitu administrátorů. Odeberte prosím nějakého, před přidáním dalších.";
 "lng_channel_admin_status_creator" = "Zakladatel";
 "lng_channel_admin_status_promoted_by" = "Povýšen uživatelem {user}";
+"lng_channel_admin_status_not_admin" = "Není administrátor";
 
 "lng_group_blocked_list_about" = "Blokovaní uživatelé jsou odebráni ze skupiny. Mohou se vrátit zpět pouze na pozvání administrátora.\nOdkazy s pozváním na ně jinak nefungují.";
 
@@ -756,6 +764,15 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_action_game_you_scored_no_game#other" = "Skóroval/a jste {count}";
 "lng_action_payment_done" = "Úspěšně jste zaplatil/a {amount} uživateli {user}";
 "lng_action_payment_done_for" = "Úspěšně jste zaplatil/a {amount} uživateli {user} za {invoice}";
+"lng_action_took_screenshot" = "{from} poslal screenshot!";
+"lng_action_you_took_screenshot" = "Přijal jste screenshot!";
+
+"lng_ttl_photo_received" = "{from} vám poslal/a samodestruktivní fotografii. Prohlédněte si ji ve svém mobilu.";
+"lng_ttl_photo_sent" = "Odeslal/a jste samodestruktivní fotografii.";
+"lng_ttl_photo_expired" = "Platnost fotografie vypršela";
+"lng_ttl_video_received" = "{from} vám poslal/a samodestruktivní video. Prohlédněte si ho ve svém mobilu.";
+"lng_ttl_video_sent" = "Odeslal/a jste samodestruktivní video.";
+"lng_ttl_video_expired" = "Platnost videa vypršela";
 
 "lng_profile_migrate_reached#one" = "{count} člen dosažen limit";
 "lng_profile_migrate_reached#other" = "{count} členů dosažen limit";
@@ -919,6 +936,10 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_cant_invite_banned" = "Litujeme, přidat tohoto uživatele může pouze administrátor.";
 "lng_cant_invite_privacy" = "Litujeme, tohoto uživatele nemůžete přidat do skupin, protože tak mají nastavené soukromí.";
 "lng_cant_invite_privacy_channel" = "Litujeme, tohoto uživatele nemůžete přidat do kanálu, protože tak mají nastavené soukromí.";
+"lng_cant_delete_group#one" = "Litujeme, momentálně není možné ručně smazat komunity, které mají více než {count} členů. Pokud chcete tuto skupinu smazat, kontaktujte technickou podporu.";
+"lng_cant_delete_group#other" = "Litujeme, momentálně není možné ručně smazat komunity, které mají více než {count} členů. Pokud chcete tuto skupinu smazat, kontaktujte technickou podporu.";
+"lng_cant_delete_channel#one" = "Litujeme, momentálně není možné ručně smazat komunity, které mají více než {count} členů. Pokud chcete tuto kanál smazat, kontaktujte technickou podporu.";
+"lng_cant_delete_channel#other" = "Litujeme, momentálně není možné ručně smazat komunity, které mají více než {count} členů. Pokud chcete tento kanál smazat, kontaktujte technickou podporu.";
 "lng_cant_do_this" = "Litujeme, tato akce je nedostupná.";
 
 "lng_send_button" = "Poslat";
@@ -1277,6 +1298,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_rights_edit_admin_header" = "K čemu má tento administrátor oprávnění?";
 "lng_rights_about_add_admins_yes" = "Tento administrátor bude moci přidávat další administrátory se stejnými (či menšími) právy.";
 "lng_rights_about_add_admins_no" = "Tento administrátor nebude moci přidávat další administrátory.";
+"lng_rights_about_admin_cant_edit" = "Nemůžete upravovat práva tohoto administrátora.";
 "lng_rights_user_restrictions" = "Omezení uživatele";
 "lng_rights_user_restrictions_header" = "Co může uživatel dělat?";
 
@@ -1296,8 +1318,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_rights_chat_send_media" = "Posílat soubory";
 "lng_rights_chat_send_stickers" = "Posílat samolepky a GIFy";
 "lng_rights_chat_send_links" = "Posílat odkazy";
-"lng_rights_chat_banned_until" = "Omezeno do: {when}";
+"lng_rights_chat_banned_until_header" = "Omezeno do";
 "lng_rights_chat_banned_forever" = "Navždy";
+"lng_rights_chat_banned_day#one" = "Po dobu {count} dnů";
+"lng_rights_chat_banned_day#other" = "Po dobu {count} dní";
+"lng_rights_chat_banned_week#one" = "Po dobu {count} týdnů";
+"lng_rights_chat_banned_week#other" = "Po dobu {count} týdnů";
+"lng_rights_chat_banned_custom" = "Vlastní";
+"lng_rights_chat_banned_custom_date" = "Do {date}";
 "lng_rights_chat_banned_block" = "Zablokovat a ostranit ze skupiny";
 
 "lng_restricted_send_message" = "Administrátoři této skupiny vám omezili právo na psaní.";
@@ -1322,13 +1350,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_admin_log_filter_messages_deleted" = "Odstraněné zprávy";
 "lng_admin_log_filter_messages_edited" = "Změněné zprávy";
 "lng_admin_log_filter_messages_pinned" = "Připnuté zprávy";
-"lng_admin_log_filter_members_removed" = "Odebraní uživatelé";
-"lng_admin_log_filter_all_admins" = "Všichni administrátoři";
+"lng_admin_log_filter_members_removed" = "Odchazející členové";
+"lng_admin_log_filter_all_admins" = "Všichni uživatelé a administrátoři";
 "lng_admin_log_about" = "Co je toto?";
 "lng_admin_log_about_text" = "Toto je seznam všech událostí, které provedli členové skupiny a administrátoři v posledních 48 hodinách.";
-"lng_admin_log_no_results_title" = "Nenalezeny žádné události";
-"lng_admin_log_no_results_text" = "Vašemu požadavku nevyhovuje žádná nedávná událost.";
-"lng_admin_log_no_events_title" = "Žádné události";
+"lng_admin_log_no_results_title" = "Žádné akce nebyly nalezeny";
+"lng_admin_log_no_results_text" = "Nebyly nalezeny žádné nedávné akce, které odpovídají vašemu dotazu.";
+"lng_admin_log_no_results_search_text" = "ádné nedávné akce obsahující '{query}' nebyly nalezeny.";
+"lng_admin_log_no_events_title" = "Zatím žádné akce";
 "lng_admin_log_no_events_text" = "Nejsou zde žádné události\nprovedené členy skupiny\nnebo administrátory v posledních 48 hodinách.";
 
 "lng_admin_log_empty_text" = "Prázdné";
@@ -1361,7 +1390,9 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_admin_log_previous_message" = "Původní zpráva";
 "lng_admin_log_deleted_message" = "{from} odstranil/a zprávu:";
 "lng_admin_log_participant_joined" = "{from} se připojil/a do skupiny";
+"lng_admin_log_participant_joined_channel" = "{from} se připojil k kanálu";
 "lng_admin_log_participant_left" = "{from} opustil/a skupinu";
+"lng_admin_log_participant_left_channel" = "{from} opustil kanál";
 "lng_admin_log_invited" = "pozval/a {user}";
 "lng_admin_log_banned" = "zablokoval/a {user}";
 "lng_admin_log_restricted" = "změnil/a omezení pro {user} {until}";
@@ -1389,6 +1420,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_topbar_info" = "Info";
 "lng_profile_group_info" = "Informace o skupině";
 "lng_profile_channel_info" = "Informace o kanálu";
+"lng_channel_add_admins" = "Nový administrátor";
 
 // Wnd specific
 

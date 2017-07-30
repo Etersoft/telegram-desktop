@@ -135,7 +135,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 "lng_server_error" = "Ошибка сервера.";
 "lng_flood_error" = "Слишком быстро. Пожалуйста, повторите попытку  позже.";
-"lng_gif_error" = "Не получилось открыть GIF-анимацию :(";
+"lng_gif_error" = "An error has occurred while reading GIF animation :(";
 "lng_edit_error" = "Вы не можете редактировать это сообщение";
 "lng_join_channel_error" = "Вы подписались на максимальное число каналов или супергрупп. Чтобы подписаться на этот канал, вам придётся выйти из какой-нибудь супергруппы или канала.";
 "lng_error_phone_flood" = "Вы слишком часто удаляли и заново создавали свой аккаунт. Пожалуйста, подождите несколько дней перед повторной регистрацией.";
@@ -145,6 +145,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_error_public_groups_denied" = "К сожалению, вам запрещено вступать в публичные группы.\n{more_info}";
 "lng_error_cant_edit_admin" = "Вы не можете изменять права этого администратора.";
 "lng_error_cant_add_member" = "К сожалению, вы не можете добавить этого бота в группу. Попросите об этом кого-нибудь из администраторов.";
+"lng_error_cant_add_bot" = "Sorry, this bot can't be added to groups.";
 "lng_error_cant_add_admin_invite" = "К сожалению, вы не можете добавить этого пользователя в качестве администратора, потому что он не является участником этой группы и вы не можете его пригласить.";
 "lng_error_cant_add_admin_unban" = "К сожалению, вы не можете добавить этого пользователя в качестве администратора, потому что он в чёрном списке и вы не можете его разблокировать.";
 "lng_error_cant_ban_admin" = "К сожалению, вы не можете заблокировать этого пользователя, потому что он является администратором этой группы.";
@@ -270,10 +271,15 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_username_link" = "Эта ссылка открывает диалог с вами:";
 "lng_username_copied" = "Ссылка скопирована в буфер обмена.";
 
+"lng_bio_title" = "Edit your bio";
+"lng_bio_placeholder" = "Bio";
+"lng_bio_about" = "You can add a few lines about yourself. Anyone who opens your profile will see this text.";
+
 "lng_settings_section_info" = "Информация";
 "lng_settings_phone_number" = "Номер:";
 "lng_settings_username" = "Имя пользователя:";
 "lng_settings_choose_username" = "выберите имя пользователя";
+"lng_settings_empty_bio" = "None";
 
 "lng_settings_section_notify" = "Уведомления";
 "lng_settings_desktop_notify" = "Уведомления на рабочем столе";
@@ -556,6 +562,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_profile_invite_link_section" = "Ссылка для приглашения";
 "lng_profile_create_public_link" = "Создать пригласительную ссылку";
 "lng_profile_edit_public_link" = "Редактировать ссылку на профиль";
+"lng_profile_search_members" = "Search members";
 "lng_profile_manage_admins" = "Управление администраторами";
 "lng_profile_manage_blocklist" = "Заблокированные пользователи";
 "lng_profile_manage_restrictedlist" = "Ограничения прав";
@@ -568,6 +575,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_profile_mobile_number" = "Телефон:";
 "lng_profile_username" = "Имя пользователя:";
 "lng_profile_link" = "Ссылка:";
+"lng_profile_bio" = "Bio:";
 "lng_profile_add_contact" = "Добавить контакт";
 "lng_profile_edit_contact" = "Редактировать";
 "lng_profile_enable_notifications" = "Показывать уведомления";
@@ -638,7 +646,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_report_button" = "Пожаловаться";
 "lng_report_thanks" = "Спасибо! Мы рассмотрим вашу жалобу в ближайшее время.";
 
-"lng_channel_add_admins" = "Добавить администратора";
 "lng_channel_add_members" = "Добавить участников";
 "lng_channel_add_banned" = "Забанить пользователя";
 "lng_channel_add_restricted" = "Ограничить права";
@@ -650,6 +657,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_channel_admins_too_much" = "К сожалению, вы добавили слишком много администраторов. Удалите хотя бы одного, чтобы продолжить.";
 "lng_channel_admin_status_creator" = "Создатель";
 "lng_channel_admin_status_promoted_by" = "Назначил(а): {user}";
+"lng_channel_admin_status_not_admin" = "Not administrator";
 
 "lng_group_blocked_list_about" = "Заблокированные пользователи будут удалены из группы и смогут вернуться только по приглашению администратора.\nПригласительные ссылки для них не работают.";
 
@@ -756,6 +764,15 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_action_game_you_scored_no_game#other" = "Вы набрали {count} очков";
 "lng_action_payment_done" = "Ваш перевод {amount} пользователю {user} успешно выполнен";
 "lng_action_payment_done_for" = "Ваш перевод {amount} пользователю {user} за {invoice} успешно выполнен";
+"lng_action_took_screenshot" = "{from} took a screenshot!";
+"lng_action_you_took_screenshot" = "You took a screenshot!";
+
+"lng_ttl_photo_received" = "{from} sent you a self-destructing photo. Please view it on your mobile.";
+"lng_ttl_photo_sent" = "You sent a self-destructing photo.";
+"lng_ttl_photo_expired" = "Photo has expired";
+"lng_ttl_video_received" = "{from} sent you a self-destructing video. Please view it on your mobile.";
+"lng_ttl_video_sent" = "You sent a self-destructing video.";
+"lng_ttl_video_expired" = "Video has expired";
 
 "lng_profile_migrate_reached#one" = "Достигнут лимит в {count} участника";
 "lng_profile_migrate_reached#other" = "Достигнут лимит в {count} участников";
@@ -919,6 +936,10 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_cant_invite_banned" = "К сожалению, этого пользователя может добавить только администратор.";
 "lng_cant_invite_privacy" = "К сожалению, этот пользователь запретил добавлять его в группы.";
 "lng_cant_invite_privacy_channel" = "К сожалению, этот пользователь запретил приглашать его на каналы.";
+"lng_cant_delete_group#one" = "Sorry, it is currently not possible to manually delete communities that have more than {count} member. Please contact Telegram support if you would like to delete this group.";
+"lng_cant_delete_group#other" = "Sorry, it is currently not possible to manually delete communities that have more than {count} members. Please contact Telegram support if you would like to delete this group.";
+"lng_cant_delete_channel#one" = "Sorry, it is currently not possible to manually delete communities that have more than {count} member. Please contact Telegram support if you would like to delete this channel.";
+"lng_cant_delete_channel#other" = "Sorry, it is currently not possible to manually delete communities that have more than {count} members. Please contact Telegram support if you would like to delete this channel.";
 "lng_cant_do_this" = "К сожалению, это действие недоступно.";
 
 "lng_send_button" = "Отправить";
@@ -1277,6 +1298,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_rights_edit_admin_header" = "Что может делать этот администратор?";
 "lng_rights_about_add_admins_yes" = "Этот администратор сможет добавлять новых администраторов с такими же (или более жёсткими) ограничениями.";
 "lng_rights_about_add_admins_no" = "Этот администратор не сможет добавлять новых администраторов.";
+"lng_rights_about_admin_cant_edit" = "You cannot edit rights of this admin.";
 "lng_rights_user_restrictions" = "Права пользователя";
 "lng_rights_user_restrictions_header" = "Что разрешено этому пользователю?";
 
@@ -1296,8 +1318,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_rights_chat_send_media" = "Отправлять файлы";
 "lng_rights_chat_send_stickers" = "Отправлять стикеры и GIF";
 "lng_rights_chat_send_links" = "Отправлять ссылки с превью";
-"lng_rights_chat_banned_until" = "Заблокирован(а) до: {when}";
+"lng_rights_chat_banned_until_header" = "Restricted until";
 "lng_rights_chat_banned_forever" = "навсегда";
+"lng_rights_chat_banned_day#one" = "For {count} day";
+"lng_rights_chat_banned_day#other" = "For {count} days";
+"lng_rights_chat_banned_week#one" = "For {count} week";
+"lng_rights_chat_banned_week#other" = "For {count} weeks";
+"lng_rights_chat_banned_custom" = "Custom";
+"lng_rights_chat_banned_custom_date" = "Until {date}";
 "lng_rights_chat_banned_block" = "Заблокировать и удалить из группы";
 
 "lng_restricted_send_message" = "Администраторы этой группы запретили вам писать здесь.";
@@ -1322,13 +1350,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_admin_log_filter_messages_deleted" = "Удаление сообщений";
 "lng_admin_log_filter_messages_edited" = "Изменение сообщений";
 "lng_admin_log_filter_messages_pinned" = "Прикрепление сообщений";
-"lng_admin_log_filter_members_removed" = "Удалённые участники";
-"lng_admin_log_filter_all_admins" = "Все администраторы";
+"lng_admin_log_filter_members_removed" = "Leaving members";
+"lng_admin_log_filter_all_admins" = "All users and admins";
 "lng_admin_log_about" = "Что это такое?";
 "lng_admin_log_about_text" = "Это – список всех действий, совершённых участниками и администраторами группы за последние 48 часов.";
-"lng_admin_log_no_results_title" = "Действий не найдено";
-"lng_admin_log_no_results_text" = "Не найдено ни одного действия, удовлетворяющего вашему запросу.";
-"lng_admin_log_no_events_title" = "Пока ничего не произошло";
+"lng_admin_log_no_results_title" = "No actions found";
+"lng_admin_log_no_results_text" = "No recent actions that match your query have been found.";
+"lng_admin_log_no_results_search_text" = "No recent actions that contain '{query}' have been found.";
+"lng_admin_log_no_events_title" = "No actions yet";
 "lng_admin_log_no_events_text" = "За последние 48 часов администраторами\nи пользователями не было совершено\nни одного действия.";
 
 "lng_admin_log_empty_text" = "Пусто";
@@ -1361,7 +1390,9 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_admin_log_previous_message" = "Исходное сообщение";
 "lng_admin_log_deleted_message" = "{from} удалил(а) сообщение:";
 "lng_admin_log_participant_joined" = "{from} вступил(а) в группу";
+"lng_admin_log_participant_joined_channel" = "{from} joined the channel";
 "lng_admin_log_participant_left" = "{from} покинул(а) группу";
+"lng_admin_log_participant_left_channel" = "{from} left the channel";
 "lng_admin_log_invited" = "пригласил(а) {user}";
 "lng_admin_log_banned" = "забанил(а) {user}";
 "lng_admin_log_restricted" = "изменил(а) привилегии {user} {until}";
@@ -1389,6 +1420,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 "lng_topbar_info" = "Информация";
 "lng_profile_group_info" = "Информация о группе";
 "lng_profile_channel_info" = "О канале";
+"lng_channel_add_admins" = "Добавить администратора";
 
 // Wnd specific
 
