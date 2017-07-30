@@ -119,9 +119,10 @@ struct HistoryMessageViews : public RuntimeComponent<HistoryMessageViews> {
 };
 
 struct HistoryMessageSigned : public RuntimeComponent<HistoryMessageSigned> {
-	void create(UserData *from, const QString &date);
+	void create(const QString &author, const QString &date);
 	int maxWidth() const;
 
+	QString _author;
 	Text _signature;
 };
 
@@ -137,8 +138,8 @@ struct HistoryMessageForwarded : public RuntimeComponent<HistoryMessageForwarded
 	void create(const HistoryMessageVia *via) const;
 
 	QDateTime _originalDate;
-	PeerData *_authorOriginal = nullptr;
-	PeerData *_fromOriginal = nullptr;
+	PeerData *_originalSender = nullptr;
+	QString _originalAuthor;
 	MsgId _originalId = 0;
 	mutable Text _text = { 1 };
 };
@@ -578,7 +579,14 @@ public:
 	}
 	void markMediaRead() {
 		_flags &= ~MTPDmessage::Flag::f_media_unread;
+		markMediaAsReadHook();
 	}
+
+	// Zero result means this message is not self-destructing right now.
+	virtual TimeMs getSelfDestructIn(TimeMs now) {
+		return 0;
+	}
+
 	bool definesReplyKeyboard() const {
 		if (auto markup = Get<HistoryMessageReplyMarkup>()) {
 			if (markup->flags & MTPDreplyKeyboardMarkup_ClientFlag::f_inline) {
@@ -794,17 +802,28 @@ public:
 		}
 		return date;
 	}
+	PeerData *senderOriginal() const {
+		if (auto forwarded = Get<HistoryMessageForwarded>()) {
+			return forwarded->_originalSender;
+		}
+		auto peer = history()->peer;
+		return (peer->isChannel() && !peer->isMegagroup()) ? peer : from();
+	}
 	PeerData *fromOriginal() const {
 		if (auto forwarded = Get<HistoryMessageForwarded>()) {
-			return forwarded->_fromOriginal;
+			if (auto user = forwarded->_originalSender->asUser()) {
+				return user;
+			}
 		}
 		return from();
 	}
-	PeerData *authorOriginal() const {
+	QString authorOriginal() const {
 		if (auto forwarded = Get<HistoryMessageForwarded>()) {
-			return forwarded->_authorOriginal;
+			return forwarded->_originalAuthor;
+		} else if (auto msgsigned = Get<HistoryMessageSigned>()) {
+			return msgsigned->_author;
 		}
-		return author();
+		return QString();
 	}
 	MsgId idOriginal() const {
 		if (auto forwarded = Get<HistoryMessageForwarded>()) {
@@ -907,12 +926,15 @@ public:
 protected:
 	HistoryItem(History *history, MsgId msgId, MTPDmessage::Flags flags, QDateTime msgDate, int32 from);
 
-	// to completely create history item we need to call
-	// a virtual method, it can not be done from constructor
+	// To completely create history item we need to call
+	// a virtual method, it can not be done from constructor.
 	virtual void finishCreate();
 
-	// called from resizeGetHeight() when MTPDmessage_ClientFlag::f_pending_init_dimensions is set
+	// Called from resizeGetHeight() when MTPDmessage_ClientFlag::f_pending_init_dimensions is set.
 	virtual void initDimensions() = 0;
+
+	virtual void markMediaAsReadHook() {
+	}
 
 	virtual int resizeContentGetHeight() = 0;
 

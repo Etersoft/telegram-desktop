@@ -43,7 +43,12 @@ namespace codegen {
 namespace emoji {
 namespace {
 
-constexpr int kErrorCantWritePath = 851;
+constexpr auto kErrorCantWritePath = 851;
+
+constexpr auto kOriginalBits = 12;
+constexpr auto kIdSizeBits = 6;
+constexpr auto kColumnBits = 6;
+constexpr auto kRowBits = 6;
 
 common::ProjectInfo Project = {
 	"codegen_emoji",
@@ -118,25 +123,69 @@ QRect computeSourceRect(const QImage &image) {
 	return result;
 }
 
+uint32 Crc32Table[256];
+class Crc32Initializer {
+public:
+	Crc32Initializer() {
+		uint32 poly = 0x04C11DB7U;
+		for (auto i = 0; i != 256; ++i) {
+			Crc32Table[i] = reflect(i, 8) << 24;
+			for (auto j = 0; j != 8; ++j) {
+				Crc32Table[i] = (Crc32Table[i] << 1) ^ (Crc32Table[i] & (1 << 31) ? poly : 0);
+			}
+			Crc32Table[i] = reflect(Crc32Table[i], 32);
+		}
+	}
+
+private:
+	uint32 reflect(uint32 val, char ch) {
+		uint32 result = 0;
+		for (int i = 1; i < (ch + 1); ++i) {
+			if (val & 1) {
+				result |= 1 << (ch - i);
+			}
+			val >>= 1;
+		}
+		return result;
+	}
+
+};
+
+uint32 countCrc32(const void *data, std::size_t size) {
+	static Crc32Initializer InitTable;
+
+	auto buffer = static_cast<const unsigned char*>(data);
+	auto result = uint32(0xFFFFFFFFU);
+	for (auto i = std::size_t(0); i != size; ++i) {
+		result = (result >> 8) ^ Crc32Table[(result & 0xFFU) ^ buffer[i]];
+	}
+	return (result ^ 0xFFFFFFFFU);
+}
+
 } // namespace
 
 Generator::Generator(const Options &options) : project_(Project)
 #ifdef SUPPORT_IMAGE_GENERATION
 , writeImages_(options.writeImages)
 #endif // SUPPORT_IMAGE_GENERATION
-, data_(PrepareData()) {
+, data_(PrepareData())
+, replaces_(PrepareReplaces(options.replacesPath)) {
 	QDir dir(options.outputPath);
 	if (!dir.mkpath(".")) {
 		common::logError(kErrorCantWritePath, "Command Line") << "can not open path for writing: " << dir.absolutePath().toStdString();
 		data_ = Data();
 	}
+	if (!CheckAndConvertReplaces(replaces_, data_)) {
+		replaces_ = Replaces(replaces_.filename);
+	}
 
 	outputPath_ = dir.absolutePath() + "/emoji";
 	spritePath_ = dir.absolutePath() + "/emoji";
+	suggestionsPath_ = dir.absolutePath() + "/emoji_suggestions_data";
 }
 
 int Generator::generate() {
-	if (data_.list.empty()) {
+	if (data_.list.empty() || replaces_.list.isEmpty()) {
 		return -1;
 	}
 
@@ -150,6 +199,12 @@ int Generator::generate() {
 		return -1;
 	}
 	if (!writeHeader()) {
+		return -1;
+	}
+	if (!writeSuggestionsSource()) {
+		return -1;
+	}
+	if (!writeSuggestionsHeader()) {
 		return -1;
 	}
 
@@ -263,6 +318,7 @@ bool Generator::writeImages() {
 bool Generator::writeSource() {
 	source_ = std::make_unique<common::CppFile>(outputPath_ + ".cpp", project_);
 
+	source_->include("emoji_suggestions_data.h").newline();
 	source_->pushNamespace("Ui").pushNamespace("Emoji").pushNamespace();
 	source_->stream() << "\
 \n\
@@ -299,11 +355,17 @@ EmojiPtr Find(const QChar *start, const QChar *end, int *outLength) {\n\
 \n\
 void Init() {\n\
 	auto id = IdData;\n\
+	auto takeString = [&id](int size) {\n\
+		auto result = QString::fromRawData(reinterpret_cast<const QChar*>(id), size);\n\
+		id += size;\n\
+		return result;\n\
+	};\n\
+\n\
 	Items.reserve(base::array_size(Data));\n\
 	for (auto &data : Data) {\n\
-		Items.emplace_back(QString::fromRawData(id, data.idSize), data.column, data.row, data.postfixed, data.variated, data.original ? &Items[data.original - 1] : nullptr, One::CreationTag());\n\
-		id += data.idSize;\n\
+		Items.emplace_back(takeString(data.idSize), uint16(data.column), uint16(data.row), bool(data.postfixed), bool(data.variated), data.original ? &Items[data.original - 1] : nullptr, One::CreationTag());\n\
 	}\n\
+	InitReplacements();\n\
 }\n\
 \n";
 	source_->popNamespace();
@@ -371,7 +433,9 @@ bool Generator::enumerateWholeList(Callback callback) {
 	auto variated = -1;
 	auto coloredCount = 0;
 	for (auto &item : data_.list) {
-		callback(item.id, column, row, item.postfixed, item.variated, item.colored, variated);
+		if (!callback(item.id, column, row, item.postfixed, item.variated, item.colored, variated)) {
+			return false;
+		}
 		if (coloredCount > 0 && (item.variated || !item.colored)) {
 			if (!colorsCount_) {
 				colorsCount_ = coloredCount;
@@ -404,44 +468,44 @@ bool Generator::enumerateWholeList(Callback callback) {
 bool Generator::writeInitCode() {
 	source_->stream() << "\
 struct DataStruct {\n\
-	ushort idSize;\n\
-	ushort column;\n\
-	ushort row;\n\
-	ushort original;\n\
-	bool postfixed;\n\
-	bool variated;\n\
+	ushort original : " << kOriginalBits << ";\n\
+	uchar idSize : " << kIdSizeBits << ";\n\
+	uchar column : " << kColumnBits << ";\n\
+	uchar row : " << kRowBits << ";\n\
+	bool postfixed : 1;\n\
+	bool variated : 1;\n\
 };\n\
 \n\
-QChar IdData[] = {";
-	auto count = 0;
-	auto fulllength = 0;
-	if (!enumerateWholeList([this, &count, &fulllength](Id id, int column, int row, bool isPostfixed, bool isVariated, bool isColored, int original) {
-		for (auto ch : id) {
-			if (fulllength > 0) source_->stream() << ",";
-			if (!count++) {
-				source_->stream() << "\n";
-			} else {
-				if (count == 12) {
-					count = 0;
-				}
-				source_->stream() << " ";
-			}
-			source_->stream() << "0x" << QString::number(ch.unicode(), 16);
-			++fulllength;
-		}
+const ushort IdData[] = {";
+	startBinary();
+	if (!enumerateWholeList([this](Id id, int column, int row, bool isPostfixed, bool isVariated, bool isColored, int original) {
+		return writeStringBinary(source_.get(), id);
 	})) {
 		return false;
 	}
-	if (fulllength >= std::numeric_limits<ushort>::max()) {
+	if (_binaryFullLength >= std::numeric_limits<ushort>::max()) {
 		logDataError() << "Too many IdData elements.";
 		return false;
 	}
 	source_->stream() << " };\n\
 \n\
-DataStruct Data[] = {\n";
+const DataStruct Data[] = {\n";
 	if (!enumerateWholeList([this](Id id, int column, int row, bool isPostfixed, bool isVariated, bool isColored, int original) {
+		if (original + 1 >= (1 << kOriginalBits)) {
+			logDataError() << "Too many entries.";
+			return false;
+		}
+		if (id.size() >= (1 << kIdSizeBits)) {
+			logDataError() << "Too large id.";
+			return false;
+		}
+		if (column >= (1 << kColumnBits) || row >= (1 << kRowBits)) {
+			logDataError() << "Bad row-column.";
+			return false;
+		}
 		source_->stream() << "\
-	{ ushort(" << id.size() << "), ushort(" << column << "), ushort(" << row << "), ushort(" << (isColored ? (original + 1) : 0) << "), " << (isPostfixed ? "true" : "false") << ", " << (isVariated ? "true" : "false") << " },\n";
+	{ ushort(" << (isColored ? (original + 1) : 0) << "), uchar(" << id.size() << "), uchar(" << column << "), uchar(" << row << "), " << (isPostfixed ? "true" : "false") << ", " << (isVariated ? "true" : "false") << " },\n";
+		return true;
 	})) {
 		return false;
 	}
@@ -454,26 +518,16 @@ DataStruct Data[] = {\n";
 
 bool Generator::writeSections() {
 	source_->stream() << "\
-ushort SectionData[] = {";
-	auto count = 0, fulllength = 0;
+const ushort SectionData[] = {";
+	startBinary();
 	for (auto &category : data_.categories) {
 		for (auto index : category) {
-			if (fulllength > 0) source_->stream() << ",";
-			if (!count++) {
-				source_->stream() << "\n";
-			} else {
-				if (count == 12) {
-					count = 0;
-				}
-				source_->stream() << " ";
-			}
-			source_->stream() << index;
-			++fulllength;
+			writeIntBinary(source_.get(), index);
 		}
 	}
 	source_->stream() << " };\n\
 \n\
-EmojiPack fillSection(int offset, int size) {\n\
+EmojiPack FillSection(int offset, int size) {\n\
 	auto result = EmojiPack();\n\
 	result.reserve(size);\n\
 	for (auto index : gsl::make_span(SectionData + offset, size)) {\n\
@@ -534,7 +588,7 @@ EmojiPack GetSection(Section section) {\n\
 		source_->stream() << "\
 \n\
 	case " << name << ": {\n\
-		static auto result = fillSection(" << offset << ", " << category.size() << ");\n\
+		static auto result = FillSection(" << offset << ", " << category.size() << ");\n\
 		return result;\n\
 	} break;\n";
 		offset += category.size();
@@ -700,6 +754,248 @@ bool Generator::writeFindFromDictionary(const std::map<QString, int, std::greate
 \n\
 	return 0;\n";
 	return true;
+}
+
+bool Generator::writeSuggestionsSource() {
+	suggestionsSource_ = std::make_unique<common::CppFile>(suggestionsPath_ + ".cpp", project_);
+	suggestionsSource_->stream() << "\
+#include <map>\n\
+\n";
+	suggestionsSource_->pushNamespace("Ui").pushNamespace("Emoji").pushNamespace("internal").pushNamespace();
+	suggestionsSource_->stream() << "\
+\n";
+	if (!writeReplacements()) {
+		return false;
+	}
+	suggestionsSource_->popNamespace().newline();
+	if (!writeGetReplacements()) {
+		return false;
+	}
+
+	return suggestionsSource_->finalize();
+}
+
+bool Generator::writeSuggestionsHeader() {
+	auto maxLength = 0;
+	for (auto &replace : replaces_.list) {
+		if (maxLength < replace.replacement.size()) {
+			maxLength = replace.replacement.size();
+		}
+	}
+	auto header = std::make_unique<common::CppFile>(suggestionsPath_ + ".h", project_);
+	header->include("emoji_suggestions.h").newline();
+	header->pushNamespace("Ui").pushNamespace("Emoji").pushNamespace("internal");
+	header->stream() << "\
+\n\
+struct Replacement {\n\
+	utf16string emoji;\n\
+	utf16string replacement;\n\
+	std::vector<utf16string> words;\n\
+};\n\
+\n\
+constexpr auto kReplacementMaxLength = " << maxLength << ";\n\
+\n\
+void InitReplacements();\n\
+const std::vector<const Replacement*> *GetReplacements(utf16char first);\n\
+utf16string GetReplacementEmoji(utf16string replacement);\n\
+\n";
+	return header->finalize();
+}
+
+bool Generator::writeReplacements() {
+	QMap<QChar, QVector<int>> byCharIndices;
+	suggestionsSource_->stream() << "\
+struct ReplacementStruct {\n\
+	small emojiSize;\n\
+	small replacementSize;\n\
+	small wordsCount;\n\
+};\n\
+\n\
+const utf16char ReplacementData[] = {";
+	startBinary();
+	for (auto i = 0, size = replaces_.list.size(); i != size; ++i) {
+		auto &replace = replaces_.list[i];
+		if (!writeStringBinary(suggestionsSource_.get(), replace.id)) {
+			return false;
+		}
+		if (!writeStringBinary(suggestionsSource_.get(), replace.replacement)) {
+			return false;
+		}
+		for (auto &word : replace.words) {
+			if (!writeStringBinary(suggestionsSource_.get(), word)) {
+				return false;
+			}
+			auto &index = byCharIndices[word[0]];
+			if (index.isEmpty() || index.back() != i) {
+				index.push_back(i);
+			}
+		}
+	}
+	suggestionsSource_->stream() << " };\n\
+\n\
+const small ReplacementWordLengths[] = {";
+	startBinary();
+	for (auto &replace : replaces_.list) {
+		auto wordLengths = QStringList();
+		for (auto &word : replace.words) {
+			writeIntBinary(suggestionsSource_.get(), word.size());
+		}
+	}
+	suggestionsSource_->stream() << " };\n\
+\n\
+const ReplacementStruct ReplacementInitData[] = {\n";
+	for (auto &replace : replaces_.list) {
+		suggestionsSource_->stream() << "\
+	{ small(" << replace.id.size() << "), small(" << replace.replacement.size() << "), small(" << replace.words.size() << ") },\n";
+	}
+	suggestionsSource_->stream() << "};\n\
+\n\
+const medium ReplacementIndices[] = {";
+	startBinary();
+	for (auto &byCharIndex : byCharIndices) {
+		for (auto index : byCharIndex) {
+			writeIntBinary(suggestionsSource_.get(), index);
+		}
+	}
+	suggestionsSource_->stream() << " };\n\
+\n\
+struct ReplacementIndexStruct {\n\
+	utf16char ch;\n\
+	medium count;\n\
+};\n\
+\n\
+const internal::checksum ReplacementChecksums[] = {\n";
+	startBinary();
+	for (auto &replace : replaces_.list) {
+		writeUintBinary(suggestionsSource_.get(), countCrc32(replace.replacement.constData(), replace.replacement.size() * sizeof(QChar)));
+	}
+	suggestionsSource_->stream() << " };\n\
+\n\
+const ReplacementIndexStruct ReplacementIndexData[] = {\n";
+	startBinary();
+	for (auto i = byCharIndices.cbegin(), e = byCharIndices.cend(); i != e; ++i) {
+		suggestionsSource_->stream() << "\
+	{ utf16char(" << i.key().unicode() << "), medium(" << i.value().size() << ") },\n";
+	}
+	suggestionsSource_->stream() << "};\n\
+\n\
+std::vector<Replacement> Replacements;\n\
+std::map<utf16char, std::vector<const Replacement*>> ReplacementsMap;\n\
+std::map<internal::checksum, const Replacement*> ReplacementsHash;\n\
+\n";
+	return true;
+}
+
+bool Generator::writeGetReplacements() {
+	suggestionsSource_->stream() << "\
+void InitReplacements() {\n\
+	if (!Replacements.empty()) {\n\
+		return;\n\
+	}\n\
+	auto data = ReplacementData;\n\
+	auto takeString = [&data](int size) {\n\
+		auto result = utf16string(data, size);\n\
+		data += size;\n\
+		return result;\n\
+	};\n\
+	auto wordSize = ReplacementWordLengths;\n\
+\n\
+	Replacements.reserve(" << replaces_.list.size() << ");\n\
+	for (auto item : ReplacementInitData) {\n\
+		auto emoji = takeString(item.emojiSize);\n\
+		auto replacement = takeString(item.replacementSize);\n\
+		auto words = std::vector<utf16string>();\n\
+		words.reserve(item.wordsCount);\n\
+		for (auto i = 0; i != item.wordsCount; ++i) {\n\
+			words.push_back(takeString(*wordSize++));\n\
+		}\n\
+		Replacements.push_back({ std::move(emoji), std::move(replacement), std::move(words) });\n\
+	}\n\
+\n\
+	auto indices = ReplacementIndices;\n\
+	auto items = &Replacements[0];\n\
+	for (auto item : ReplacementIndexData) {\n\
+		auto index = std::vector<const Replacement*>();\n\
+		index.reserve(item.count);\n\
+		for (auto i = 0; i != item.count; ++i) {\n\
+			index.push_back(items + (*indices++));\n\
+		}\n\
+		ReplacementsMap.emplace(item.ch, std::move(index));\n\
+	}\n\
+\n\
+	for (auto checksum : ReplacementChecksums) {\n\
+		ReplacementsHash.emplace(checksum, items++);\n\
+	}\n\
+}\n\
+\n\
+const std::vector<const Replacement*> *GetReplacements(utf16char first) {\n\
+	if (ReplacementsMap.empty()) {\n\
+		InitReplacements();\n\
+	}\n\
+	auto it = ReplacementsMap.find(first);\n\
+	return (it == ReplacementsMap.cend()) ? nullptr : &it->second;\n\
+}\n\
+\n\
+utf16string GetReplacementEmoji(utf16string replacement) {\n\
+	auto code = internal::countChecksum(replacement.data(), replacement.size() * sizeof(utf16char));\n\
+	auto it = ReplacementsHash.find(code);\n\
+	return (it == ReplacementsHash.cend()) ? utf16string() : it->second->emoji;\n\
+}\n\
+\n";
+	return true;
+}
+
+void Generator::startBinary() {
+	_binaryFullLength = _binaryCount = 0;
+}
+
+bool Generator::writeStringBinary(common::CppFile *source, const QString &string) {
+	if (string.size() >= 256) {
+		logDataError() << "Too long string: " << string.toStdString();
+		return false;
+	}
+	for (auto ch : string) {
+		if (_binaryFullLength > 0) source->stream() << ",";
+		if (!_binaryCount++) {
+			source->stream() << "\n";
+		} else {
+			if (_binaryCount == 12) {
+				_binaryCount = 0;
+			}
+			source->stream() << " ";
+		}
+		source->stream() << "0x" << QString::number(ch.unicode(), 16);
+		++_binaryFullLength;
+	}
+	return true;
+}
+
+void Generator::writeIntBinary(common::CppFile *source, int data) {
+	if (_binaryFullLength > 0) source->stream() << ",";
+	if (!_binaryCount++) {
+		source->stream() << "\n";
+	} else {
+		if (_binaryCount == 12) {
+			_binaryCount = 0;
+		}
+		source->stream() << " ";
+	}
+	source->stream() << data;
+	++_binaryFullLength;
+}
+
+void Generator::writeUintBinary(common::CppFile *source, uint32 data) {
+	if (_binaryFullLength > 0) source->stream() << ",";
+	if (!_binaryCount++) {
+		source->stream() << "\n";
+	} else {
+		if (_binaryCount == 12) {
+			_binaryCount = 0;
+		}
+		source->stream() << " ";
+	}
+	source->stream() << "0x" << QString::number(data, 16).toUpper() << "U";
+	++_binaryFullLength;
 }
 
 } // namespace emoji

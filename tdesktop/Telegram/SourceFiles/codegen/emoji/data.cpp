@@ -49,16 +49,16 @@ Replace Replaces[] = {
 	{ { 0xD83DDE0AU }, ":-)" },
 	{ { 0xD83DDE0DU }, "8-)" },
 	{ { 0x2764U }, "<3" },
-	{ { 0xD83DDC8BU }, ":kiss:" },
-	{ { 0xD83DDE01U }, ":grin:" },
-	{ { 0xD83DDE02U }, ":joy:" },
+//	{ { 0xD83DDC8BU }, ":kiss:" },
+//	{ { 0xD83DDE01U }, ":grin:" },
+//	{ { 0xD83DDE02U }, ":joy:" },
 	{ { 0xD83DDE1AU }, ":-*" },
 	{ { 0xD83DDE06U }, "xD" },
-	{ { 0xD83DDC4DU }, ":like:" },
-	{ { 0xD83DDC4EU }, ":dislike:" },
-	{ { 0x261DU }, ":up:" },
-	{ { 0x270CU }, ":v:" },
-	{ { 0xD83DDC4CU }, ":ok:" },
+//	{ { 0xD83DDC4DU }, ":like:" },
+//	{ { 0xD83DDC4EU }, ":dislike:" },
+//	{ { 0x261DU }, ":up:" },
+//	{ { 0x270CU }, ":v:" },
+//	{ { 0xD83DDC4CU }, ":ok:" },
 	{ { 0xD83DDE0EU }, "B-)" },
 	{ { 0xD83DDE03U }, ":-D" },
 	{ { 0xD83DDE09U }, ";-)" },
@@ -1835,6 +1835,34 @@ void fillReplaces(Data &result) {
 	}
 }
 
+bool AddItemBeforeItem(const InputId &add, const InputId &before) {
+	auto addToCategory = (InputCategory*)nullptr;
+	auto addBeforeIterator = InputCategory::iterator();
+	for (auto category : {
+		&Category1,
+		&Category2,
+		&Category3,
+		&Category4,
+		&Category5,
+		&Category6,
+		&Category7,
+	}) {
+		for (auto i = category->begin(), e = category->end(); i != e; ++i) {
+			if (*i == add) {
+				return true;
+			} else if (*i == before) {
+				addToCategory = category;
+				addBeforeIterator = i;
+			}
+		}
+	}
+	if (!addToCategory) {
+		return false;
+	}
+	addToCategory->insert(addBeforeIterator, add);
+	return true;
+}
+
 } // namespace
 
 common::LogStream logDataError() {
@@ -1849,7 +1877,12 @@ Data PrepareData() {
 		return Data();
 	}
 
-	vector<const InputCategory*> categories = {
+	// Manually add :speech_left: emoji before eye-with-speech emoji.
+	if (!AddItemBeforeItem({ 0xD83DDDE8U }, { 0xD83DDC41U, 0x200DU, 0xD83DDDE8U })) {
+		return Data();
+	}
+
+	for (auto category : {
 		&Category1,
 		&Category2,
 		&Category3,
@@ -1857,8 +1890,7 @@ Data PrepareData() {
 		&Category5,
 		&Category6,
 		&Category7,
-	};
-	for (auto category : categories) {
+	}) {
 		appendCategory(result, *category, variatedIds);
 		if (result.list.empty()) {
 			return Data();

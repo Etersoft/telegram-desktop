@@ -20,11 +20,28 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "core/utils.h"
+#include "codegen/common/logging.h"
+#include "codegen/emoji/data.h"
+#include <QtCore/QVector>
 
-#define BETA_VERSION_MACRO (0ULL)
+namespace codegen {
+namespace emoji {
 
-constexpr int AppVersion = 1001018;
-constexpr str_const AppVersionStr = "1.1.18";
-constexpr bool AppAlphaVersion = false;
-constexpr uint64 AppBetaVersion = BETA_VERSION_MACRO;
+struct Replace {
+	Id id;
+	QString replacement;
+	QVector<QString> words;
+};
+
+struct Replaces {
+	Replaces(const QString &filename) : filename(filename) {
+	}
+	QString filename;
+	QVector<Replace> list;
+};
+
+Replaces PrepareReplaces(const QString &filename);
+bool CheckAndConvertReplaces(Replaces &replaces, const Data &data);
+
+} // namespace emoji
+} // namespace codegen

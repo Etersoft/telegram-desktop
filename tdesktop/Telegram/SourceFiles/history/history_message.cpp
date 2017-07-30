@@ -77,7 +77,7 @@ style::color fromNameFgSelected(int index) {
 	return colors[index];
 }
 
-MTPDmessage::Flags NewForwardedFlags(gsl::not_null<PeerData*> peer, int32 from, gsl::not_null<HistoryMessage*> fwd) {
+MTPDmessage::Flags NewForwardedFlags(gsl::not_null<PeerData*> peer, UserId from, gsl::not_null<HistoryMessage*> fwd) {
 	auto result = NewMessageFlags(peer) | MTPDmessage::Flag::f_fwd_from;
 	if (from) {
 		result |= MTPDmessage::Flag::f_from_id;
@@ -177,6 +177,7 @@ void FastShareMessage(gsl::not_null<HistoryItem*> item) {
 		OrderedSet<mtpRequestId> requests;
 	};
 	auto data = MakeShared<ShareData>(item->fullId());
+	auto isGame = item->getMessageBot() && item->getMedia() && (item->getMedia()->type() == MediaTypeGame);
 
 	auto canCopyLink = item->hasDirectLink();
 	if (!canCopyLink) {
@@ -264,10 +265,10 @@ void FastShareMessage(gsl::not_null<HistoryItem*> item) {
 			}
 		}
 	};
-	auto filterCallback = [](PeerData *peer) {
+	auto filterCallback = [isGame](PeerData *peer) {
 		if (peer->canWrite()) {
 			if (auto channel = peer->asChannel()) {
-				return !channel->isBroadcast();
+				return isGame ? (!channel->isBroadcast()) : true;
 			}
 			return true;
 		}
@@ -321,7 +322,7 @@ QString GetErrorTextForForward(gsl::not_null<PeerData*> peer, const SelectedItem
 	return QString();
 }
 
-void HistoryMessageVia::create(int32 userId) {
+void HistoryMessageVia::create(UserId userId) {
 	_bot = App::user(peerFromUser(userId));
 	_maxWidth = st::msgServiceNameFont->width(lng_inline_bot_via(lt_inline_bot, '@' + _bot->username));
 	_lnk = MakeShared<LambdaClickHandler>([bot = _bot] {
@@ -344,14 +345,15 @@ void HistoryMessageVia::resize(int32 availw) const {
 	}
 }
 
-void HistoryMessageSigned::create(UserData *from, const QString &date) {
+void HistoryMessageSigned::create(const QString &author, const QString &date) {
 	auto time = qsl(", ") + date;
-	auto name = App::peerName(from);
+	auto name = author;
 	auto timew = st::msgDateFont->width(time);
 	auto namew = st::msgDateFont->width(name);
 	if (timew + namew > st::maxSignatureSize) {
-		name = st::msgDateFont->elided(from->firstName, st::maxSignatureSize - timew);
+		name = st::msgDateFont->elided(author, st::maxSignatureSize - timew);
 	}
+	_author = author;
 	_signature.setText(st::msgDateTextStyle, name + time, _textNameOptions);
 }
 
@@ -370,19 +372,20 @@ int HistoryMessageEdited::maxWidth() const {
 
 void HistoryMessageForwarded::create(const HistoryMessageVia *via) const {
 	QString text;
-	if (_authorOriginal != _fromOriginal) {
-		text = lng_forwarded_signed(lt_channel, App::peerName(_authorOriginal), lt_user, App::peerName(_fromOriginal));
+	auto fromChannel = (_originalSender->isChannel() && !_originalSender->isMegagroup());
+	if (!_originalAuthor.isEmpty()) {
+		text = lng_forwarded_signed(lt_channel, App::peerName(_originalSender), lt_user, _originalAuthor);
 	} else {
-		text = App::peerName(_authorOriginal);
+		text = App::peerName(_originalSender);
 	}
 	if (via) {
-		if (_authorOriginal->isChannel()) {
+		if (fromChannel) {
 			text = lng_forwarded_channel_via(lt_channel, textcmdLink(1, text), lt_inline_bot, textcmdLink(2, '@' + via->_bot->username));
 		} else {
 			text = lng_forwarded_via(lt_user, textcmdLink(1, text), lt_inline_bot, textcmdLink(2, '@' + via->_bot->username));
 		}
 	} else {
-		if (_authorOriginal->isChannel()) {
+		if (fromChannel) {
 			text = lng_forwarded_channel(lt_channel, textcmdLink(1, text));
 		} else {
 			text = lng_forwarded(lt_user, textcmdLink(1, text));
@@ -390,7 +393,7 @@ void HistoryMessageForwarded::create(const HistoryMessageVia *via) const {
 	}
 	TextParseOptions opts = { TextParseRichText, 0, 0, Qt::LayoutDirectionAuto };
 	_text.setText(st::fwdTextStyle, text, opts);
-	_text.setLink(1, (_originalId && _authorOriginal->isChannel()) ? goToMessageClickHandler(_authorOriginal, _originalId) : _authorOriginal->openLink());
+	_text.setLink(1, fromChannel ? goToMessageClickHandler(_originalSender, _originalId) : _originalSender->openLink());
 	if (via) {
 		_text.setLink(2, via->_lnk);
 	}
@@ -609,9 +612,9 @@ HistoryMessage::HistoryMessage(gsl::not_null<History*> history, const MTPDmessag
 		auto &f = msg.vfwd_from.c_messageFwdHeader();
 		config.originalDate = ::date(f.vdate);
 		if (f.has_from_id() || f.has_channel_id()) {
-			config.authorIdOriginal = f.has_channel_id() ? peerFromChannel(f.vchannel_id) : peerFromUser(f.vfrom_id);
-			config.fromIdOriginal = f.has_from_id() ? peerFromUser(f.vfrom_id) : peerFromChannel(f.vchannel_id);
+			config.senderOriginal = f.has_channel_id() ? peerFromChannel(f.vchannel_id) : peerFromUser(f.vfrom_id);
 			if (f.has_channel_post()) config.originalId = f.vchannel_post.v;
+			if (f.has_post_author()) config.authorOriginal = qs(f.vpost_author);
 		}
 	}
 	if (msg.has_reply_to_msg_id()) config.replyTo = msg.vreply_to_msg_id.v;
@@ -619,6 +622,7 @@ HistoryMessage::HistoryMessage(gsl::not_null<History*> history, const MTPDmessag
 	if (msg.has_views()) config.viewsCount = msg.vviews.v;
 	if (msg.has_reply_markup()) config.mtpMarkup = &msg.vreply_markup;
 	if (msg.has_edit_date()) config.editDate = ::date(msg.vedit_date);
+	if (msg.has_post_author()) config.author = qs(msg.vpost_author);
 
 	createComponents(config);
 
@@ -648,18 +652,22 @@ HistoryMessage::HistoryMessage(gsl::not_null<History*> history, const MTPDmessag
 	setText(TextWithEntities {});
 }
 
-HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId id, MTPDmessage::Flags flags, QDateTime date, int32 from, gsl::not_null<HistoryMessage*> fwd)
+HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId id, MTPDmessage::Flags flags, QDateTime date, UserId from, const QString &postAuthor, gsl::not_null<HistoryMessage*> fwd)
 : HistoryItem(history, id, NewForwardedFlags(history->peer, from, fwd) | flags, date, from) {
 	CreateConfig config;
 
 	if (fwd->Has<HistoryMessageForwarded>() || !fwd->history()->peer->isSelf()) {
 		// Server doesn't add "fwd_from" to non-forwarded messages from chat with yourself.
 		config.originalDate = fwd->dateOriginal();
-		config.authorIdOriginal = fwd->authorOriginal()->id;
-		config.fromIdOriginal = fwd->fromOriginal()->id;
-		if (fwd->authorOriginal()->isChannel()) {
+		auto senderOriginal = fwd->senderOriginal();
+		config.senderOriginal = senderOriginal->id;
+		config.authorOriginal = fwd->authorOriginal();
+		if (senderOriginal->isChannel()) {
 			config.originalId = fwd->idOriginal();
 		}
+	}
+	if (flags & MTPDmessage::Flag::f_post_author) {
+		config.author = postAuthor;
 	}
 	auto fwdViaBot = fwd->viaBot();
 	if (fwdViaBot) config.viaBotId = peerToUser(fwdViaBot->id);
@@ -695,43 +703,44 @@ HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId id, MTPDme
 	setText(fwd->originalText());
 }
 
-HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId id, MTPDmessage::Flags flags, MsgId replyTo, int32 viaBotId, QDateTime date, int32 from, const TextWithEntities &textWithEntities)
+HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId id, MTPDmessage::Flags flags, MsgId replyTo, UserId viaBotId, QDateTime date, UserId from, const QString &postAuthor, const TextWithEntities &textWithEntities)
 	: HistoryItem(history, id, flags, date, (flags & MTPDmessage::Flag::f_from_id) ? from : 0) {
-	createComponentsHelper(flags, replyTo, viaBotId, MTPnullMarkup);
+	createComponentsHelper(flags, replyTo, viaBotId, postAuthor, MTPnullMarkup);
 
 	setText(textWithEntities);
 }
 
-HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId msgId, MTPDmessage::Flags flags, MsgId replyTo, int32 viaBotId, QDateTime date, int32 from, DocumentData *doc, const QString &caption, const MTPReplyMarkup &markup)
+HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId msgId, MTPDmessage::Flags flags, MsgId replyTo, UserId viaBotId, QDateTime date, UserId from, const QString &postAuthor, DocumentData *doc, const QString &caption, const MTPReplyMarkup &markup)
 	: HistoryItem(history, msgId, flags, date, (flags & MTPDmessage::Flag::f_from_id) ? from : 0) {
-	createComponentsHelper(flags, replyTo, viaBotId, markup);
+	createComponentsHelper(flags, replyTo, viaBotId, postAuthor, markup);
 
 	initMediaFromDocument(doc, caption);
 	setText(TextWithEntities());
 }
 
-HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId msgId, MTPDmessage::Flags flags, MsgId replyTo, int32 viaBotId, QDateTime date, int32 from, PhotoData *photo, const QString &caption, const MTPReplyMarkup &markup)
+HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId msgId, MTPDmessage::Flags flags, MsgId replyTo, UserId viaBotId, QDateTime date, UserId from, const QString &postAuthor, PhotoData *photo, const QString &caption, const MTPReplyMarkup &markup)
 	: HistoryItem(history, msgId, flags, date, (flags & MTPDmessage::Flag::f_from_id) ? from : 0) {
-	createComponentsHelper(flags, replyTo, viaBotId, markup);
+	createComponentsHelper(flags, replyTo, viaBotId, postAuthor, markup);
 
 	_media = std::make_unique<HistoryPhoto>(this, photo, caption);
 	setText(TextWithEntities());
 }
 
-HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId msgId, MTPDmessage::Flags flags, MsgId replyTo, int32 viaBotId, QDateTime date, int32 from, GameData *game, const MTPReplyMarkup &markup)
+HistoryMessage::HistoryMessage(gsl::not_null<History*> history, MsgId msgId, MTPDmessage::Flags flags, MsgId replyTo, UserId viaBotId, QDateTime date, UserId from, const QString &postAuthor, GameData *game, const MTPReplyMarkup &markup)
 	: HistoryItem(history, msgId, flags, date, (flags & MTPDmessage::Flag::f_from_id) ? from : 0) {
-	createComponentsHelper(flags, replyTo, viaBotId, markup);
+	createComponentsHelper(flags, replyTo, viaBotId, postAuthor, markup);
 
 	_media = std::make_unique<HistoryGame>(this, game);
 	setText(TextWithEntities());
 }
 
-void HistoryMessage::createComponentsHelper(MTPDmessage::Flags flags, MsgId replyTo, int32 viaBotId, const MTPReplyMarkup &markup) {
+void HistoryMessage::createComponentsHelper(MTPDmessage::Flags flags, MsgId replyTo, UserId viaBotId, const QString &postAuthor, const MTPReplyMarkup &markup) {
 	CreateConfig config;
 
 	if (flags & MTPDmessage::Flag::f_via_bot_id) config.viaBotId = viaBotId;
 	if (flags & MTPDmessage::Flag::f_reply_to_msg_id) config.replyTo = replyTo;
 	if (flags & MTPDmessage::Flag::f_reply_markup) config.mtpMarkup = &markup;
+	if (flags & MTPDmessage::Flag::f_post_author) config.author = postAuthor;
 	if (isPost()) config.viewsCount = 1;
 
 	createComponents(config);
@@ -823,7 +832,7 @@ void HistoryMessage::createComponents(const CreateConfig &config) {
 	if (config.viewsCount >= 0) {
 		mask |= HistoryMessageViews::Bit();
 	}
-	if (isPost() && _from->isUser()) {
+	if (!config.author.isEmpty()) {
 		mask |= HistoryMessageSigned::Bit();
 	}
 	auto hasViaBot = (config.viaBotId != 0);
@@ -836,7 +845,7 @@ void HistoryMessage::createComponents(const CreateConfig &config) {
 	if (displayEditedBadge(hasViaBot || hasInlineMarkup())) {
 		mask |= HistoryMessageEdited::Bit();
 	}
-	if (config.authorIdOriginal && config.fromIdOriginal) {
+	if (config.senderOriginal) {
 		mask |= HistoryMessageForwarded::Bit();
 	}
 	if (config.mtpMarkup) {
@@ -866,16 +875,16 @@ void HistoryMessage::createComponents(const CreateConfig &config) {
 	if (auto edited = Get<HistoryMessageEdited>()) {
 		edited->create(config.editDate, date.toString(cTimeFormat()));
 		if (auto msgsigned = Get<HistoryMessageSigned>()) {
-			msgsigned->create(_from->asUser(), edited->_edited.originalText());
+			msgsigned->create(config.author, edited->_edited.originalText());
 		}
 	} else if (auto msgsigned = Get<HistoryMessageSigned>()) {
-		msgsigned->create(_from->asUser(), date.toString(cTimeFormat()));
+		msgsigned->create(config.author, date.toString(cTimeFormat()));
 	}
 	if (auto forwarded = Get<HistoryMessageForwarded>()) {
 		forwarded->_originalDate = config.originalDate;
-		forwarded->_authorOriginal = App::peer(config.authorIdOriginal);
-		forwarded->_fromOriginal = App::peer(config.fromIdOriginal);
+		forwarded->_originalSender = App::peer(config.senderOriginal);
 		forwarded->_originalId = config.originalId;
+		forwarded->_originalAuthor = config.authorOriginal;
 	}
 	if (auto markup = Get<HistoryMessageReplyMarkup>()) {
 		if (config.mtpMarkup) {
@@ -944,14 +953,22 @@ void HistoryMessage::initMedia(const MTPMessageMedia *media) {
 	} break;
 	case mtpc_messageMediaPhoto: {
 		auto &photo = media->c_messageMediaPhoto();
-		if (photo.vphoto.type() == mtpc_photo) {
-			_media = std::make_unique<HistoryPhoto>(this, App::feedPhoto(photo.vphoto.c_photo()), qs(photo.vcaption));
+		if (photo.has_ttl_seconds()) {
+			LOG(("App Error: Unexpected MTPMessageMediaPhoto with ttl_seconds in HistoryMessage."));
+		} else if (photo.has_photo() && photo.vphoto.type() == mtpc_photo) {
+			_media = std::make_unique<HistoryPhoto>(this, App::feedPhoto(photo.vphoto.c_photo()), photo.has_caption() ? qs(photo.vcaption) : QString());
+		} else {
+			LOG(("API Error: Got MTPMessageMediaPhoto without photo and without ttl_seconds."));
 		}
 	} break;
 	case mtpc_messageMediaDocument: {
-		auto &document = media->c_messageMediaDocument().vdocument;
-		if (document.type() == mtpc_document) {
-			return initMediaFromDocument(App::feedDocument(document), qs(media->c_messageMediaDocument().vcaption));
+		auto &document = media->c_messageMediaDocument();
+		if (document.has_ttl_seconds()) {
+			LOG(("App Error: Unexpected MTPMessageMediaDocument with ttl_seconds in HistoryMessage."));
+		} else if (document.has_document() && document.vdocument.type() == mtpc_document) {
+			return initMediaFromDocument(App::feedDocument(document.vdocument.c_document()), document.has_caption() ? qs(document.vcaption) : QString());
+		} else {
+			LOG(("API Error: Got MTPMessageMediaDocument without document and without ttl_seconds."));
 		}
 	} break;
 	case mtpc_messageMediaWebPage: {
@@ -1177,12 +1194,12 @@ void HistoryMessage::applyEdition(const MTPDmessage &message) {
 			auto edited = Get<HistoryMessageEdited>();
 			edited->create(::date(message.vedit_date), date.toString(cTimeFormat()));
 			if (auto msgsigned = Get<HistoryMessageSigned>()) {
-				msgsigned->create(_from->asUser(), edited->_edited.originalText());
+				msgsigned->create(msgsigned->_author, edited->_edited.originalText());
 			}
 		} else if (Has<HistoryMessageEdited>()) {
 			RemoveComponents(HistoryMessageEdited::Bit());
 			if (auto msgsigned = Get<HistoryMessageSigned>()) {
-				msgsigned->create(_from->asUser(), date.toString(cTimeFormat()));
+				msgsigned->create(msgsigned->_author, date.toString(cTimeFormat()));
 			}
 		}
 		initTime();
@@ -1221,7 +1238,7 @@ bool HistoryMessage::displayForwardedFrom() const {
 			|| !_media
 			|| !_media->isDisplayed()
 			|| !_media->hideForwardedFrom()
-			|| forwarded->_authorOriginal->isChannel();
+			|| forwarded->_originalSender->isChannel();
 	}
 	return false;
 }
@@ -1843,9 +1860,12 @@ int HistoryMessage::performResizeGetHeight() {
 			_height = _minh;
 			if (mediaDisplayed) {
 				_media->resizeGetHeight(_maxw);
-			}
-			if (entry) {
-				_height += entry->_page->resizeGetHeight(countGeometry().width());
+				if (entry) {
+					_height += entry->_page->resizeGetHeight(countGeometry().width());
+				}
+			} else if (entry) {
+				// In case of text-only message it is counted in _minh already.
+				entry->_page->resizeGetHeight(countGeometry().width());
 			}
 		} else {
 			if (emptyText()) {

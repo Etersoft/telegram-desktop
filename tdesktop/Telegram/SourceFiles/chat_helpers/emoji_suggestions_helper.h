@@ -20,11 +20,21 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "core/utils.h"
+#include "emoji_suggestions.h"
+#include "emoji_suggestions_data.h"
 
-#define BETA_VERSION_MACRO (0ULL)
+namespace Ui {
+namespace Emoji {
 
-constexpr int AppVersion = 1001018;
-constexpr str_const AppVersionStr = "1.1.18";
-constexpr bool AppAlphaVersion = false;
-constexpr uint64 AppBetaVersion = BETA_VERSION_MACRO;
+inline utf16string QStringToUTF16(const QString &string) {
+	return utf16string(reinterpret_cast<const utf16char*>(string.constData()), string.size());
+}
+
+inline QString QStringFromUTF16(utf16string string) {
+	return QString::fromRawData(reinterpret_cast<const QChar*>(string.data()), string.size());
+}
+
+constexpr auto kSuggestionMaxLength = internal::kReplacementMaxLength;
+
+} // namespace Emoji
+} // namespace Ui
