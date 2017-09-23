@@ -21,6 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #pragma once
 
 #include "ui/twidget.h"
+#include "base/flags.h"
 
 namespace Ui {
 
@@ -75,13 +76,12 @@ signals:
 
 protected:
 	enum class StateFlag {
-		None = 0x00,
-		Over = 0x01,
-		Down = 0x02,
-		Disabled = 0x04,
+		None     = 0,
+		Over     = (1 << 0),
+		Down     = (1 << 1),
+		Disabled = (1 << 2),
 	};
-	Q_DECLARE_FLAGS(State, StateFlag);
-	Q_DECLARE_FRIEND_OPERATORS_FOR_FLAGS(State);
+	using State = base::flags<StateFlag>;
 
 	State state() const {
 		return _state;
@@ -110,7 +110,5 @@ private:
 	base::lambda<void()> _clickedCallback;
 
 };
-
-Q_DECLARE_OPERATORS_FOR_FLAGS(AbstractButton::State);
 
 } // namespace Ui

@@ -20,6 +20,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
+#include "base/flags.h"
+
 class FileLoader;
 class mtpFileLoader;
 
@@ -47,8 +49,8 @@ enum class ImageRoundCorner {
 	BottomRight = 0x08,
 	All         = 0x0f,
 };
-Q_DECLARE_FLAGS(ImageRoundCorners, ImageRoundCorner);
-Q_DECLARE_OPERATORS_FOR_FLAGS(ImageRoundCorners);
+using ImageRoundCorners = base::flags<ImageRoundCorner>;
+inline constexpr auto is_flag_type(ImageRoundCorner) { return true; };
 
 inline uint32 packInt(int32 a) {
 	return (a < 0) ? uint32(int64(a) + 0x100000000LL) : uint32(a);
@@ -186,21 +188,21 @@ QImage prepareColored(style::color add, QImage image);
 QImage prepareOpaque(QImage image);
 
 enum class Option {
-	None = 0x000,
-	Smooth = 0x001,
-	Blurred = 0x002,
-	Circled = 0x004,
-	RoundedLarge = 0x008,
-	RoundedSmall = 0x010,
-	RoundedTopLeft = 0x020,
-	RoundedTopRight = 0x040,
-	RoundedBottomLeft = 0x080,
-	RoundedBottomRight = 0x100,
-	Colored = 0x200,
-	TransparentBackground = 0x400,
+	None                  = 0,
+	Smooth                = (1 << 0),
+	Blurred               = (1 << 1),
+	Circled               = (1 << 2),
+	RoundedLarge          = (1 << 3),
+	RoundedSmall          = (1 << 4),
+	RoundedTopLeft        = (1 << 5),
+	RoundedTopRight       = (1 << 6),
+	RoundedBottomLeft     = (1 << 7),
+	RoundedBottomRight    = (1 << 8),
+	Colored               = (1 << 9),
+	TransparentBackground = (1 << 10),
 };
-Q_DECLARE_FLAGS(Options, Option);
-Q_DECLARE_OPERATORS_FOR_FLAGS(Options);
+using Options = base::flags<Option>;
+inline constexpr auto is_flag_type(Option) { return true; };
 
 QImage prepare(QImage img, int w, int h, Options options, int outerw, int outerh, const style::color *colored = nullptr);
 

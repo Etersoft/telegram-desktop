@@ -176,7 +176,7 @@ void Manager::stopAllHiding() {
 }
 
 void Manager::showNextFromQueue() {
-	auto guard = base::scope_guard([this] {
+	auto guard = gsl::finally([this] {
 		if (_positionsOutdated) {
 			moveWidgets();
 		}
@@ -664,7 +664,14 @@ void Notification::updateNotifyDisplay() {
 			QRect r(st::notifyPhotoPos.x() + st::notifyPhotoSize + st::notifyTextLeft, st::notifyItemTop + st::msgNameFont->height, itemWidth, 2 * st::dialogsTextFont->height);
 			if (_item) {
 				auto active = false, selected = false;
-				_item->drawInDialog(p, r, active, selected, textCachedFor, itemTextCache);
+				_item->drawInDialog(
+					p,
+					r,
+					active,
+					selected,
+					HistoryItem::DrawInDialog::Normal,
+					textCachedFor,
+					itemTextCache);
 			} else if (_forwardedCount > 1) {
 				p.setFont(st::dialogsTextFont);
 				if (_author) {

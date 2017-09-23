@@ -103,7 +103,7 @@ stickersRowDuration: 200;
 
 stickersSettings: icon {{ "emoji_settings", emojiIconFg }};
 stickersTrending: icon {{ "emoji_trending", emojiIconFg }};
-stickersTrendingActive: icon {{ "emoji_trending", emojiIconFgActive }};
+stickersFaved: icon {{ "emoji_faved", emojiIconFg }};
 
 stickersSettingsUnreadSize: 17px;
 stickersSettingsUnreadPosition: point(4px, 5px);
@@ -137,7 +137,7 @@ emojiCategory: IconButton {
 	width: 42px;
 	height: 46px;
 
-	iconPosition: point(11px, 12px);
+	iconPosition: point(8px, 9px);
 }
 emojiCategoryRecent: IconButton(emojiCategory) { icon: emojiRecent; }
 emojiCategoryPeople: IconButton(emojiCategory) { icon: emojiPeople; }
@@ -194,11 +194,12 @@ hashtagClose: IconButton {
 
 stickerPanSize: size(64px, 64px);
 stickerPanPadding: 11px;
-stickerPanDelete: icon {
-	{ "emoji_delete_bg", stickerPanDeleteBg },
-	{ "emoji_delete", stickerPanDeleteFg },
-};
-stickerPanDeleteOpacity: 0.5;
+stickerPanDeleteIconBg: icon {{ "emoji_delete_bg", stickerPanDeleteBg }};
+stickerPanDeleteIconFg: icon {{ "emoji_delete", stickerPanDeleteFg }};
+stickerPanDeleteOpacityBg: 0.3;
+stickerPanDeleteOpacityBgOver: 0.5;
+stickerPanDeleteOpacityFg: 0.8;
+stickerPanDeleteOpacityFgOver: 1.;
 stickerPanRemoveSet: hashtagClose;
 stickerIconPadding: 5px;
 stickerIconOpacity: 0.7;
@@ -207,6 +208,11 @@ stickerIconSelColor: emojiIconFgActive;
 stickerIconMove: 400;
 stickerPreviewDuration: 150;
 stickerPreviewMin: 0.1;
+
+stickerGroupCategorySize: 28px;
+stickerGroupCategoryAbout: defaultTextStyle;
+stickerGroupCategoryAddMargin: margins(0px, 10px, 0px, 5px);
+stickerGroupCategoryAdd: stickersTrendingAdd;
 
 stickersToastMaxWidth: 340px;
 stickersToastPadding: margins(16px, 13px, 16px, 12px);

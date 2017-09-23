@@ -20,6 +20,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
+#include "base/flags.h"
+
 namespace Fonts {
 
 void Start();
@@ -28,37 +30,37 @@ QString GetOverride(const QString &familyName);
 } // namespace
 
 enum class RectPart {
-	None = 0,
+	None        = 0,
 
-	TopLeft = (1 << 0),
-	Top = (1 << 1),
-	TopRight = (1 << 2),
-	Left = (1 << 3),
-	Center = (1 << 4),
-	Right = (1 << 5),
-	BottomLeft = (1 << 6),
-	Bottom = (1 << 7),
+	TopLeft     = (1 << 0),
+	Top         = (1 << 1),
+	TopRight    = (1 << 2),
+	Left        = (1 << 3),
+	Center      = (1 << 4),
+	Right       = (1 << 5),
+	BottomLeft  = (1 << 6),
+	Bottom      = (1 << 7),
 	BottomRight = (1 << 8),
 
-	FullTop = TopLeft | Top | TopRight,
+	FullTop     = TopLeft | Top | TopRight,
 	NoTopBottom = Left | Center | Right,
-	FullBottom = BottomLeft | Bottom | BottomRight,
-	NoTop = NoTopBottom | FullBottom,
-	NoBottom = FullTop | NoTopBottom,
+	FullBottom  = BottomLeft | Bottom | BottomRight,
+	NoTop       = NoTopBottom | FullBottom,
+	NoBottom    = FullTop | NoTopBottom,
 
-	FullLeft = TopLeft | Left | BottomLeft,
+	FullLeft    = TopLeft | Left | BottomLeft,
 	NoLeftRight = Top | Center | Bottom,
-	FullRight = TopRight | Right | BottomRight,
-	NoLeft = NoLeftRight | FullRight,
-	NoRight = FullLeft | NoLeftRight,
+	FullRight   = TopRight | Right | BottomRight,
+	NoLeft      = NoLeftRight | FullRight,
+	NoRight     = FullLeft | NoLeftRight,
 
 	CornersMask = TopLeft | TopRight | BottomLeft | BottomRight,
-	SidesMask = Top | Bottom | Left | Right,
+	SidesMask   = Top | Bottom | Left | Right,
 
-	Full = FullTop | NoTop,
+	Full        = FullTop | NoTop,
 };
-Q_DECLARE_FLAGS(RectParts, RectPart);
-Q_DECLARE_OPERATORS_FOR_FLAGS(RectParts);
+using RectParts = base::flags<RectPart>;
+inline constexpr auto is_flag_type(RectPart) { return true; };
 
 inline bool IsTopCorner(RectPart corner) {
 	return (corner == RectPart::TopLeft) || (corner == RectPart::TopRight);

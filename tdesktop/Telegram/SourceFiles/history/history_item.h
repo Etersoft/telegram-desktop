@@ -21,6 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #pragma once
 
 #include "base/runtime_composer.h"
+#include "base/flags.h"
 
 namespace Ui {
 class RippleAnimation;
@@ -170,11 +171,12 @@ struct HistoryMessageReply : public RuntimeComponent<HistoryMessageReply> {
 	void resize(int width) const;
 	void itemRemoved(HistoryMessage *holder, HistoryItem *removed);
 
-	enum PaintFlag {
-		PaintInBubble = 0x01,
-		PaintSelected = 0x02,
+	enum class PaintFlag {
+		InBubble = (1 << 0),
+		Selected = (1 << 1),
 	};
-	Q_DECLARE_FLAGS(PaintFlags, PaintFlag);
+	using PaintFlags = base::flags<PaintFlag>;
+	friend inline constexpr auto is_flag_type(PaintFlag) { return true; };
 	void paint(Painter &p, const HistoryItem *holder, int x, int y, int w, PaintFlags flags) const;
 
 	MsgId replyToId() const {
@@ -196,7 +198,6 @@ struct HistoryMessageReply : public RuntimeComponent<HistoryMessageReply> {
 	std::unique_ptr<HistoryMessageVia> _replyToVia;
 	int toWidth = 0;
 };
-Q_DECLARE_OPERATORS_FOR_FLAGS(HistoryMessageReply::PaintFlags);
 
 class ReplyKeyboard;
 struct HistoryMessageReplyMarkup : public RuntimeComponent<HistoryMessageReplyMarkup> {
@@ -299,7 +300,7 @@ public:
 		int buttonHeight() const;
 		virtual int buttonRadius() const = 0;
 
-		virtual void repaint(gsl::not_null<const HistoryItem*> item) const = 0;
+		virtual void repaint(not_null<const HistoryItem*> item) const = 0;
 		virtual ~Style() {
 		}
 
@@ -433,7 +434,7 @@ struct HistoryMessageLogEntryOriginal : public RuntimeComponent<HistoryMessageLo
 class HistoryMedia;
 class HistoryMediaPtr {
 public:
-	HistoryMediaPtr() = default;
+	HistoryMediaPtr();
 	HistoryMediaPtr(const HistoryMediaPtr &other) = delete;
 	HistoryMediaPtr &operator=(const HistoryMediaPtr &other) = delete;
 	HistoryMediaPtr(std::unique_ptr<HistoryMedia> other);
@@ -526,7 +527,7 @@ public:
 	}
 	void addLogEntryOriginal(WebPageId localId, const QString &label, const TextWithEntities &content);
 
-	History *history() const {
+	not_null<History*> history() const {
 		return _history;
 	}
 	PeerData *from() const {
@@ -575,12 +576,9 @@ public:
 		return _flags & MTPDmessage::Flag::f_mentioned;
 	}
 	bool isMediaUnread() const {
-		return (_flags & MTPDmessage::Flag::f_media_unread) && (channelId() == NoChannel);
+		return _flags & MTPDmessage::Flag::f_media_unread;
 	}
-	void markMediaRead() {
-		_flags &= ~MTPDmessage::Flag::f_media_unread;
-		markMediaAsReadHook();
-	}
+	void markMediaRead();
 
 	// Zero result means this message is not self-destructing right now.
 	virtual TimeMs getSelfDestructIn(TimeMs now) {
@@ -607,7 +605,7 @@ public:
 
 		// optimization: don't create markup component for the case
 		// MTPDreplyKeyboardHide with flags = 0, assume it has f_zero flag
-		return qFlags(MTPDreplyKeyboardMarkup_ClientFlag::f_zero);
+		return MTPDreplyKeyboardMarkup_ClientFlag::f_zero | 0;
 	}
 	bool hasSwitchInlineButton() const {
 		return _flags & MTPDmessage_ClientFlag::f_has_switch_inline_button;
@@ -625,7 +623,7 @@ public:
 		return _flags & MTPDmessage::Flag::f_post;
 	}
 	bool indexInOverview() const {
-		return (id > 0) && (!history()->isChannel() || history()->isMegagroup() || isPost());
+		return (id > 0);
 	}
 	bool isSilent() const {
 		return _flags & MTPDmessage::Flag::f_silent;
@@ -688,9 +686,14 @@ public:
 	}
 	virtual QString notificationText() const;
 
+	enum class DrawInDialog {
+		Normal,
+		WithoutSender,
+	};
+
 	// Returns text with link-start and link-end commands for service-color highlighting.
 	// Example: "[link1-start]You:[link1-end] [link1-start]Photo,[link1-end] caption text"
-	virtual QString inDialogsText() const;
+	virtual QString inDialogsText(DrawInDialog way) const;
 	virtual QString inReplyText() const {
 		return notificationText();
 	}
@@ -711,7 +714,15 @@ public:
 	virtual void setViewsCount(int32 count) {
 	}
 	virtual void setId(MsgId newId);
-	void drawInDialog(Painter &p, const QRect &r, bool active, bool selected, const HistoryItem *&cacheFor, Text &cache) const;
+
+	void drawInDialog(
+		Painter &p,
+		const QRect &r,
+		bool active,
+		bool selected,
+		DrawInDialog way,
+		const HistoryItem *&cacheFor,
+		Text &cache) const;
 
 	bool emptyText() const {
 		return _text.isEmpty();
@@ -907,7 +918,7 @@ public:
 	void clipCallback(Media::Clip::Notification notification);
 	void audioTrackUpdated();
 
-	bool computeIsAttachToPrevious(gsl::not_null<HistoryItem*> previous);
+	bool computeIsAttachToPrevious(not_null<HistoryItem*> previous);
 	void setLogEntryDisplayDate(bool displayDate) {
 		Expects(isLogEntry());
 		setDisplayDate(displayDate);
@@ -924,7 +935,12 @@ public:
 	~HistoryItem();
 
 protected:
-	HistoryItem(History *history, MsgId msgId, MTPDmessage::Flags flags, QDateTime msgDate, int32 from);
+	HistoryItem(
+		not_null<History*> history,
+		MsgId id,
+		MTPDmessage::Flags flags,
+		QDateTime date,
+		UserId from);
 
 	// To completely create history item we need to call
 	// a virtual method, it can not be done from constructor.
@@ -941,8 +957,8 @@ protected:
 	void finishEdition(int oldKeyboardTop);
 	void finishEditionToEmpty();
 
-	gsl::not_null<History*> _history;
-	gsl::not_null<PeerData*> _from;
+	const not_null<History*> _history;
+	not_null<PeerData*> _from;
 	HistoryBlock *_block = nullptr;
 	int _indexInBlock = -1;
 	MTPDmessage::Flags _flags = 0;
@@ -955,7 +971,7 @@ protected:
 				return _block->items.at(_indexInBlock - 1);
 			}
 			if (auto previous = _block->previousBlock()) {
-				t_assert(!previous->items.isEmpty());
+				Assert(!previous->items.isEmpty());
 				return previous->items.back();
 			}
 		}
@@ -967,7 +983,7 @@ protected:
 				return _block->items.at(_indexInBlock + 1);
 			}
 			if (auto next = _block->nextBlock()) {
-				t_assert(!next->items.isEmpty());
+				Assert(!next->items.isEmpty());
 				return next->items.front();
 			}
 		}
@@ -1045,7 +1061,7 @@ template <typename T>
 class HistoryItemInstantiated {
 public:
 	template <typename ...Args>
-	static gsl::not_null<T*> _create(Args &&... args) {
+	static not_null<T*> _create(Args &&... args) {
 		auto result = new T(std::forward<Args>(args)...);
 		result->finishCreate();
 		return result;

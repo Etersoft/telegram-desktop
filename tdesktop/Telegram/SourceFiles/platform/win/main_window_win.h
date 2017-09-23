@@ -21,6 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #pragma once
 
 #include "platform/platform_main_window.h"
+#include "base/flags.h"
 #include <windows.h>
 
 namespace Ui {
@@ -54,13 +55,14 @@ public:
 
 	// Custom shadows.
 	enum class ShadowsChange {
-		Moved    = 0x01,
-		Resized  = 0x02,
-		Shown    = 0x04,
-		Hidden   = 0x08,
-		Activate = 0x10,
+		Moved    = (1 << 0),
+		Resized  = (1 << 1),
+		Shown    = (1 << 2),
+		Hidden   = (1 << 3),
+		Activate = (1 << 4),
 	};
-	Q_DECLARE_FLAGS(ShadowsChanges, ShadowsChange);
+	using ShadowsChanges = base::flags<ShadowsChange>;
+	friend inline constexpr auto is_flag_type(ShadowsChange) { return true; };
 
 	bool shadowsWorking() const {
 		return _shadowsWorking;
@@ -126,7 +128,5 @@ private:
 	int _deltaTop = 0;
 
 };
-
-Q_DECLARE_OPERATORS_FOR_FLAGS(MainWindow::ShadowsChanges);
 
 } // namespace Platform
