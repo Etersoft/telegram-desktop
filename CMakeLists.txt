@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.6)
+cmake_minimum_required(VERSION 3.4)
 
 project(TelegramDesktop)
 
@@ -100,6 +100,11 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
 
 add_executable(Telegram WIN32 ${QRC_FILES} ${FLAT_SOURCE_FILES} ${SUBDIRS_SOURCE_FILES})
 
+# TODO: improve (need just pkg-config --static)
+if(FFMPEG_STATIC_LIBRARY_DIRS)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${FFMPEG_STATIC_LIBRARY_DIRS}")
+endif()
+
 target_link_libraries(Telegram
     Qt5::Widgets
     Qt5::Network
@@ -108,6 +113,8 @@ target_link_libraries(Telegram
     OpenSSL::Crypto
 #    breakpad
     ${FFMPEG_LIBRARIES}
+# was missed in libavutil.pc, but links only when here
+    -lvdpau
     ${LIBVA_LIBRARIES}
     ${LIBDRM_LIBRARIES}
     ${ZLIB_LIBRARY_RELEASE}
