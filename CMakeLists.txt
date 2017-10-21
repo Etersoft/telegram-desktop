@@ -10,11 +10,17 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
+
+option(GTK "GTK+ (currently, v3) Integration" ON)
+
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Network)
+
 get_target_property(QTCORE_INCLUDE_DIRS Qt5::Core INTERFACE_INCLUDE_DIRECTORIES)
 list(GET QTCORE_INCLUDE_DIRS 0 QT_INCLUDE_DIR)
 
 foreach(__qt_module IN ITEMS QtCore QtGui)
+    list(APPEND QT_PRIVATE_INCLUDE_DIRS
+        ${QT_INCLUDE_DIR}/${__qt_module})
     list(APPEND QT_PRIVATE_INCLUDE_DIRS
         ${QT_INCLUDE_DIR}/${__qt_module}/${Qt5_VERSION})
     list(APPEND QT_PRIVATE_INCLUDE_DIRS
@@ -24,14 +30,18 @@ message(STATUS "Using Qt private include directories: ${QT_PRIVATE_INCLUDE_DIRS}
 
 find_package(PkgConfig REQUIRED)
 
-pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libavutil libswresample libswscale)
+pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libswresample libswscale libavutil)
 pkg_check_modules(TGVOIP REQUIRED libtgvoip)
 pkg_check_modules(LIBDRM REQUIRED libdrm)
 pkg_check_modules(LIBVA REQUIRED libva-x11 libva-drm libva)
 pkg_check_modules(MINIZIP REQUIRED minizip)
 
-pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
-pkg_check_modules(APPINDICATOR REQUIRED appindicator3-0.1)
+if(GTK)
+  pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
+  pkg_check_modules(APPINDICATOR REQUIRED appindicator3-0.1)
+else()
+  set(GTK_INTEGRATION TDESKTOP_DISABLE_GTK_INTEGRATION)
+endif()
 
 find_package(ZLIB REQUIRED)
 
@@ -43,6 +53,8 @@ find_package(X11 REQUIRED)
 
 set(GSL_INCLUDE_DIR /usr/include/libmicrosoft-gsl)
 set(VARIANT_INCLUDE_DIR /usr/include/libvariant)
+
+set(EMOJI_SUGGESTIONS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/ThirdParty/emoji_suggestions)
 
 set(TELEGRAM_SOURCES_DIR ${CMAKE_SOURCE_DIR}/SourceFiles)
 set(TELEGRAM_RESOURCES_DIR ${CMAKE_SOURCE_DIR}/Resources)
@@ -58,6 +70,9 @@ include(ExternalProject)
 include(TelegramCodegenTools)
 include(TelegramCodegen)
 
+# add precompiled header after tool build
+set(CMAKE_AUTOMOC_MOC_OPTIONS ${CMAKE_AUTOMOC_MOC_OPTIONS} "-b" "Telegram_pch/stdafx.h")
+
 set(QRC_FILES
     Resources/qrc/telegram.qrc
     Resources/qrc/telegram_emoji.qrc
@@ -65,7 +80,7 @@ set(QRC_FILES
     Resources/qrc/telegram_sounds.qrc
     # This only disables system plugin search path
     # We do not want this behavior for system build
-    Resources/qrc/telegram_linux.qrc
+    #Resources/qrc/telegram_linux.qrc
 )
 
 file(GLOB FLAT_SOURCE_FILES SourceFiles/*.cpp SourceFiles/*.h)
@@ -94,9 +109,11 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/storage/*.cpp SourceFiles/storage/*.h
     SourceFiles/ui/*.cpp SourceFiles/ui/*.h
     SourceFiles/window/*.cpp SourceFiles/window/*.h
-    ThirdParty/emoji_suggestions/*.cpp
-    ThirdParty/emoji_suggestions/*.h
+    ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.cpp ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.h
 )
+ # No unit-tests in non-CI builds plz
+file(GLOB_RECURSE NO_TESTS SourceFiles/*/*tests*.cpp)
+list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${NO_TESTS})
 
 add_executable(Telegram WIN32 ${QRC_FILES} ${FLAT_SOURCE_FILES} ${SUBDIRS_SOURCE_FILES})
 
@@ -135,12 +152,12 @@ target_include_directories(Telegram PUBLIC
     ${GTK3_INCLUDE_DIRS}
     ${TGVOIP_INCLUDE_DIRS}
     ${GSL_INCLUDE_DIR}
+    ${EMOJI_SUGGESTIONS_INCLUDE_DIR}
     ${VARIANT_INCLUDE_DIR}
     ${MINIZIP_INCLUDE_DIRS}
     ${OPENAL_INCLUDE_DIR}
     ${APPINDICATOR_INCLUDE_DIRS}
 #    ${LIBLZMA_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/ThirdParty/emoji_suggestions
     ${GENERATED_DIR})
 
 target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
@@ -159,7 +176,12 @@ target_compile_definitions(Telegram PUBLIC
     TDESKTOP_DISABLE_AUTOUPDATE
     __STDC_FORMAT_MACROS)
 
-set_target_properties(Telegram PROPERTIES AUTOMOC_MOC_OPTIONS -bTelegram_pch/stdafx.h)
+# TODO: does not work yet
+# https://cmake.org/cmake/help/v3.4/prop_tgt/AUTOMOC_MOC_OPTIONS.html
+#set_target_properties(Telegram PROPERTIES
+#    AUTOMOC ON
+#    AUTOMOC_MOC_OPTIONS "-b Telegram_pch/stdafx.h"
+#    )
 
 install(TARGETS Telegram RUNTIME DESTINATION bin)
 install(PROGRAMS ${CMAKE_SOURCE_DIR}/../lib/xdg/telegram-desktop.desktop DESTINATION share/applications)

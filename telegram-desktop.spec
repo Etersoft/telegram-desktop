@@ -123,8 +123,6 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 cp %SOURCE2 Telegram/
 # MacOS things will conflicts with binary name, so delete Telegram dir
 rm -rf Telegram/Telegram/
-rm -f Telegram/SourceFiles/base/tests_main.cpp
-rm -f Telegram/SourceFiles/base/*_tests.cpp
 
 # set App ID
 subst "s|../../../TelegramPrivate/|../../|" Telegram/SourceFiles/config.h
