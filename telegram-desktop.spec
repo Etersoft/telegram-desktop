@@ -2,8 +2,8 @@
 %define buildmode Release
 
 # TODO: improve detection
-BuildRequires(pre): rpm-macros-ubt
-%if %__ubt_branch_id == "M80P"
+BuildRequires(pre): rpm-build-ubt
+%if %ubt_id == "M80P"
 %def_with ffmpeg_static
 %else
 %def_without ffmpeg_static
@@ -12,7 +12,7 @@ BuildRequires(pre): rpm-macros-ubt
 
 Name: telegram-desktop
 Version: 1.1.23
-Release: alt2
+Release: alt3
 
 Summary: Telegram is a messaging app with a focus on speed and security
 
@@ -62,7 +62,13 @@ BuildRequires: libminizip-devel libpcre-devel libexpat-devel libssl-devel bison
 #BuildRequires: libexif-devel libpixman-devel libz3-devel liblzma-devel
 #BuildRequires: libxkbcommon-devel libxkbcommon-x11-devel
 #BuildRequires: libXi-devel libSM-devel libICE-devel libdbus-devel libXfixes-devel
-BuildRequires: libX11-devel libgtk+3-devel libappindicator-gtk3-devel
+BuildRequires: libX11-devel
+
+# GTK 3.0 integration
+BuildRequires: libgtk+3-devel libappindicator-gtk3-devel
+# makes pkg-config happy
+#BuildRequires: libpixman-devel libXdmcp-devel
+
 # libappindicator-devel
 BuildRequires: libopenal-devel >= 1.17.2
 # libportaudio2-devel libxcb-devel 
@@ -172,6 +178,11 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Sat Oct 21 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.23-alt3
+- fix old lang code in settings
+- fix CVE-2016-10351: Insecure cWorkingDir permissions
+- sync CMakeLists.txt with Gentoo, fix build with new Qt 5.9.2
+
 * Fri Sep 29 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.23-alt2
 - add support for build with static ffmpeg
 
