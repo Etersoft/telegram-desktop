@@ -31,6 +31,7 @@ Patch3: 0003_qt-plugins.patch
 Patch4: 0004_API-ID.patch
 Patch5: 0005_Downgrade-Qt-version.patch
 Patch6: 0006_fix-static-qt-functions.patch
+Patch7: 0007_cvefix.patch
 Patch8: 0008_add_locales.patch
 #Patch9: 0001-use-correct-executable-path.patch
 Patch14: 0014-get-language-name-and-country-name-from-QLocale.patch
@@ -112,6 +113,7 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 %patch3 -p1
 %patch5 -p1
 %patch6 -p1
+%patch7 -p1
 %patch8 -p1
 #patch9 -p1
 %patch14 -p1

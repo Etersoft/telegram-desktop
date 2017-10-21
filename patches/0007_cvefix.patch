@@ -1,0 +1,28 @@
+commit 07106897a606ab290f5cf2fbaf52bbfa448a9d6b
+Author: Alexander GQ Gerasiov <gq@cs.msu.su>
+Date:   Mon Aug 28 01:03:06 2017 +0300
+
+    Fix CVE-2016-10351: Insecure cWorkingDir permissions.
+    
+    Set 700 permisson on dir on every start.
+    
+    Signed-off-by: Alexander GQ Gerasiov <gq@cs.msu.su>
+
+diff --git a/Telegram/SourceFiles/settings.h b/Telegram/SourceFiles/settings.h
+index 8463bcb..e2de77f 100644
+--- a/Telegram/SourceFiles/settings.h
++++ b/Telegram/SourceFiles/settings.h
+@@ -79,7 +79,12 @@ DeclareReadSetting(LaunchMode, LaunchMode);
+ DeclareSetting(QString, WorkingDir);
+ inline void cForceWorkingDir(const QString &newDir) {
+ 	cSetWorkingDir(newDir);
+-	if (!gWorkingDir.isEmpty()) QDir().mkpath(gWorkingDir);
++	if (!gWorkingDir.isEmpty()) {
++		QDir().mkpath(gWorkingDir);
++		QFile::setPermissions(gWorkingDir,
++			QFileDevice::ReadUser | QFileDevice::WriteUser | QFileDevice::ExeUser);
++	}
++
+ }
+ DeclareReadSetting(QString, ExeName);
+ DeclareReadSetting(QString, ExeDir);
