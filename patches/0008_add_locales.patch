@@ -1,80 +1,3 @@
-From d071b9d4677ca3dc806f8384386eb429e56af7c7 Mon Sep 17 00:00:00 2001
-From: Vitaly Zaitsev <vitaly@easycoding.org>
-Date: Mon, 15 May 2017 16:40:56 +0200
-Subject: [PATCH] Added russian localization from Transifex.
-
----
- Telegram/Resources/langs/list                         |  2 +-
- Telegram/Resources/langs/ru.lproj/Localizable.strings | 17 +++++++++++++++++
- Telegram/Resources/qrc/telegram.qrc                   |  1 +
- Telegram/SourceFiles/lang.h                           |  1 +
- 4 files changed, 20 insertions(+), 1 deletion(-)
- create mode 100644 Telegram/Resources/langs/ru.lproj/Localizable.strings
-
-diff --git a/Telegram/Resources/langs/list b/Telegram/Resources/langs/list
-index 6581227..eb3dfcf 100644
---- a/Telegram/Resources/langs/list
-+++ b/Telegram/Resources/langs/list
-@@ -1 +1 @@
--de,es,it,ko,nl,pt_BR
-+de,es,it,ko,nl,pt_BR,ru,uk,fr,tu,cz
-diff --git a/Telegram/Resources/langs/ru.lproj/Localizable.strings b/Telegram/Resources/langs/ru.lproj/Localizable.strings
-new file mode 100644
-index 0000000..affee91
---- /dev/null
-+++ b/Telegram/Resources/langs/ru.lproj/Localizable.strings
-@@ -0,0 +1,17 @@
-+/*
-+This file is part of Telegram Desktop,
-+the official desktop version of Telegram messaging app, see https://telegram.org
-+
-+Telegram Desktop is free software: you can redistribute it and/or modify
-+it under the terms of the GNU General Public License as published by
-+the Free Software Foundation, either version 3 of the License, or
-+(at your option) any later version.
-+
-+It is distributed in the hope that it will be useful,
-+but WITHOUT ANY WARRANTY; without even the implied warranty of
-+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-+GNU General Public License for more details.
-+
-+Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
-+Copyright (c) 2014 John Preston, https://desktop.telegram.org
-+*/
-diff --git a/Telegram/Resources/qrc/telegram.qrc b/Telegram/Resources/qrc/telegram.qrc
-index 111f5c7..f2cb3d1 100644
---- a/Telegram/Resources/qrc/telegram.qrc
-+++ b/Telegram/Resources/qrc/telegram.qrc
-@@ -27,5 +27,10 @@
-     <file alias="lang_nl.strings">../langs/lang_nl.strings</file>
-     <file alias="lang_pt_BR.strings">../langs/lang_pt_BR.strings</file>
-     <file alias="lang_ko.strings">../langs/lang_ko.strings</file>
-+    <file alias="lang_ru.strings">../langs/lang_ru.strings</file>
-+    <file alias="lang_uk.strings">../langs/lang_uk.strings</file>
-+    <file alias="lang_fr.strings">../langs/lang_fr.strings</file>
-+    <file alias="lang_tu.strings">../langs/lang_tu.strings</file>
-+    <file alias="lang_cz.strings">../langs/lang_cz.strings</file>
-   </qresource>
- </RCC>
-
-diff --git a/tdesktop/Telegram/SourceFiles/lang/lang_instance.h b/tdesktop/Telegram/SourceFiles/lang/lang_instance.h
-index 2bd5a00..f5859f7 100644
---- a/Telegram/SourceFiles/lang/lang_instance.h
-+++ b/Telegram/SourceFiles/lang/lang_instance.h
-@@ -37,6 +37,11 @@ constexpr str_const kLegacyLanguages[] = {
- 	"nl",
- 	"pt_BR",
- 	"ko",
-+	"ru",
-+	"uk",
-+	"fr",
-+	"tu",
-+	"cz",
- };
- 
- inline QString ConvertLegacyLanguageId(const QString &languageId) {
-
-
 --- a/Telegram/SourceFiles/boxes/about_box.cpp.orig	2017-07-21 23:04:49.282353831 +0300
 +++ b/Telegram/SourceFiles/boxes/about_box.cpp	2017-07-21 23:08:23.914256369 +0300
 @@ -96,6 +96,11 @@
@@ -89,3 +12,26 @@ index 2bd5a00..f5859f7 100644
  	return result;
  }
  
+diff --git a/tdesktop/Telegram/SourceFiles/storage/localstorage.cpp b/tdesktop/Telegram/SourceFiles/storage/localstorage.cpp
+index d11e7a9..ef9b4cb 100644
+--- a/Telegram/SourceFiles/storage/localstorage.cpp
++++ b/Telegram/SourceFiles/storage/localstorage.cpp
+@@ -1268,7 +1268,8 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
+ 		qint32 v;
+ 		stream >> v;
+ 		if (!_checkStreamStatus(stream)) return false;
+-
++		// Skip old lang
++		return false;
+ 		context.legacyLanguageId = v;
+ 	} break;
+ 
+@@ -1276,6 +1277,8 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
+ 		QString v;
+ 		stream >> v;
+ 		if (!_checkStreamStatus(stream)) return false;
++		// Skip old lang
++		return false;
+ 
+ 		context.legacyLanguageFile = v;
+ 	} break;
