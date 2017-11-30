@@ -27,6 +27,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "window/section_widget.h"
 #include "core/single_timer.h"
 #include "ui/widgets/input_fields.h"
+#include "ui/rp_widget.h"
 #include "base/flags.h"
 
 namespace InlineBots {
@@ -57,7 +58,6 @@ class SuggestionsController;
 
 namespace Window {
 class Controller;
-class TopBarWidget;
 } // namespace Window
 
 namespace ChatHelpers {
@@ -72,6 +72,7 @@ class SendFilesBox;
 class BotKeyboard;
 class MessageField;
 class HistoryInner;
+class HistoryTopBarWidget;
 
 class ReportSpamPanel : public TWidget {
 	Q_OBJECT
@@ -97,7 +98,7 @@ private:
 
 };
 
-class HistoryHider : public TWidget, private base::Subscriber {
+class HistoryHider : public Ui::RpWidget, private base::Subscriber {
 	Q_OBJECT
 
 public:
@@ -190,10 +191,6 @@ public:
 	bool isItemCompletelyHidden(HistoryItem *item) const;
 	void updateTopBarSelection();
 
-	bool paintTopBar(Painter &p, int decreaseWidth, TimeMs ms);
-	QRect getMembersShowAreaGeometry() const;
-	void setMembersShowAreaActive(bool active);
-
 	void loadMessages();
 	void loadMessagesDown();
 	void firstLoadMessages();
@@ -207,15 +204,15 @@ public:
 	void unreadCountChanged(History *history);
 
 	QRect historyRect() const;
-	int tabbedSelectorSectionWidth() const;
-	int minimalWidthForTabbedSelectorSection() const;
-	bool willSwitchToTabbedSelectorWithWidth(int newWidth) const;
+	void pushTabbedSelectorToThirdSection(
+		const Window::SectionShow &params);
+	void pushInfoToThirdSection(
+		const Window::SectionShow &params);
 
 	void updateSendAction(History *history, SendAction::Type type, int32 progress = 0);
 	void cancelSendAction(History *history, SendAction::Type type);
 
 	void updateRecentStickers();
-	void stickersInstalled(uint64 setId);
 	void sendActionDone(const MTPBool &result, mtpRequestId req);
 
 	void destroyData();
@@ -236,8 +233,6 @@ public:
 
 	void updateControlsVisibility();
 	void updateControlsGeometry();
-	void updateOnlineDisplay();
-	void updateOnlineDisplayTimer();
 
 	void onShareContact(const PeerId &peer, UserData *contact);
 
@@ -252,7 +247,7 @@ public:
 		return peer() != nullptr;
 	}
 	void showAnimated(Window::SlideDirection direction, const Window::SectionSlideParams &params);
-	void finishAnimation();
+	void finishAnimating();
 
 	void doneShow();
 
@@ -278,7 +273,6 @@ public:
 	void cancelEdit();
 	void updateForwarding();
 	void updateForwardingTexts();
-	void updateForwardingItemRemovedSubscription();
 
 	void clearReplyReturns();
 	void pushReplyReturn(HistoryItem *item);
@@ -347,15 +341,13 @@ public:
 	void deleteSelectedItems(bool forEveryone);
 
 	// Float player interface.
-	bool wheelEventFromFloatPlayer(QEvent *e, Window::Column myColumn, Window::Column playerColumn) override;
-	QRect rectForFloatPlayer(Window::Column myColumn, Window::Column playerColumn) override;
+	bool wheelEventFromFloatPlayer(QEvent *e) override;
+	QRect rectForFloatPlayer() const override;
 
 	void app_sendBotCallback(const HistoryMessageReplyMarkup::Button *button, not_null<const HistoryItem*> msg, int row, int col);
 
-	void ui_repaintHistoryItem(not_null<const HistoryItem*> item);
 	PeerData *ui_getPeerForMouseAction();
 
-	void notify_historyItemLayoutChanged(const HistoryItem *item);
 	void notify_botCommandsChanged(UserData *user);
 	void notify_inlineBotRequesting(bool requesting);
 	void notify_replyMarkupUpdated(const HistoryItem *item);
@@ -479,17 +471,20 @@ private:
 		QStringList filesToSend;
 		bool allFilesForCompress = true;
 	};
+	using TabbedPanel = ChatHelpers::TabbedPanel;
+	using TabbedSelector = ChatHelpers::TabbedSelector;
 
+	void repaintHistoryItem(not_null<const HistoryItem*> item);
 	void handlePendingHistoryUpdate();
 	void fullPeerUpdated(PeerData *peer);
-	void topBarClick();
 	void toggleTabbedSelectorMode();
-	void updateTabbedSelectorSectionShown();
+	void returnTabbedSelector(object_ptr<TabbedSelector> selector);
 	void recountChatWidth();
 	void setReportSpamStatus(DBIPeerReportSpamStatus status);
 	void historyDownClicked();
 	void showNextUnreadMention();
 	void handlePeerUpdate();
+	void setMembersShowAreaActive(bool active);
 
 	void highlightMessage(MsgId universalMessageId);
 	void adjustHighlightedMessageToMigrated();
@@ -519,7 +514,7 @@ private:
 	// If an empty filepath is found we upload (possible) "image" with (possible) "content".
 	void uploadFilesAfterConfirmation(const QStringList &files, const QByteArray &content, const QImage &image, std::unique_ptr<FileLoadTask::MediaInformation> information, SendMediaType type, QString caption);
 
-	void itemRemoved(HistoryItem *item);
+	void itemRemoved(not_null<const HistoryItem*> item);
 
 	// Updates position of controls around the message field,
 	// like send button, emoji button and others.
@@ -560,9 +555,7 @@ private:
 	SelectedItemSet _toForward;
 	Text _toForwardFrom, _toForwardText;
 	int _toForwardNameVersion = 0;
-	int _forwardingItemRemovedSubscription = 0;
 
-	int _chatWidth = 0;
 	MsgId _editMsgId = 0;
 
 	HistoryItem *_replyEditMsg = nullptr;
@@ -695,7 +688,7 @@ private:
 		SendTyping = (1 << 1),
 	};
 	using TextUpdateEvents = base::flags<TextUpdateEvent>;
-	friend inline constexpr auto is_flag_type(TextUpdateEvent) { return true; };
+	friend inline constexpr bool is_flag_type(TextUpdateEvent) { return true; };
 
 	void writeDrafts(Data::Draft **localDraft, Data::Draft **editDraft);
 	void writeDrafts(History *history);
@@ -732,11 +725,19 @@ private:
 	mtpRequestId _preloadRequest = 0;
 	mtpRequestId _preloadDownRequest = 0;
 
+	MsgId _debug_preloadOffsetId = 0;
+	int32 _debug_preloadAddOffset = 0;
+	int32 _debug_preloadLoadCount = 0;
+	PeerId _debug_preloadPeer = 0;
+	MsgId _debug_preloadDownOffsetId = 0;
+	int32 _debug_preloadDownAddOffset = 0;
+	int32 _debug_preloadDownLoadCount = 0;
+	PeerId _debug_preloadDownPeer = 0;
+
 	MsgId _delayedShowAtMsgId = -1; // wtf?
 	mtpRequestId _delayedShowAtRequest = 0;
 
-	object_ptr<Ui::AbstractButton> _backAnimationButton = { nullptr };
-	object_ptr<Window::TopBarWidget> _topBar;
+	object_ptr<HistoryTopBarWidget> _topBar;
 	object_ptr<Ui::ScrollArea> _scroll;
 	QPointer<HistoryInner> _list;
 	History *_migrated = nullptr;
@@ -822,10 +823,8 @@ private:
 	QTimer _membersDropdownShowTimer;
 
 	object_ptr<InlineBots::Layout::Widget> _inlineResults = { nullptr };
-	object_ptr<ChatHelpers::TabbedPanel> _tabbedPanel;
-	object_ptr<ChatHelpers::TabbedSection> _tabbedSection = { nullptr };
-	QPointer<ChatHelpers::TabbedSelector> _tabbedSelector;
-	bool _tabbedSectionUsed = false;
+	object_ptr<TabbedPanel> _tabbedPanel;
+	QPointer<TabbedSelector> _tabbedSelector;
 	DragState _attachDrag = DragStateNone;
 	object_ptr<DragArea> _attachDragDocument, _attachDragPhoto;
 
@@ -838,10 +837,6 @@ private:
 
 	int64 _serviceImageCacheSize = 0;
 	QString _confirmSource;
-
-	QString _titlePeerText;
-	bool _titlePeerTextOnline = false;
-	int _titlePeerTextWidth = 0;
 
 	Animation _a_show;
 	Window::SlideDirection _showDirection;
@@ -863,7 +858,6 @@ private:
 	QTimer _saveDraftTimer, _saveCloudDraftTimer;
 
 	object_ptr<Ui::PlainShadow> _topShadow;
-	object_ptr<Ui::PlainShadow> _rightShadow = { nullptr };
 	bool _inGrab = false;
 
 };

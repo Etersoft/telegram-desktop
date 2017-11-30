@@ -27,6 +27,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/effects/ripple_animation.h"
 #include "calls/calls_instance.h"
 #include "history/history_media_types.h"
+#include "mainwidget.h"
+#include "auth_session.h"
 
 namespace Calls {
 namespace {
@@ -38,7 +40,7 @@ constexpr auto kPerPageCount = 100;
 
 class BoxController::Row : public PeerListRow {
 public:
-	Row(HistoryItem *item);
+	Row(not_null<HistoryItem*> item);
 
 	enum class Type {
 		Out,
@@ -46,18 +48,18 @@ public:
 		Missed,
 	};
 
-	bool canAddItem(HistoryItem *item) const {
+	bool canAddItem(not_null<const HistoryItem*> item) const {
 		return (ComputeType(item) == _type && item->date.date() == _date);
 	}
-	void addItem(HistoryItem *item) {
+	void addItem(not_null<HistoryItem*> item) {
 		Expects(canAddItem(item));
 		_items.push_back(item);
-		std::sort(_items.begin(), _items.end(), [](HistoryItem *a, HistoryItem *b) {
+		ranges::sort(_items, [](not_null<HistoryItem*> a, auto b) {
 			return (a->id > b->id);
 		});
 		refreshStatus();
 	}
-	void itemRemoved(HistoryItem *item) {
+	void itemRemoved(not_null<const HistoryItem*> item) {
 		if (hasItems() && item->id >= minItemId() && item->id <= maxItemId()) {
 			_items.erase(std::remove(_items.begin(), _items.end(), item), _items.end());
 			refreshStatus();
@@ -77,26 +79,44 @@ public:
 		return _items.front()->id;
 	}
 
-	void paintStatusText(Painter &p, int x, int y, int availableWidth, int outerWidth, bool selected) override;
+	void paintStatusText(
+		Painter &p,
+		const style::PeerListItem &st,
+		int x,
+		int y,
+		int availableWidth,
+		int outerWidth,
+		bool selected) override;
 	void addActionRipple(QPoint point, base::lambda<void()> updateCallback) override;
 	void stopLastActionRipple() override;
 
-	bool needsVerifiedIcon() const override {
-		return false;
+	int nameIconWidth() const override {
+		return 0;
 	}
 	QSize actionSize() const override {
 		return peer()->isUser() ? QSize(st::callReDial.width, st::callReDial.height) : QSize();
 	}
 	QMargins actionMargins() const override {
-		return QMargins(0, 0, 0, 0);
+		return QMargins(
+			0,
+			0,
+			st::defaultPeerListItem.photoPosition.x(),
+			0);
 	}
-	void paintAction(Painter &p, TimeMs ms, int x, int y, int outerWidth, bool actionSelected) override;
+	void paintAction(
+		Painter &p,
+		TimeMs ms,
+		int x,
+		int y,
+		int outerWidth,
+		bool selected,
+		bool actionSelected) override;
 
 private:
 	void refreshStatus();
-	static Type ComputeType(HistoryItem *item);
+	static Type ComputeType(not_null<const HistoryItem*> item);
 
-	std::vector<HistoryItem*> _items;
+	std::vector<not_null<HistoryItem*>> _items;
 	QDate _date;
 	Type _type;
 
@@ -104,14 +124,15 @@ private:
 
 };
 
-BoxController::Row::Row(HistoryItem *item) : PeerListRow(item->history()->peer, item->id)
+BoxController::Row::Row(not_null<HistoryItem*> item)
+: PeerListRow(item->history()->peer, item->id)
 , _items(1, item)
 , _date(item->date.date())
 , _type(ComputeType(item)) {
 	refreshStatus();
 }
 
-void BoxController::Row::paintStatusText(Painter &p, int x, int y, int availableWidth, int outerWidth, bool selected) {
+void BoxController::Row::paintStatusText(Painter &p, const style::PeerListItem &st, int x, int y, int availableWidth, int outerWidth, bool selected) {
 	auto icon = ([this] {
 		switch (_type) {
 		case Type::In: return &st::callArrowIn;
@@ -125,10 +146,17 @@ void BoxController::Row::paintStatusText(Painter &p, int x, int y, int available
 	x += shift;
 	availableWidth -= shift;
 
-	PeerListRow::paintStatusText(p, x, y, availableWidth, outerWidth, selected);
+	PeerListRow::paintStatusText(p, st, x, y, availableWidth, outerWidth, selected);
 }
 
-void BoxController::Row::paintAction(Painter &p, TimeMs ms, int x, int y, int outerWidth, bool actionSelected) {
+void BoxController::Row::paintAction(
+		Painter &p,
+		TimeMs ms,
+		int x,
+		int y,
+		int outerWidth,
+		bool selected,
+		bool actionSelected) {
 	auto size = actionSize();
 	if (_actionRipple) {
 		_actionRipple->paint(p, x + st::callReDial.rippleAreaPosition.x(), y + st::callReDial.rippleAreaPosition.y(), outerWidth, ms);
@@ -156,7 +184,8 @@ void BoxController::Row::refreshStatus() {
 	setCustomStatus((_items.size() > 1) ? lng_call_box_status_group(lt_count, QString::number(_items.size()), lt_status, text()) : text());
 }
 
-BoxController::Row::Type BoxController::Row::ComputeType(HistoryItem *item) {
+BoxController::Row::Type BoxController::Row::ComputeType(
+		not_null<const HistoryItem*> item) {
 	if (item->out()) {
 		return Type::Out;
 	} else if (auto media = item->getMedia()) {
@@ -185,18 +214,19 @@ void BoxController::Row::stopLastActionRipple() {
 }
 
 void BoxController::prepare() {
-	subscribe(Global::RefItemRemoved(), [this](HistoryItem *item) {
-		if (auto row = rowForItem(item)) {
-			row->itemRemoved(item);
-			if (!row->hasItems()) {
-				delegate()->peerListRemoveRow(row);
-				if (!delegate()->peerListFullRowsCount()) {
-					refreshAbout();
+	Auth().data().itemRemoved()
+		| rpl::start_with_next([this](auto item) {
+			if (auto row = rowForItem(item)) {
+				row->itemRemoved(item);
+				if (!row->hasItems()) {
+					delegate()->peerListRemoveRow(row);
+					if (!delegate()->peerListFullRowsCount()) {
+						refreshAbout();
+					}
 				}
+				delegate()->peerListRefreshRows();
 			}
-			delegate()->peerListRefreshRows();
-		}
-	});
+		}, lifetime());
 	subscribe(Current().newServiceMessage(), [this](const FullMsgId &msgId) {
 		if (auto item = App::histItemById(msgId)) {
 			insertRow(item, InsertWay::Prepend);
@@ -215,7 +245,20 @@ void BoxController::loadMoreRows() {
 		return;
 	}
 
-	_loadRequestId = request(MTPmessages_Search(MTP_flags(0), MTP_inputPeerEmpty(), MTP_string(QString()), MTP_inputUserEmpty(), MTP_inputMessagesFilterPhoneCalls(MTP_flags(0)), MTP_int(0), MTP_int(0), MTP_int(_offsetId), MTP_int(0), MTP_int(_offsetId ? kFirstPageCount : kPerPageCount), MTP_int(0), MTP_int(0))).done([this](const MTPmessages_Messages &result) {
+	_loadRequestId = request(MTPmessages_Search(
+		MTP_flags(0),
+		MTP_inputPeerEmpty(),
+		MTP_string(QString()),
+		MTP_inputUserEmpty(),
+		MTP_inputMessagesFilterPhoneCalls(MTP_flags(0)),
+		MTP_int(0),
+		MTP_int(0),
+		MTP_int(_offsetId),
+		MTP_int(0),
+		MTP_int(_offsetId ? kFirstPageCount : kPerPageCount),
+		MTP_int(0),
+		MTP_int(0)
+	)).done([this](const MTPmessages_Messages &result) {
 		_loadRequestId = 0;
 
 		auto handleResult = [this](auto &data) {
@@ -231,7 +274,9 @@ void BoxController::loadMoreRows() {
 			LOG(("API Error: received messages.channelMessages! (Calls::BoxController::preloadRows)"));
 			handleResult(result.c_messages_channelMessages());
 		} break;
-
+		case mtpc_messages_messagesNotModified: {
+			LOG(("API Error: received messages.messagesNotModified! (Calls::BoxController::preloadRows)"));
+		} break;
 		default: Unexpected("Type of messages.Messages (Calls::BoxController::preloadRows)");
 		}
 	}).fail([this](const RPCError &error) {
@@ -246,7 +291,9 @@ void BoxController::refreshAbout() {
 void BoxController::rowClicked(not_null<PeerListRow*> row) {
 	auto itemsRow = static_cast<Row*>(row.get());
 	auto itemId = itemsRow->maxItemId();
-	Ui::showPeerHistoryAsync(row->peer()->id, itemId);
+	InvokeQueued(App::main(), [peerId = row->peer()->id, itemId] {
+		Ui::showPeerHistory(peerId, itemId);
+	});
 }
 
 void BoxController::rowActionClicked(not_null<PeerListRow*> row) {
@@ -277,21 +324,28 @@ void BoxController::receivedCalls(const QVector<MTPMessage> &result) {
 	delegate()->peerListRefreshRows();
 }
 
-bool BoxController::insertRow(HistoryItem *item, InsertWay way) {
+bool BoxController::insertRow(
+		not_null<HistoryItem*> item,
+		InsertWay way) {
 	if (auto row = rowForItem(item)) {
 		if (row->canAddItem(item)) {
 			row->addItem(item);
 			return false;
 		}
 	}
-	(way == InsertWay::Append) ? delegate()->peerListAppendRow(createRow(item)) : delegate()->peerListPrependRow(createRow(item));
-	delegate()->peerListSortRows([](PeerListRow &a, PeerListRow &b) {
-		return static_cast<Row&>(a).maxItemId() > static_cast<Row&>(b).maxItemId();
+	(way == InsertWay::Append)
+		? delegate()->peerListAppendRow(createRow(item))
+		: delegate()->peerListPrependRow(createRow(item));
+	delegate()->peerListSortRows([](
+			const PeerListRow &a,
+			const PeerListRow &b) {
+		return static_cast<const Row&>(a).maxItemId()
+			> static_cast<const Row&>(b).maxItemId();
 	});
 	return true;
 }
 
-BoxController::Row *BoxController::rowForItem(HistoryItem *item) {
+BoxController::Row *BoxController::rowForItem(not_null<const HistoryItem*> item) {
 	auto v = delegate();
 	if (auto fullRowsCount = v->peerListFullRowsCount()) {
 		auto itemId = item->id;
@@ -333,7 +387,8 @@ BoxController::Row *BoxController::rowForItem(HistoryItem *item) {
 	return nullptr;
 }
 
-std::unique_ptr<PeerListRow> BoxController::createRow(HistoryItem *item) const {
+std::unique_ptr<PeerListRow> BoxController::createRow(
+		not_null<HistoryItem*> item) const {
 	auto row = std::make_unique<Row>(item);
 	return std::move(row);
 }

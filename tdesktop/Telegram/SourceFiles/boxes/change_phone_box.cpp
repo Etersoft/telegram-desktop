@@ -20,32 +20,53 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "boxes/change_phone_box.h"
 
+#include <rpl/filter.h>
+#include <rpl/mappers.h>
+#include <rpl/take.h>
 #include "lang/lang_keys.h"
 #include "styles/style_boxes.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/input_fields.h"
-#include "ui/effects/widget_fade_wrap.h"
+#include "ui/wrap/fade_wrap.h"
 #include "boxes/confirm_phone_box.h"
 #include "ui/toast/toast.h"
 #include "boxes/confirm_box.h"
 
 namespace {
 
-void createErrorLabel(QWidget *parent, object_ptr<Ui::WidgetFadeWrap<Ui::FlatLabel>> &label, const QString &text, int x, int y) {
+void createErrorLabel(
+		QWidget *parent,
+		object_ptr<Ui::FadeWrap<Ui::FlatLabel>> &label,
+		const QString &text,
+		int x,
+		int y) {
 	if (label) {
-		auto errorFadeOut = std::move(label);
-		errorFadeOut->setUpdateCallback([label = errorFadeOut.data()] {
-			if (label->isHidden() || !label->animating()) {
-				label->deleteLater();
-			}
-		});
-		errorFadeOut->hideAnimated();
+		label->hide(anim::type::normal);
+
+		auto saved = label.data();
+		auto destroy = [old = std::move(label)]() mutable {
+			old.destroyDelayed();
+		};
+
+		using namespace rpl::mappers;
+		saved->shownValue()
+			| rpl::filter(_1 == false)
+			| rpl::take(1)
+			| rpl::start_with_done(
+				std::move(destroy),
+				saved->lifetime());
 	}
 	if (!text.isEmpty()) {
-		label.create(parent, object_ptr<Ui::FlatLabel>(parent, text, Ui::FlatLabel::InitType::Simple, st::changePhoneError));
-		label->hideFast();
+		label.create(
+			parent,
+			object_ptr<Ui::FlatLabel>(
+				parent,
+				text,
+				Ui::FlatLabel::InitType::Simple,
+				st::changePhoneError));
+		label->hide(anim::type::instant);
 		label->moveToLeft(x, y);
-		label->showAnimated();
+		label->show(anim::type::normal);
 	}
 }
 
@@ -73,7 +94,7 @@ private:
 	}
 
 	object_ptr<Ui::PhoneInput> _phone = { nullptr };
-	object_ptr<Ui::WidgetFadeWrap<Ui::FlatLabel>> _error = { nullptr };
+	object_ptr<Ui::FadeWrap<Ui::FlatLabel>> _error = { nullptr };
 	mtpRequestId _requestId = 0;
 
 };
@@ -105,7 +126,7 @@ private:
 	int _codeLength = 0;
 	int _callTimeout = 0;
 	object_ptr<SentCodeField> _code = { nullptr };
-	object_ptr<Ui::WidgetFadeWrap<Ui::FlatLabel>> _error = { nullptr };
+	object_ptr<Ui::FadeWrap<Ui::FlatLabel>> _error = { nullptr };
 	object_ptr<Ui::FlatLabel> _callLabel = { nullptr };
 	mtpRequestId _requestId = 0;
 	SentCodeCall _call;
@@ -155,13 +176,13 @@ void ChangePhoneBox::EnterPhone::sendPhoneDone(const QString &phoneNumber, const
 	switch (data.vtype.type()) {
 	case mtpc_auth_sentCodeTypeApp:
 		LOG(("Error: should not be in-app code!"));
-		showError(lang(lng_server_error));
+		showError(Lang::Hard::ServerError());
 		return;
 	case mtpc_auth_sentCodeTypeSms: codeLength = data.vtype.c_auth_sentCodeTypeSms().vlength.v; break;
 	case mtpc_auth_sentCodeTypeCall: codeLength = data.vtype.c_auth_sentCodeTypeCall().vlength.v; break;
 	case mtpc_auth_sentCodeTypeFlashCall:
 		LOG(("Error: should not be flashcall!"));
-		showError(lang(lng_server_error));
+		showError(Lang::Hard::ServerError());
 		return;
 	}
 	auto phoneCodeHash = qs(data.vphone_code_hash);
@@ -169,11 +190,17 @@ void ChangePhoneBox::EnterPhone::sendPhoneDone(const QString &phoneNumber, const
 	if (data.has_next_type() && data.vnext_type.type() == mtpc_auth_codeTypeCall) {
 		callTimeout = data.has_timeout() ? data.vtimeout.v : 60;
 	}
-	Ui::show(Box<EnterCode>(phoneNumber, phoneCodeHash, codeLength, callTimeout), KeepOtherLayers);
+	Ui::show(
+		Box<EnterCode>(
+			phoneNumber,
+			phoneCodeHash,
+			codeLength,
+			callTimeout),
+		LayerOption::KeepOther);
 }
 
 bool ChangePhoneBox::EnterPhone::sendPhoneFail(const QString &phoneNumber, const RPCError &error) {
-	auto errorText = lang(lng_server_error);
+	auto errorText = Lang::Hard::ServerError();
 	if (MTP::isFloodError(error)) {
 		errorText = lang(lng_flood_error);
 	} else if (MTP::isDefaultHandledError(error)) {
@@ -282,7 +309,7 @@ void ChangePhoneBox::EnterCode::showError(const QString &text) {
 }
 
 bool ChangePhoneBox::EnterCode::sendCodeFail(const RPCError &error) {
-	auto errorText = lang(lng_server_error);
+	auto errorText = Lang::Hard::ServerError();
 	if (MTP::isFloodError(error)) {
 		errorText = lang(lng_flood_error);
 	} else if (MTP::isDefaultHandledError(error)) {

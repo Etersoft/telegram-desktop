@@ -319,7 +319,8 @@ void SplittedWidgetOther::paintEvent(QPaintEvent *e) {
 	}
 }
 
-ScrollArea::ScrollArea(QWidget *parent, const style::ScrollArea &st, bool handleTouch) : TWidgetHelper<QScrollArea>(parent)
+ScrollArea::ScrollArea(QWidget *parent, const style::ScrollArea &st, bool handleTouch)
+: RpWidgetWrap<QScrollArea>(parent)
 , _st(st)
 , _horizontalBar(this, false, &_st)
 , _verticalBar(this, true, &_st)
@@ -383,6 +384,7 @@ void ScrollArea::onScrolled() {
 				_verticalBar->hideTimeout(_st.hiding);
 			}
 			em = true;
+			_scrollTopUpdated.fire_copy(_verticalValue);
 		}
 	}
 	if (em) {
@@ -681,6 +683,20 @@ void ScrollArea::leaveEventHook(QEvent *e) {
 		_verticalBar->hideTimeout(0);
 	}
 	return QScrollArea::leaveEvent(e);
+}
+
+void ScrollArea::scrollTo(ScrollToRequest request) {
+	scrollToY(request.ymin, request.ymax);
+}
+
+void ScrollArea::scrollToWidget(not_null<QWidget*> widget) {
+	if (auto local = this->widget()) {
+		auto globalPosition = widget->mapToGlobal(QPoint(0, 0));
+		auto localPosition = local->mapFromGlobal(globalPosition);
+		auto localTop = localPosition.y();
+		auto localBottom = localTop + widget->height();
+		scrollToY(localTop, localBottom);
+	}
 }
 
 void ScrollArea::scrollToY(int toTop, int toBottom) {

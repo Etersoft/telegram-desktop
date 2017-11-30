@@ -320,7 +320,7 @@ void PasscodeBox::onSave(bool force) {
 			_skipEmailWarning = true;
 			_replacedBy = Ui::show(Box<ConfirmBox>(lang(lng_cloud_password_about_recover), lang(lng_cloud_password_skip_email), st::attentionBoxButton, base::lambda_guarded(this, [this] {
 				onSave(true);
-			})), KeepOtherLayers);
+			})), LayerOption::KeepOther);
 		} else {
 			QByteArray newPasswordData = pwd.isEmpty() ? QByteArray() : (_newSalt + pwd.toUtf8() + _newSalt);
 			QByteArray newPasswordHash = pwd.isEmpty() ? QByteArray() : QByteArray(32, Qt::Uninitialized);
@@ -401,7 +401,9 @@ void PasscodeBox::onRecoverExpired() {
 void PasscodeBox::recover() {
 	if (_pattern == "-") return;
 
-	_replacedBy = Ui::show(Box<RecoverBox>(_pattern), KeepOtherLayers);
+	_replacedBy = Ui::show(
+		Box<RecoverBox>(_pattern),
+		LayerOption::KeepOther);
 	connect(_replacedBy, SIGNAL(reloadPassword()), this, SIGNAL(reloadPassword()));
 	connect(_replacedBy, SIGNAL(recoveryExpired()), this, SLOT(onRecoverExpired()));
 }
@@ -523,7 +525,7 @@ bool RecoverBox::codeSubmitFail(const RPCError &error) {
 	if (cDebug()) { // internal server error
 		_error =  err + ": " + error.description();
 	} else {
-		_error = lang(lng_server_error);
+		_error = Lang::Hard::ServerError();
 	}
 	update();
 	_recoverCode->setFocus();

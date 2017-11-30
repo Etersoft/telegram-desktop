@@ -23,18 +23,20 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "dialogs/dialogs_inner_widget.h"
 #include "dialogs/dialogs_search_from_controllers.h"
 #include "styles/style_dialogs.h"
+#include "styles/style_window.h"
 #include "ui/widgets/buttons.h"
+#include "ui/widgets/input_fields.h"
+#include "ui/wrap/fade_wrap.h"
 #include "lang/lang_keys.h"
 #include "application.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
-#include "ui/widgets/input_fields.h"
 #include "autoupdater.h"
 #include "auth_session.h"
 #include "messenger.h"
-#include "ui/effects/widget_fade_wrap.h"
 #include "boxes/peer_list_box.h"
 #include "window/window_controller.h"
+#include "window/window_slide_animation.h"
 #include "profile/profile_channel_controllers.h"
 
 namespace {
@@ -63,7 +65,7 @@ private:
 DialogsWidget::UpdateButton::UpdateButton(QWidget *parent) : RippleButton(parent, st::dialogsUpdateButton.ripple)
 , _text(lang(lng_update_telegram).toUpper())
 , _st(st::dialogsUpdateButton) {
-	resize(st::dialogsWidthMin, _st.height);
+	resize(st::columnMinimalWidthLeft, _st.height);
 }
 
 void DialogsWidget::UpdateButton::onStateChanged(State was, StateChangeSource source) {
@@ -83,7 +85,7 @@ void DialogsWidget::UpdateButton::paintEvent(QPaintEvent *e) {
 	p.setRenderHint(QPainter::TextAntialiasing);
 	p.setPen(isOver() ? _st.overColor : _st.color);
 
-	if (width() >= st::dialogsWidthMin) {
+	if (width() >= st::columnMinimalWidthLeft) {
 		r.setTop(_st.textTop);
 		p.drawText(r, _text, style::al_top);
 	} else {
@@ -94,8 +96,12 @@ void DialogsWidget::UpdateButton::paintEvent(QPaintEvent *e) {
 DialogsWidget::DialogsWidget(QWidget *parent, not_null<Window::Controller*> controller) : Window::AbstractSectionWidget(parent, controller)
 , _mainMenuToggle(this, st::dialogsMenuToggle)
 , _filter(this, st::dialogsFilter, langFactory(lng_dlg_filter))
-, _chooseFromUser(this, object_ptr<Ui::IconButton>(this, st::dialogsSearchFrom))
-, _jumpToDate(this, object_ptr<Ui::IconButton>(this, st::dialogsCalendar))
+, _chooseFromUser(
+	this,
+	object_ptr<Ui::IconButton>(this, st::dialogsSearchFrom))
+, _jumpToDate(
+	this,
+	object_ptr<Ui::IconButton>(this, st::dialogsCalendar))
 , _cancelSearch(this, st::dialogsCancelSearch)
 , _lockUnlock(this, st::dialogsLock)
 , _scroll(this, st::dialogsScroll) {
@@ -216,10 +222,16 @@ void DialogsWidget::startWidthAnimation() {
 		return;
 	}
 	auto scrollGeometry = _scroll->geometry();
-	auto grabGeometry = QRect(scrollGeometry.x(), scrollGeometry.y(), st::dialogsWidthMin, scrollGeometry.height());
+	auto grabGeometry = QRect(
+		scrollGeometry.x(),
+		scrollGeometry.y(),
+		st::columnMinimalWidthLeft,
+		scrollGeometry.height());
 	_scroll->setGeometry(grabGeometry);
 	myEnsureResized(_scroll);
-	auto image = QImage(grabGeometry.size() * cIntRetinaFactor(), QImage::Format_ARGB32_Premultiplied);
+	auto image = QImage(
+		grabGeometry.size() * cIntRetinaFactor(),
+		QImage::Format_ARGB32_Premultiplied);
 	image.setDevicePixelRatio(cRetinaFactor());
 	image.fill(Qt::transparent);
 	_scroll->render(&image, QPoint(0, 0), QRect(QPoint(0, 0), grabGeometry.size()), QWidget::DrawChildren | QWidget::IgnoreMask);
@@ -255,9 +267,9 @@ void DialogsWidget::showAnimated(Window::SlideDirection direction, const Window:
 	_mainMenuToggle->hide();
 	if (_forwardCancel) _forwardCancel->hide();
 	_filter->hide();
-	_cancelSearch->hideFast();
-	_jumpToDate->hideFast();
-	_chooseFromUser->hideFast();
+	_cancelSearch->hide(anim::type::instant);
+	_jumpToDate->hide(anim::type::instant);
+	_chooseFromUser->hide(anim::type::instant);
 	_lockUnlock->hide();
 
 	int delta = st::slideShift;
@@ -267,11 +279,11 @@ void DialogsWidget::showAnimated(Window::SlideDirection direction, const Window:
 	_a_show.start([this] { animationCallback(); }, 0., 1., st::slideDuration, Window::SlideAnimation::transition());
 }
 
-bool DialogsWidget::wheelEventFromFloatPlayer(QEvent *e, Window::Column myColumn, Window::Column playerColumn) {
+bool DialogsWidget::wheelEventFromFloatPlayer(QEvent *e) {
 	return _scroll->viewportEvent(e);
 }
 
-QRect DialogsWidget::rectForFloatPlayer(Window::Column myColumn, Window::Column playerColumn) {
+QRect DialogsWidget::rectForFloatPlayer() const {
 	return mapToGlobal(_scroll->geometry());
 }
 
@@ -666,6 +678,15 @@ void DialogsWidget::searchReceived(DialogsSearchRequestType type, const MTPmessa
 				}
 			}
 		} break;
+
+		case mtpc_messages_messagesNotModified: {
+			LOG(("API Error: received messages.messagesNotModified! (DialogsWidget::searchReceived)"));
+			if (type == DialogsSearchMigratedFromStart || type == DialogsSearchMigratedFromOffset) {
+				_searchFullMigrated = true;
+			} else {
+				_searchFull = true;
+			}
+		} break;
 		}
 
 		_searchRequest = 0;
@@ -806,10 +827,8 @@ void DialogsWidget::onFilterUpdate(bool force) {
 	_inner->onFilterUpdate(filterText, force);
 	if (filterText.isEmpty()) {
 		clearSearchCache();
-		_cancelSearch->hideAnimated();
-	} else {
-		_cancelSearch->showAnimated();
 	}
+	_cancelSearch->toggle(!filterText.isEmpty(), anim::type::normal);
 	updateJumpToDateVisibility();
 
 	if (filterText.size() < MinUsernameLength) {
@@ -818,7 +837,7 @@ void DialogsWidget::onFilterUpdate(bool force) {
 		_peerSearchQuery = QString();
 	}
 
-	if (!_chooseFromUser->isHiddenOrHiding() || _searchFromUser) {
+	if (_chooseFromUser->toggled() || _searchFromUser) {
 		auto switchToChooseFrom = SwitchToChooseFromQuery();
 		if (_lastFilterText != switchToChooseFrom
 			&& switchToChooseFrom.startsWith(_lastFilterText)
@@ -843,7 +862,7 @@ void DialogsWidget::setSearchInPeer(PeerData *peer, UserData *from) {
 	if (searchInPeerUpdated) {
 		_searchInPeer = newSearchInPeer;
 		from = nullptr;
-		controller()->searchInPeerChanged().notify(_searchInPeer, true);
+		controller()->searchInPeer = _searchInPeer;
 		updateJumpToDateVisibility();
 	} else if (!_searchInPeer) {
 		from = nullptr;
@@ -869,12 +888,20 @@ void DialogsWidget::clearSearchCache() {
 }
 
 void DialogsWidget::showSearchFrom() {
+	if (!_searchInPeer) {
+		return;
+	}
 	auto peer = _searchInPeer;
-	Dialogs::ShowSearchFromBox(peer, base::lambda_guarded(this, [this, peer](not_null<UserData*> user) {
-		Ui::hideLayer();
-		setSearchInPeer(peer, user);
-		onFilterUpdate(true);
-	}), base::lambda_guarded(this, [this] { _filter->setFocus(); }));
+	Dialogs::ShowSearchFromBox(
+		controller(),
+		peer,
+		base::lambda_guarded(this, [this, peer](
+				not_null<UserData*> user) {
+			Ui::hideLayer();
+			setSearchInPeer(peer, user);
+			onFilterUpdate(true);
+		}),
+		base::lambda_guarded(this, [this] { _filter->setFocus(); }));
 }
 
 void DialogsWidget::onFilterCursorMoved(int from, int to) {
@@ -934,22 +961,17 @@ void DialogsWidget::updateLockUnlockVisibility() {
 void DialogsWidget::updateJumpToDateVisibility(bool fast) {
 	if (_a_show.animating()) return;
 
-	auto jumpToDateVisible = (_searchInPeer && _filter->getLastText().isEmpty());
-	if (fast) {
-		_jumpToDate->toggleFast(jumpToDateVisible);
-	} else {
-		_jumpToDate->toggleAnimated(jumpToDateVisible);
-	}
+	_jumpToDate->toggle(
+		(_searchInPeer && _filter->getLastText().isEmpty()),
+		fast ? anim::type::instant : anim::type::normal);
 }
 
 void DialogsWidget::updateSearchFromVisibility(bool fast) {
 	auto visible = _searchInPeer && (_searchInPeer->isChat() || _searchInPeer->isMegagroup()) && !_searchFromUser;
-	auto changed = (visible == _chooseFromUser->isHiddenOrHiding());
-	if (fast) {
-		_chooseFromUser->toggleFast(visible);
-	} else {
-		_chooseFromUser->toggleAnimated(visible);
-	}
+	auto changed = (visible == !_chooseFromUser->toggled());
+	_chooseFromUser->toggle(
+		visible,
+		fast ? anim::type::instant : anim::type::normal);
 	if (changed) {
 		auto margins = st::dialogsFilter.textMrg;
 		if (visible) {
@@ -966,10 +988,10 @@ void DialogsWidget::updateControlsGeometry() {
 		filterAreaTop += st::dialogsForwardHeight;
 	}
 	auto smallLayoutWidth = (st::dialogsPadding.x() + st::dialogsPhotoSize + st::dialogsPadding.x());
-	auto smallLayoutRatio = (width() < st::dialogsWidthMin) ? (st::dialogsWidthMin - width()) / float64(st::dialogsWidthMin - smallLayoutWidth) : 0.;
+	auto smallLayoutRatio = (width() < st::columnMinimalWidthLeft) ? (st::columnMinimalWidthLeft - width()) / float64(st::columnMinimalWidthLeft - smallLayoutWidth) : 0.;
 	auto filterLeft = st::dialogsFilterPadding.x() + _mainMenuToggle->width() + st::dialogsFilterPadding.x();
 	auto filterRight = (Global::LocalPasscode() ? (st::dialogsFilterPadding.x() + _lockUnlock->width()) : st::dialogsFilterSkip) + st::dialogsFilterPadding.x();
-	auto filterWidth = qMax(width(), st::dialogsWidthMin) - filterLeft - filterRight;
+	auto filterWidth = qMax(width(), st::columnMinimalWidthLeft) - filterLeft - filterRight;
 	auto filterAreaHeight = st::dialogsFilterPadding.y() + _mainMenuToggle->height() + st::dialogsFilterPadding.y();
 	auto filterTop = filterAreaTop + (filterAreaHeight - _filter->height()) / 2;
 	filterLeft = anim::interpolate(filterLeft, smallLayoutWidth, smallLayoutRatio);

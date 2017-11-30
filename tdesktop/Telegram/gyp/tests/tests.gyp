@@ -56,6 +56,24 @@
       'message': 'Running <(RULE_INPUT_ROOT)..',
     }]
   }, {
+    'target_name': 'tests_algorithm',
+    'includes': [
+      'common_test.gypi',
+    ],
+    'sources': [
+      '<(src_loc)/base/algorithm.h',
+      '<(src_loc)/base/algorithm_tests.cpp',
+    ],
+  }, {
+    'target_name': 'tests_flags',
+    'includes': [
+      'common_test.gypi',
+    ],
+    'sources': [
+      '<(src_loc)/base/flags.h',
+      '<(src_loc)/base/flags_tests.cpp',
+    ],
+  }, {
     'target_name': 'tests_flat_map',
     'includes': [
       'common_test.gypi',
@@ -74,13 +92,41 @@
       '<(src_loc)/base/flat_set_tests.cpp',
     ],
   }, {
-    'target_name': 'tests_flags',
+    'target_name': 'tests_rpl',
     'includes': [
       'common_test.gypi',
     ],
     'sources': [
-      '<(src_loc)/base/flags.h',
-      '<(src_loc)/base/flags_tests.cpp',
+      '<(src_loc)/rpl/details/callable.h',
+      '<(src_loc)/rpl/details/superset_type.h',
+      '<(src_loc)/rpl/details/type_list.h',
+      '<(src_loc)/rpl/after_next.h',
+      '<(src_loc)/rpl/before_next.h',
+      '<(src_loc)/rpl/combine.h',
+      '<(src_loc)/rpl/combine_previous.h',
+      '<(src_loc)/rpl/complete.h',
+      '<(src_loc)/rpl/consumer.h',
+      '<(src_loc)/rpl/deferred.h',
+      '<(src_loc)/rpl/distinct_until_changed.h',
+      '<(src_loc)/rpl/event_stream.h',
+      '<(src_loc)/rpl/fail.h',
+      '<(src_loc)/rpl/filter.h',
+      '<(src_loc)/rpl/flatten_latest.h',
+      '<(src_loc)/rpl/lifetime.h',
+      '<(src_loc)/rpl/map.h',
+      '<(src_loc)/rpl/mappers.h',
+	  '<(src_loc)/rpl/merge.h',
+      '<(src_loc)/rpl/never.h',
+      '<(src_loc)/rpl/operators_tests.cpp',
+      '<(src_loc)/rpl/producer.h',
+      '<(src_loc)/rpl/producer_tests.cpp',
+      '<(src_loc)/rpl/range.h',
+      '<(src_loc)/rpl/rpl.h',
+      '<(src_loc)/rpl/take.h',
+      '<(src_loc)/rpl/then.h',
+      '<(src_loc)/rpl/type_erased.h',
+      '<(src_loc)/rpl/variable.h',
+      '<(src_loc)/rpl/variable_tests.cpp',
     ],
   }],
 }

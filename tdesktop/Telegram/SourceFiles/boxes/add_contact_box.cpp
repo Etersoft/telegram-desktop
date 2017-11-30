@@ -143,7 +143,7 @@ void AddContactBox::prepare() {
 void AddContactBox::setInnerFocus() {
 	if ((_first->getLastText().isEmpty() && _last->getLastText().isEmpty()) || !_phone->isEnabled()) {
 		(_invertOrder ? _last : _first)->setFocusFast();
-		_phone->finishAnimations();
+		_phone->finishAnimating();
 	} else {
 		_phone->setFocusFast();
 	}
@@ -307,14 +307,25 @@ void AddContactBox::updateButtons() {
 
 GroupInfoBox::GroupInfoBox(QWidget*, CreatingGroupType creating, bool fromTypeChoose)
 : _creating(creating)
-, _fromTypeChoose(fromTypeChoose)
-, _photo(this, st::newGroupPhotoSize, st::newGroupPhotoIconPosition)
-, _title(this, st::defaultInputField, langFactory(_creating == CreatingGroupChannel ? lng_dlg_new_channel_name : lng_dlg_new_group_name)) {
+, _fromTypeChoose(fromTypeChoose) {
 }
 
 void GroupInfoBox::prepare() {
 	setMouseTracking(true);
 
+	_photo.create(
+		this,
+		(_creating == CreatingGroupChannel)
+			? peerFromChannel(0)
+			: peerFromChat(0),
+		Ui::UserpicButton::Role::ChangePhoto,
+		st::defaultUserpicButton);
+	_title.create(
+		this,
+		st::defaultInputField,
+		langFactory(_creating == CreatingGroupChannel
+			? lng_dlg_new_channel_name
+			: lng_dlg_new_group_name));
 	_title->setMaxLength(kMaxGroupChannelTitle);
 
 	if (_creating == CreatingGroupChannel) {
@@ -332,33 +343,7 @@ void GroupInfoBox::prepare() {
 	addButton(langFactory(_creating == CreatingGroupChannel ? lng_create_group_create : lng_create_group_next), [this] { onNext(); });
 	addButton(langFactory(_fromTypeChoose ? lng_create_group_back : lng_cancel), [this] { closeBox(); });
 
-	setupPhotoButton();
-
 	updateMaxHeight();
-}
-
-void GroupInfoBox::setupPhotoButton() {
-	_photo->setClickedCallback(App::LambdaDelayed(st::defaultActiveButton.ripple.hideDuration, this, [this] {
-		auto imgExtensions = cImgExtensions();
-		auto filter = qsl("Image files (*") + imgExtensions.join(qsl(" *")) + qsl(");;") + FileDialog::AllFilesFilter();
-		FileDialog::GetOpenPath(lang(lng_choose_image), filter, base::lambda_guarded(this, [this](const FileDialog::OpenResult &result) {
-			if (result.remoteContent.isEmpty() && result.paths.isEmpty()) {
-				return;
-			}
-
-			QImage img;
-			if (!result.remoteContent.isEmpty()) {
-				img = App::readImage(result.remoteContent);
-			} else {
-				img = App::readImage(result.paths.front());
-			}
-			if (img.isNull() || img.width() > 10 * img.height() || img.height() > 10 * img.width()) {
-				return;
-			}
-			auto box = Ui::show(Box<PhotoCropBox>(img, (_creating == CreatingGroupChannel) ? peerFromChannel(0) : peerFromChat(0)), KeepOtherLayers);
-			connect(box, SIGNAL(ready(const QImage&)), this, SLOT(onPhotoReady(const QImage&)));
-		}));
-	}));
 }
 
 void GroupInfoBox::setInnerFocus() {
@@ -370,12 +355,19 @@ void GroupInfoBox::resizeEvent(QResizeEvent *e) {
 
 	_photo->moveToLeft(st::boxPadding.left() + st::newGroupInfoPadding.left(), st::boxPadding.top() + st::newGroupInfoPadding.top());
 
-	auto nameLeft = st::newGroupPhotoSize + st::newGroupNamePosition.x();
+	auto nameLeft = st::defaultUserpicButton.size.width()
+		+ st::newGroupNamePosition.x();
 	_title->resize(width() - st::boxPadding.left() - st::newGroupInfoPadding.left() - st::boxPadding.right() - nameLeft, _title->height());
 	_title->moveToLeft(st::boxPadding.left() + st::newGroupInfoPadding.left() + nameLeft, st::boxPadding.top() + st::newGroupInfoPadding.top() + st::newGroupNamePosition.y());
 	if (_description) {
 		_description->resize(width() - st::boxPadding.left() - st::newGroupInfoPadding.left() - st::boxPadding.right(), _description->height());
-		_description->moveToLeft(st::boxPadding.left() + st::newGroupInfoPadding.left(), st::boxPadding.top() + st::newGroupInfoPadding.top() + st::newGroupPhotoSize + st::newGroupDescriptionPadding.top());
+		auto descriptionLeft = st::boxPadding.left()
+			+ st::newGroupInfoPadding.left();
+		auto descriptionTop = st::boxPadding.top()
+			+ st::newGroupInfoPadding.top()
+			+ st::defaultUserpicButton.size.height()
+			+ st::newGroupDescriptionPadding.top();
+		_description->moveToLeft(descriptionLeft, descriptionTop);
 	}
 }
 
@@ -402,6 +394,9 @@ void GroupInfoBox::createGroup(not_null<PeerListBox*> selectUsersBox, const QStr
 			inputs.push_back(user->inputUser);
 		}
 	}
+	if (inputs.empty()) {
+		return;
+	}
 	_creationRequestId = request(MTPmessages_CreateChat(MTP_vector<MTPInputUser>(inputs), MTP_string(title))).done([this](const MTPUpdates &result) {
 		Ui::hideLayer();
 
@@ -427,8 +422,11 @@ void GroupInfoBox::createGroup(not_null<PeerListBox*> selectUsersBox, const QStr
 				return App::chat(chats->front().c_chat().vid.v);
 			}
 			| [this](not_null<ChatData*> chat) {
-				if (!_photoImage.isNull()) {
-					Messenger::Instance().uploadProfilePhoto(_photoImage, chat->id);
+				auto image = _photo->takeResultImage();
+				if (!image.isNull()) {
+					Messenger::Instance().uploadProfilePhoto(
+						std::move(image),
+						chat->id);
 				}
 				Ui::showPeerHistory(chat, ShowAtUnreadMsgId);
 			};
@@ -444,10 +442,18 @@ void GroupInfoBox::createGroup(not_null<PeerListBox*> selectUsersBox, const QStr
 				_title->showError();
 			}
 		} else if (error.type() == qstr("USERS_TOO_FEW")) {
+			Ui::show(
+				Box<InformBox>(lang(lng_cant_invite_privacy)),
+				LayerOption::KeepOther);
 		} else if (error.type() == qstr("PEER_FLOOD")) {
-			Ui::show(Box<InformBox>(PeerFloodErrorText(PeerFloodType::InviteGroup)), KeepOtherLayers);
+			Ui::show(
+				Box<InformBox>(
+					PeerFloodErrorText(PeerFloodType::InviteGroup)),
+				LayerOption::KeepOther);
 		} else if (error.type() == qstr("USER_RESTRICTED")) {
-			Ui::show(Box<InformBox>(lang(lng_cant_do_this)), KeepOtherLayers);
+			Ui::show(
+				Box<InformBox>(lang(lng_cant_do_this)),
+				LayerOption::KeepOther);
 		}
 	}).send();
 }
@@ -476,7 +482,12 @@ void GroupInfoBox::onNext() {
 			});
 			box->addButton(langFactory(lng_cancel), [box] { box->closeBox(); });
 		};
-		Ui::show(Box<PeerListBox>(std::make_unique<AddParticipantsBoxController>(nullptr), std::move(initBox)), KeepOtherLayers);
+		Ui::show(
+			Box<PeerListBox>(
+				std::make_unique<AddParticipantsBoxController>(
+					nullptr),
+				std::move(initBox)),
+			LayerOption::KeepOther);
 	}
 }
 
@@ -506,9 +517,10 @@ void GroupInfoBox::createChannel(const QString &title, const QString &descriptio
 				return App::channel(chats->front().c_channel().vid.v);
 			}
 			| [this](not_null<ChannelData*> channel) {
-				if (!_photoImage.isNull()) {
+				auto image = _photo->takeResultImage();
+				if (!image.isNull()) {
 					Messenger::Instance().uploadProfilePhoto(
-						_photoImage,
+						std::move(image),
 						channel->id);
 				}
 				_createdChannel = channel;
@@ -546,16 +558,17 @@ void GroupInfoBox::onDescriptionResized() {
 }
 
 void GroupInfoBox::updateMaxHeight() {
-	auto newHeight = st::boxPadding.top() + st::newGroupInfoPadding.top() + st::newGroupPhotoSize + st::boxPadding.bottom() + st::newGroupInfoPadding.bottom();
+	auto newHeight = st::boxPadding.top()
+		+ st::newGroupInfoPadding.top()
+		+ st::defaultUserpicButton.size.height()
+		+ st::boxPadding.bottom()
+		+ st::newGroupInfoPadding.bottom();
 	if (_description) {
-		newHeight += st::newGroupDescriptionPadding.top() + _description->height() + st::newGroupDescriptionPadding.bottom();
+		newHeight += st::newGroupDescriptionPadding.top()
+			+ _description->height()
+			+ st::newGroupDescriptionPadding.bottom();
 	}
 	setDimensions(st::boxWideWidth, newHeight);
-}
-
-void GroupInfoBox::onPhotoReady(const QImage &img) {
-	_photoImage = img;
-	_photo->setImage(_photoImage);
 }
 
 SetupChannelBox::SetupChannelBox(QWidget*, ChannelData *channel, bool existing)
@@ -597,7 +610,6 @@ void SetupChannelBox::prepare() {
 			AddParticipantsBoxController::Start(_channel);
 		}
 	});
-
 	updateMaxHeight();
 }
 
@@ -792,7 +804,7 @@ void SetupChannelBox::privacyChanged(Privacy value) {
 				_tooMuchUsernames = false;
 				_privacyGroup->setValue(Privacy::Public);
 				onCheck();
-			})), KeepOtherLayers);
+			})), LayerOption::KeepOther);
 			return;
 		}
 		_link->show();
@@ -883,8 +895,10 @@ bool SetupChannelBox::onCheckFail(const RPCError &error) {
 void SetupChannelBox::showRevokePublicLinkBoxForEdit() {
 	closeBox();
 	Ui::show(Box<RevokePublicLinkBox>([channel = _channel, existing = _existing]() {
-		Ui::show(Box<SetupChannelBox>(channel, existing), KeepOtherLayers);
-	}), KeepOtherLayers);
+		Ui::show(
+			Box<SetupChannelBox>(channel, existing),
+			LayerOption::KeepOther);
+	}), LayerOption::KeepOther);
 }
 
 bool SetupChannelBox::onFirstCheckFail(const RPCError &error) {
@@ -1278,7 +1292,9 @@ void EditChannelBox::onSave() {
 }
 
 void EditChannelBox::onPublicLink() {
-	Ui::show(Box<SetupChannelBox>(_channel, true), KeepOtherLayers);
+	Ui::show(
+		Box<SetupChannelBox>(_channel, true),
+		LayerOption::KeepOther);
 }
 
 void EditChannelBox::saveDescription() {
@@ -1325,9 +1341,7 @@ bool EditChannelBox::onSaveFail(const RPCError &error, mtpRequestId req) {
 	} else if (req == _saveDescriptionRequestId) {
 		_saveDescriptionRequestId = 0;
 		if (err == qstr("CHAT_ABOUT_NOT_MODIFIED")) {
-			if (_channel->setAbout(_sentDescription)) {
-				Auth().api().fullPeerUpdated().notify(_channel);
-			}
+			_channel->setAbout(_sentDescription);
 			saveSign();
 			return true;
 		} else {
@@ -1357,9 +1371,7 @@ void EditChannelBox::onSaveTitleDone(const MTPUpdates &result) {
 
 void EditChannelBox::onSaveDescriptionDone(const MTPBool &result) {
 	_saveDescriptionRequestId = 0;
-	if (_channel->setAbout(_sentDescription)) {
-		Auth().api().fullPeerUpdated().notify(_channel);
-	}
+	_channel->setAbout(_sentDescription);
 	saveSign();
 }
 
@@ -1473,7 +1485,7 @@ void RevokePublicLinkBox::Inner::mouseReleaseEvent(QMouseEvent *e) {
 					_revokeCallback();
 				}
 			}).send();
-		})), KeepOtherLayers);
+		})), LayerOption::KeepOther);
 	}
 }
 

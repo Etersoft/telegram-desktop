@@ -297,7 +297,7 @@ void DcOptions::constructFromSerialized(const QByteArray &serialized) {
 			return;
 		}
 
-		applyOneGuarded(DcId(id), MTPDdcOption::Flags(flags), ip, port);
+		applyOneGuarded(DcId(id), MTPDdcOption::Flags::from_raw(flags), ip, port);
 	}
 
 	// Read CDN config
@@ -341,7 +341,7 @@ DcOptions::Ids DcOptions::configEnumDcIds() const {
 			}
 		}
 	}
-	std::sort(result.begin(), result.end());
+	ranges::sort(result);
 	return result;
 }
 

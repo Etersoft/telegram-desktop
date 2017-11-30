@@ -27,14 +27,11 @@ namespace Settings {
 class InnerWidget;
 
 class Widget : public Layer, private base::Subscriber {
-	Q_OBJECT
-
 public:
 	Widget(QWidget*);
 
 	void refreshLang();
 
-	void showFinished() override;
 	void parentResized() override;
 
 protected:
@@ -44,8 +41,6 @@ private:
 	void resizeUsingInnerHeight(int newWidth, int innerHeight) override;
 
 	QPointer<InnerWidget> _inner;
-
-	int _contentLeft = 0;
 
 };
 

@@ -21,7 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #pragma once
 
 #include "boxes/abstract_box.h"
-#include <vector>
+#include "chat_helpers/stickers.h"
 
 class ConfirmBox;
 
@@ -35,9 +35,6 @@ class StickerSetBox : public BoxContent, public RPCSender {
 public:
 	StickerSetBox(QWidget*, const MTPInputStickerSet &set);
 
-signals:
-	void installed(uint64 id);
-
 protected:
 	void prepare() override;
 
@@ -47,8 +44,6 @@ private slots:
 	void onAddStickers();
 	void onShareStickers();
 	void onUpdateButtons();
-
-	void onInstalled(uint64 id);
 
 private:
 	void updateButtons();
@@ -73,8 +68,10 @@ public:
 	base::lambda<TextWithEntities()> title() const;
 	QString shortName() const;
 
-	void setVisibleTopBottom(int visibleTop, int visibleBottom) override;
 	void install();
+	auto setInstalled() const {
+		return _setInstalled.events();
+	}
 
 	~Inner();
 
@@ -90,7 +87,6 @@ private slots:
 
 signals:
 	void updateButtons();
-	void installed(uint64 id);
 
 private:
 	void updateSelected();
@@ -109,8 +105,8 @@ private:
 	}
 
 	std::vector<Animation> _packOvers;
-	StickerPack _pack;
-	StickersByEmojiMap _emoji;
+	Stickers::Pack _pack;
+	Stickers::ByEmojiMap _emoji;
 	bool _loaded = false;
 	uint64 _setId = 0;
 	uint64 _setAccess = 0;
@@ -119,8 +115,6 @@ private:
 	int32 _setHash = 0;
 	MTPDstickerSet::Flags _setFlags = 0;
 
-	int _visibleTop = 0;
-	int _visibleBottom = 0;
 	MTPInputStickerSet _input;
 
 	mtpRequestId _installRequest = 0;
@@ -129,5 +123,7 @@ private:
 
 	QTimer _previewTimer;
 	int _previewShown = -1;
+
+	rpl::event_stream<uint64> _setInstalled;
 
 };

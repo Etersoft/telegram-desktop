@@ -47,13 +47,20 @@ public:
 
 	void setActionLink(const QString &action);
 
-	void lazyInitialize() override;
+	void lazyInitialize(const style::PeerListItem &st) override;
 
 private:
 	void refreshActionLink();
 	QSize actionSize() const override;
 	QMargins actionMargins() const override;
-	void paintAction(Painter &p, TimeMs ms, int x, int y, int outerWidth, bool actionSelected) override;
+	void paintAction(
+		Painter &p,
+		TimeMs ms,
+		int x,
+		int y,
+		int outerWidth,
+		bool selected,
+		bool actionSelected) override;
 
 	QString _action;
 	int _actionWidth = 0;
@@ -226,5 +233,21 @@ private:
 	void addBotToGroup(not_null<PeerData*> chat);
 
 	not_null<UserData*> _bot;
+
+};
+
+class ChooseRecipientBoxController : public ChatsListBoxController {
+public:
+	ChooseRecipientBoxController(
+		base::lambda<void(not_null<PeerData*>)> callback);
+
+	void rowClicked(not_null<PeerListRow*> row) override;
+
+protected:
+	void prepareViewHook() override;
+	std::unique_ptr<Row> createRow(
+		not_null<History*> history) override;
+
+	base::lambda<void(not_null<PeerData*>)> _callback;
 
 };

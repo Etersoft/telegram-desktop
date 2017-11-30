@@ -243,7 +243,11 @@ void MultiSelect::Item::setOver(bool over) {
 	}
 }
 
-MultiSelect::MultiSelect(QWidget *parent, const style::MultiSelect &st, base::lambda<QString()> placeholderFactory) : TWidget(parent)
+MultiSelect::MultiSelect(
+	QWidget *parent,
+	const style::MultiSelect &st,
+	base::lambda<QString()> placeholderFactory)
+: RpWidget(parent)
 , _st(st)
 , _scroll(this, _st.scroll) {
 	_inner = _scroll->setOwnedWidget(object_ptr<Inner>(this, st, std::move(placeholderFactory), [this](int activeTop, int activeBottom) {
@@ -379,11 +383,7 @@ MultiSelect::Inner::Inner(QWidget *parent, const style::MultiSelect &st, base::l
 
 void MultiSelect::Inner::onQueryChanged() {
 	auto query = getQuery();
-	if (query.isEmpty()) {
-		_cancel->hideAnimated();
-	} else {
-		_cancel->showAnimated();
-	}
+	_cancel->toggle(!query.isEmpty(), anim::type::normal);
 	updateFieldGeometry();
 	if (_queryChangedCallback) {
 		_queryChangedCallback(query);
@@ -418,7 +418,7 @@ void MultiSelect::Inner::setSubmittedCallback(base::lambda<void(bool ctrlShiftEn
 
 void MultiSelect::Inner::updateFieldGeometry() {
 	auto fieldFinalWidth = _fieldWidth;
-	if (_cancel->isShown()) {
+	if (_cancel->toggled()) {
 		fieldFinalWidth -= _st.fieldCancelSkip;
 	}
 	_field->resizeToWidth(fieldFinalWidth);
@@ -643,7 +643,7 @@ void MultiSelect::Inner::finishItemsBunch(AddItemWay way) {
 	if (way != AddItemWay::SkipAnimation) {
 		_items.back()->showAnimated();
 	} else {
-		_field->finishAnimations();
+		_field->finishAnimating();
 		finishHeightAnimation();
 	}
 }

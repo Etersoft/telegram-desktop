@@ -29,7 +29,7 @@ namespace assertion {
 void log(const char *message, const char *file, int line);
 
 // Release build assertions.
-inline void noop() {
+inline constexpr void noop() {
 }
 
 [[noreturn]] inline void fail(const char *message, const char *file, int line) {
@@ -43,9 +43,19 @@ inline void noop() {
 	std::abort();
 }
 
-inline void validate(bool condition, const char *message, const char *file, int line) {
+#ifndef GSL_UNLIKELY
+#define DEFINED_GSL_UNLIKELY_
+#define GSL_UNLIKELY(expression) (expression)
+#endif // GSL_UNLIKELY
+
+inline constexpr void validate(bool condition, const char *message, const char *file, int line) {
 	(GSL_UNLIKELY(!(condition))) ? fail(message, file, line) : noop();
 }
+
+#ifdef DEFINED_GSL_UNLIKELY_
+#undef GSL_UNLIKELY
+#undef DEFINED_GSL_UNLIKELY_
+#endif // DEFINED_GSL_UNLIKELY_
 
 } // namespace assertion
 } // namespace base

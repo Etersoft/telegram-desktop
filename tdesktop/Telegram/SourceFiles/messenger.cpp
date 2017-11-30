@@ -20,6 +20,9 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "messenger.h"
 
+#include <rpl/complete.h>
+#include "data/data_photo.h"
+#include "data/data_document.h"
 #include "base/timer.h"
 #include "storage/localstorage.h"
 #include "platform/platform_specific.h"
@@ -66,7 +69,7 @@ Messenger *Messenger::InstancePointer() {
 
 struct Messenger::Private {
 	UserId authSessionUserId = 0;
-	std::unique_ptr<Local::StoredAuthSession> storedAuthSession;
+	std::unique_ptr<AuthSessionData> storedAuthSession;
 	MTP::Instance::Config mtpConfig;
 	MTP::AuthKeysList mtpKeysToDestroy;
 	base::Timer quitTimer;
@@ -127,7 +130,6 @@ Messenger::Messenger() : QObject()
 	QMimeDatabase().mimeTypeForName(qsl("text/plain"));
 
 	_window = std::make_unique<MainWindow>();
-	_window->createWinId();
 	_window->init();
 
 	auto currentGeometry = _window->geometry();
@@ -204,14 +206,14 @@ void Messenger::showPhoto(not_null<const PhotoOpenClickHandler*> link, HistoryIt
 }
 
 void Messenger::showPhoto(not_null<PhotoData*> photo, HistoryItem *item) {
-	if (_mediaView->isHidden()) Ui::hideLayer(true);
+	if (_mediaView->isHidden()) Ui::hideLayer(anim::type::instant);
 	_mediaView->showPhoto(photo, item);
 	_mediaView->activateWindow();
 	_mediaView->setFocus();
 }
 
 void Messenger::showPhoto(not_null<PhotoData*> photo, PeerData *peer) {
-	if (_mediaView->isHidden()) Ui::hideLayer(true);
+	if (_mediaView->isHidden()) Ui::hideLayer(anim::type::instant);
 	_mediaView->showPhoto(photo, peer);
 	_mediaView->activateWindow();
 	_mediaView->setFocus();
@@ -221,7 +223,9 @@ void Messenger::showDocument(not_null<DocumentData*> document, HistoryItem *item
 	if (cUseExternalVideoPlayer() && document->isVideo()) {
 		QDesktopServices::openUrl(QUrl("file:///" + document->location(false).fname));
 	} else {
-		if (_mediaView->isHidden()) Ui::hideLayer(true);
+		if (_mediaView->isHidden()) {
+			Ui::hideLayer(anim::type::instant);
+		}
 		_mediaView->showDocument(document, item);
 		_mediaView->activateWindow();
 		_mediaView->setFocus();
@@ -334,14 +338,14 @@ void Messenger::setAuthSessionUserId(UserId userId) {
 	_private->authSessionUserId = userId;
 }
 
-void Messenger::setAuthSessionFromStorage(std::unique_ptr<Local::StoredAuthSession> data) {
+void Messenger::setAuthSessionFromStorage(std::unique_ptr<AuthSessionData> data) {
 	Expects(!authSession());
 	_private->storedAuthSession = std::move(data);
 }
 
 AuthSessionData *Messenger::getAuthSessionData() {
 	if (_private->authSessionUserId) {
-		return _private->storedAuthSession ? &_private->storedAuthSession->data : nullptr;
+		return _private->storedAuthSession ? _private->storedAuthSession.get() : nullptr;
 	} else if (_authSession) {
 		return &_authSession->data();
 	}
@@ -411,11 +415,8 @@ void Messenger::startMtp() {
 	}
 	if (_private->storedAuthSession) {
 		if (_authSession) {
-			_authSession->data().copyFrom(_private->storedAuthSession->data);
-			if (auto window = App::wnd()) {
-				Assert(window->controller() != nullptr);
-				window->controller()->dialogsWidthRatio().set(_private->storedAuthSession->dialogsWidthRatio);
-			}
+			_authSession->data().moveFrom(
+				std::move(*_private->storedAuthSession));
 		}
 		_private->storedAuthSession.reset();
 	}
@@ -849,7 +850,7 @@ bool Messenger::openLocalUrl(const QString &url) {
 	return false;
 }
 
-void Messenger::uploadProfilePhoto(const QImage &tosend, const PeerId &peerId) {
+void Messenger::uploadProfilePhoto(QImage &&tosend, const PeerId &peerId) {
 	PreparedPhotoThumbs photoThumbs;
 	QVector<MTPPhotoSize> photoSizes;
 
@@ -993,6 +994,36 @@ QPoint Messenger::getPointForCallPanelCenter() const {
 		return activeWindow->windowHandle()->screen()->geometry().center();
 	}
 	return QApplication::desktop()->screenGeometry().center();
+}
+
+// macOS Qt bug workaround, sometimes no leaveEvent() gets to the nested widgets.
+void Messenger::registerLeaveSubscription(QWidget *widget) {
+#ifdef Q_OS_MAC
+	if (auto topLevel = widget->window()) {
+		if (topLevel == _window.get()) {
+			auto guarded = weak(widget);
+			auto subscription = _window->leaveEvents()
+				| rpl::start_with_next([guarded] {
+					if (auto w = guarded.data()) {
+						QEvent ev(QEvent::Leave);
+						QGuiApplication::sendEvent(w, &ev);
+					}
+				});
+			_leaveSubscriptions.emplace_back(guarded, std::move(subscription));
+		}
+	}
+#endif // Q_OS_MAC
+}
+
+void Messenger::unregisterLeaveSubscription(QWidget *widget) {
+#ifdef Q_OS_MAC
+	_leaveSubscriptions = std::move(
+		_leaveSubscriptions
+	) | ranges::action::remove_if([&](const LeaveSubscription &subscription) {
+		auto pointer = subscription.pointer.data();
+		return !pointer || (pointer == widget);
+	});
+#endif // Q_OS_MAC
 }
 
 void Messenger::QuitAttempt() {

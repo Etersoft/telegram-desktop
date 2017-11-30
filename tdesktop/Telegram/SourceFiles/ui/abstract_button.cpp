@@ -20,7 +20,20 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "ui/abstract_button.h"
 
+#include <rpl/filter.h>
+#include <rpl/mappers.h>
+#include "messenger.h"
+
 namespace Ui {
+
+AbstractButton::AbstractButton(QWidget *parent) : RpWidget(parent) {
+	setMouseTracking(true);
+
+	using namespace rpl::mappers;
+	shownValue()
+		| rpl::filter(_1 == false)
+		| rpl::start_with_next([this] { clearState(); }, lifetime());
+}
 
 void AbstractButton::leaveEventHook(QEvent *e) {
 	if (_state & StateFlag::Down) return;
@@ -71,10 +84,14 @@ void AbstractButton::mouseReleaseEvent(QMouseEvent *e) {
 		onStateChanged(was, StateChangeSource::ByPress);
 		if (was & StateFlag::Over) {
 			_modifiers = e->modifiers();
+			auto test = weak(this);
 			if (_clickedCallback) {
 				_clickedCallback();
 			} else {
 				emit clicked();
+			}
+			if (test) {
+				_clicks.fire({});
 			}
 		} else {
 			setOver(false, StateChangeSource::ByHover);
@@ -93,10 +110,12 @@ void AbstractButton::setOver(bool over, StateChangeSource source) {
 	if (over && !(_state & StateFlag::Over)) {
 		auto was = _state;
 		_state |= StateFlag::Over;
+		Messenger::Instance().registerLeaveSubscription(this);
 		onStateChanged(was, source);
 	} else if (!over && (_state & StateFlag::Over)) {
 		auto was = _state;
 		_state &= ~State(StateFlag::Over);
+		Messenger::Instance().unregisterLeaveSubscription(this);
 		onStateChanged(was, source);
 	}
 	updateCursor();

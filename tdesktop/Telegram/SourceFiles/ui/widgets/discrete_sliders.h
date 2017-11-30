@@ -20,13 +20,15 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
+#include <rpl/event_stream.h>
+#include "ui/rp_widget.h"
 #include "styles/style_widgets.h"
 
 namespace Ui {
 
 class RippleAnimation;
 
-class DiscreteSlider : public TWidget {
+class DiscreteSlider : public RpWidget {
 public:
 	DiscreteSlider(QWidget *parent);
 
@@ -37,9 +39,11 @@ public:
 	}
 	void setActiveSection(int index);
 	void setActiveSectionFast(int index);
+	void finishAnimating();
 
-	using SectionActivatedCallback = base::lambda<void()>;
-	void setSectionActivatedCallback(SectionActivatedCallback &&callback);
+	auto sectionActivated() const {
+		return _sectionActivated.events();
+	}
 
 protected:
 	void timerEvent(QTimerEvent *e) override;
@@ -67,6 +71,9 @@ protected:
 	template <typename Lambda>
 	void enumerateSections(Lambda callback);
 
+	template <typename Lambda>
+	void enumerateSections(Lambda callback) const;
+
 	virtual void startRipple(int sectionIndex) {
 	}
 
@@ -88,7 +95,7 @@ private:
 	int _activeIndex = 0;
 	bool _selectOnPress = true;
 
-	SectionActivatedCallback _callback;
+	rpl::event_stream<int> _sectionActivated;
 
 	int _pressed = -1;
 	int _selected = 0;
@@ -118,6 +125,7 @@ private:
 	QImage prepareRippleMask(int sectionIndex, const Section &section);
 
 	void resizeSections(int newWidth);
+	std::vector<float64> countSectionsWidths(int newWidth) const;
 
 	const style::SettingsSlider &_st;
 	int _rippleTopRoundRadius = 0;

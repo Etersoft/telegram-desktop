@@ -20,6 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "calls/calls_panel.h"
 
+#include "data/data_photo.h"
 #include "calls/calls_emoji_fingerprint.h"
 #include "styles/style_calls.h"
 #include "styles/style_history.h"
@@ -27,7 +28,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/labels.h"
 #include "ui/widgets/shadow.h"
 #include "ui/effects/ripple_animation.h"
-#include "ui/effects/widget_fade_wrap.h"
+#include "ui/wrap/fade_wrap.h"
 #include "messenger.h"
 #include "mainwindow.h"
 #include "lang/lang_keys.h"
@@ -244,11 +245,14 @@ Panel::Panel(not_null<Call*> call)
 : _call(call)
 , _user(call->user())
 , _answerHangupRedial(this, st::callAnswer, &st::callHangup)
-, _decline(this, object_ptr<Button>(this, st::callHangup), st::callPanelDuration)
-, _cancel(this, object_ptr<Button>(this, st::callCancel), st::callPanelDuration)
+, _decline(this, object_ptr<Button>(this, st::callHangup))
+, _cancel(this, object_ptr<Button>(this, st::callCancel))
 , _mute(this, st::callMuteToggle)
 , _name(this, st::callName)
 , _status(this, st::callStatus) {
+	_decline->setDuration(st::callPanelDuration);
+	_cancel->setDuration(st::callPanelDuration);
+
 	setMouseTracking(true);
 	setWindowIcon(Window::CreateIcon());
 	initControls();
@@ -271,13 +275,13 @@ void Panel::replaceCall(not_null<Call*> call) {
 	updateControlsGeometry();
 }
 
-bool Panel::event(QEvent *e) {
+bool Panel::eventHook(QEvent *e) {
 	if (e->type() == QEvent::WindowDeactivate) {
 		if (_call && _call->state() == State::Established) {
 			hideDeactivated();
 		}
 	}
-	return TWidget::event(e);
+	return RpWidget::eventHook(e);
 }
 
 void Panel::hideDeactivated() {
@@ -337,8 +341,8 @@ void Panel::initControls() {
 
 	reinitControls();
 
-	_decline->finishAnimation();
-	_cancel->finishAnimation();
+	_decline->finishAnimating();
+	_cancel->finishAnimating();
 }
 
 void Panel::reinitControls() {
@@ -360,12 +364,10 @@ void Panel::initLayout() {
 
 	initGeometry();
 
-	processUserPhoto();
-	subscribe(Auth().api().fullPeerUpdated(), [this](PeerData *peer) {
-		if (peer == _user) {
-			processUserPhoto();
-		}
-	});
+	Notify::PeerUpdateValue(_user, Notify::PeerUpdate::Flag::PhotoChanged)
+		| rpl::start_with_next(
+			[this] { processUserPhoto(); },
+			lifetime());
 	subscribe(Auth().downloaderTaskFinished(), [this] {
 		refreshUserPhoto();
 	});
@@ -393,7 +395,7 @@ void Panel::toggleOpacityAnimation(bool visible) {
 	}
 }
 
-void Panel::finishAnimation() {
+void Panel::finishAnimating() {
 	_animationCache = QPixmap();
 	if (_call) {
 		if (!_visible) {
@@ -409,8 +411,8 @@ void Panel::finishAnimation() {
 void Panel::showControls() {
 	Expects(_call != nullptr);
 	showChildren();
-	_decline->setVisible(!_decline->isHiddenOrHiding());
-	_cancel->setVisible(!_cancel->isHiddenOrHiding());
+	_decline->setVisible(_decline->toggled());
+	_cancel->setVisible(_cancel->toggled());
 }
 
 void Panel::destroyDelayed() {
@@ -603,7 +605,7 @@ void Panel::paintEvent(QPaintEvent *e) {
 	if (!_animationCache.isNull()) {
 		auto opacity = _opacityAnimation.current(getms(), _call ? 1. : 0.);
 		if (!_opacityAnimation.animating()) {
-			finishAnimation();
+			finishAnimating();
 			if (!_call || isHidden()) return;
 		} else {
 			Platform::StartTranslucentPaint(p, e);
@@ -718,11 +720,11 @@ void Panel::stateChanged(State state) {
 			&& (state != State::FailedHangingUp)
 			&& (state != State::Failed)) {
 			auto toggleButton = [this](auto &&button, bool visible) {
-				if (isHidden()) {
-					button->toggleFast(visible);
-				} else {
-					button->toggleAnimated(visible);
-				}
+				button->toggle(
+					visible,
+					isHidden()
+						? anim::type::instant
+						: anim::type::normal);
 			};
 			auto incomingWaiting = _call->isIncomingWaiting();
 			if (incomingWaiting) {
@@ -730,7 +732,8 @@ void Panel::stateChanged(State state) {
 			}
 			toggleButton(_decline, incomingWaiting);
 			toggleButton(_cancel, (state == State::Busy));
-			auto hangupShown = _decline->isHiddenOrHiding() && _cancel->isHiddenOrHiding();
+			auto hangupShown = !_decline->toggled()
+				&& !_cancel->toggled();
 			if (_hangupShown != hangupShown) {
 				_hangupShown = hangupShown;
 				_hangupShownProgress.start([this] { updateHangupGeometry(); }, _hangupShown ? 0. : 1., _hangupShown ? 1. : 0., st::callPanelDuration, anim::sineInOut);

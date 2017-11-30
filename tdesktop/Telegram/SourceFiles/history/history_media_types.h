@@ -22,6 +22,10 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "history/history_media.h"
 #include "ui/effects/radial_animation.h"
+#include "data/data_document.h"
+#include "data/data_photo.h"
+#include "data/data_web_page.h"
+#include "data/data_game.h"
 
 namespace Media {
 namespace Clip {
@@ -140,7 +144,9 @@ public:
 	void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const override;
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT {
+	[[nodiscard]] TextSelection adjustSelection(
+			TextSelection selection,
+			TextSelectType type) const override {
 		return _caption.adjustSelection(selection, type);
 	}
 	uint16 fullSelectionLength() const override {
@@ -156,6 +162,7 @@ public:
 
 	int32 addToOverview(AddToOverviewMethod method) override;
 	void eraseFromOverview() override;
+	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	PhotoData *photo() const {
 		return _data;
@@ -225,7 +232,9 @@ public:
 	void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const override;
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT {
+	[[nodiscard]] TextSelection adjustSelection(
+			TextSelection selection,
+			TextSelectType type) const override {
 		return _caption.adjustSelection(selection, type);
 	}
 	uint16 fullSelectionLength() const override {
@@ -241,6 +250,7 @@ public:
 
 	int32 addToOverview(AddToOverviewMethod method) override;
 	void eraseFromOverview() override;
+	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	DocumentData *getDocument() override {
 		return _data;
@@ -376,7 +386,9 @@ public:
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 	void updatePressed(QPoint point) override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT {
+	[[nodiscard]] TextSelection adjustSelection(
+			TextSelection selection,
+			TextSelectType type) const override {
 		if (auto captioned = Get<HistoryDocumentCaptioned>()) {
 			return captioned->_caption.adjustSelection(selection, type);
 		}
@@ -398,6 +410,7 @@ public:
 
 	int32 addToOverview(AddToOverviewMethod method) override;
 	void eraseFromOverview() override;
+	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	bool uploading() const override {
 		return _data->uploading();
@@ -488,7 +501,9 @@ public:
 	void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const override;
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT {
+	[[nodiscard]] TextSelection adjustSelection(
+			TextSelection selection,
+			TextSelectType type) const override {
 		return _caption.adjustSelection(selection, type);
 	}
 	uint16 fullSelectionLength() const override {
@@ -504,6 +519,7 @@ public:
 
 	int32 addToOverview(AddToOverviewMethod method) override;
 	void eraseFromOverview() override;
+	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	bool uploading() const override {
 		return _data->uploading();
@@ -787,7 +803,9 @@ public:
 	void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const override;
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT;
+	[[nodiscard]] TextSelection adjustSelection(
+		TextSelection selection,
+		TextSelectType type) const override;
 	uint16 fullSelectionLength() const override {
 		return _title.length() + _description.length();
 	}
@@ -894,7 +912,9 @@ public:
 	void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const override;
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT;
+	[[nodiscard]] TextSelection adjustSelection(
+		TextSelection selection,
+		TextSelectType type) const override;
 	uint16 fullSelectionLength() const override {
 		return _title.length() + _description.length();
 	}
@@ -1003,12 +1023,14 @@ public:
 	QString getTitle() const {
 		return _title.originalText();
 	}
-	static QString fillAmountAndCurrency(int amount, const QString &currency);
+	static QString fillAmountAndCurrency(uint64 amount, const QString &currency);
 
 	void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const override;
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT;
+	[[nodiscard]] TextSelection adjustSelection(
+		TextSelection selection,
+		TextSelectType type) const override;
 	uint16 fullSelectionLength() const override {
 		return _title.length() + _description.length();
 	}
@@ -1094,7 +1116,9 @@ public:
 	void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const override;
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT;
+	[[nodiscard]] TextSelection adjustSelection(
+		TextSelection selection,
+		TextSelectType type) const override;
 	uint16 fullSelectionLength() const override {
 		return _title.length() + _description.length();
 	}

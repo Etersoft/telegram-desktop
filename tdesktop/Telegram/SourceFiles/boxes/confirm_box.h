@@ -164,7 +164,7 @@ private:
 	MsgId _msgId;
 
 	object_ptr<Ui::FlatLabel> _text;
-	object_ptr<Ui::Checkbox> _notify;
+	object_ptr<Ui::Checkbox> _notify = { nullptr };
 
 	mtpRequestId _requestId = 0;
 
@@ -172,7 +172,10 @@ private:
 
 class DeleteMessagesBox : public BoxContent, public RPCSender {
 public:
-	DeleteMessagesBox(QWidget*, HistoryItem *item, bool suggestModerateActions);
+	DeleteMessagesBox(
+		QWidget*,
+		not_null<HistoryItem*> item,
+		bool suggestModerateActions);
 	DeleteMessagesBox(QWidget*, const SelectedItemSet &selected);
 
 protected:
@@ -184,8 +187,10 @@ protected:
 private:
 	void deleteAndClear();
 
-	QVector<FullMsgId> _ids;
-	bool _singleItem = false;
+	static std::vector<FullMsgId> CollectFrom(const SelectedItemSet &items);
+
+	const std::vector<FullMsgId> _ids;
+	const bool _singleItem = false;
 	UserData *_moderateFrom = nullptr;
 	ChannelData *_moderateInChannel = nullptr;
 	bool _moderateBan = false;

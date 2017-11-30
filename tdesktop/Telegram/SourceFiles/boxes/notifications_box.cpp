@@ -127,7 +127,10 @@ void NotificationsBox::prepare() {
 		_sampleOpacities.push_back(Animation());
 	}
 	_countSlider->setActiveSectionFast(_oldCount - 1);
-	_countSlider->setSectionActivatedCallback([this] { countChanged(); });
+	_countSlider->sectionActivated()
+		| rpl::start_with_next(
+			[this] { countChanged(); },
+			lifetime());
 
 	setMouseTracking(true);
 

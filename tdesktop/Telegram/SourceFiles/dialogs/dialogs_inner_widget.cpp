@@ -25,6 +25,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "dialogs/dialogs_search_from_controllers.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_chat_helpers.h"
+#include "styles/style_window.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/popup_menu.h"
 #include "data/data_drafts.h"
@@ -38,6 +39,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "auth_session.h"
 #include "window/notifications_manager.h"
 #include "window/window_controller.h"
+#include "window/window_peer_menu.h"
 #include "ui/widgets/multi_select.h"
 
 namespace {
@@ -92,9 +94,16 @@ DialogsInner::DialogsInner(QWidget *parent, not_null<Window::Controller*> contro
 	_cancelSearchFromUser->hide();
 
 	subscribe(Auth().downloaderTaskFinished(), [this] { update(); });
-	subscribe(Global::RefItemRemoved(), [this](HistoryItem *item) {
-		itemRemoved(item);
-	});
+	Auth().data().itemRemoved()
+		| rpl::start_with_next(
+			[this](auto item) { itemRemoved(item); },
+			lifetime());
+	Auth().data().itemRepaintRequest()
+		| rpl::start_with_next([this](auto item) {
+			if (item->history()->lastMsg == item) {
+				item->history()->updateChatListEntry();
+			}
+		}, lifetime());
 	subscribe(App::histories().sendActionAnimationUpdated(), [this](const Histories::SendActionAnimationUpdate &update) {
 		auto updateRect = Dialogs::Layout::RowPainter::sendActionAnimationRect(update.width, update.height, getFullWidth(), update.textUpdated);
 		updateDialogRow(update.history->peer, MsgId(0), updateRect, UpdateRowSection::Default | UpdateRowSection::Filtered);
@@ -115,7 +124,7 @@ DialogsInner::DialogsInner(QWidget *parent, not_null<Window::Controller*> contro
 			stopReorderPinned();
 		}
 		if (update.flags & UpdateFlag::NameChanged) {
-			handlePeerNameChange(update.peer, update.oldNames, update.oldNameFirstChars);
+			handlePeerNameChange(update.peer, update.oldNameFirstChars);
 		}
 		if (update.flags & UpdateFlag::PhotoChanged) {
 			this->update();
@@ -951,7 +960,7 @@ void DialogsInner::setSearchedPressed(int pressed) {
 
 void DialogsInner::resizeEvent(QResizeEvent *e) {
 	_addContactLnk->move((width() - _addContactLnk->width()) / 2, (st::noContactsHeight + st::noContactsFont->height) / 2);
-	auto widthForCancelButton = qMax(width() + otherWidth(), st::dialogsWidthMin);
+	auto widthForCancelButton = qMax(width() + otherWidth(), st::columnMinimalWidthLeft);
 	_cancelSearchInPeer->moveToLeft(widthForCancelButton - st::dialogsSearchInSkip - _cancelSearchInPeer->width(), st::searchedBarHeight + (st::dialogsSearchInHeight - st::dialogsCancelSearchInPeer.height) / 2);
 	_cancelSearchFromUser->moveToLeft(widthForCancelButton - st::dialogsSearchInSkip - _cancelSearchFromUser->width(), st::searchedBarHeight + st::dialogsSearchInHeight + st::lineWidth + (st::dialogsSearchInHeight - st::dialogsCancelSearchInPeer.height) / 2);
 }
@@ -1036,7 +1045,7 @@ void DialogsInner::createDialog(History *history) {
 void DialogsInner::removeDialog(History *history) {
 	if (!history) return;
 	if (history->peer == _menuPeer && _menu) {
-		_menu->deleteLater();
+		InvokeQueued(this, [this] { _menu = nullptr; });
 	}
 	if (_selected && _selected->history() == history) {
 		_selected = nullptr;
@@ -1203,47 +1212,41 @@ void DialogsInner::clearSelection() {
 }
 
 void DialogsInner::contextMenuEvent(QContextMenuEvent *e) {
-	if (_menu) {
-		_menu->deleteLater();
-		_menu = nullptr;
-	}
-	if (_menuPeer) {
-		updateSelectedRow(_menuPeer);
-		_menuPeer = nullptr;
-	}
+	_menu = nullptr;
 
 	if (e->reason() == QContextMenuEvent::Mouse) {
 		_mouseSelection = true;
 		updateSelected();
 	}
 
-	History *history = nullptr;
-	if (_state == DefaultState) {
-		if (_selected) history = _selected->history();
-	} else if (_state == FilteredState || _state == SearchedState) {
-		if (_filteredSelected >= 0 && _filteredSelected < _filterResults.size()) {
-			history = _filterResults[_filteredSelected]->history();
+	auto history = [&]() -> History* {
+		if (_state == DefaultState) {
+			if (_selected) {
+				return _selected->history();
+			}
+		} else if (_state == FilteredState || _state == SearchedState) {
+			if (_filteredSelected >= 0 && _filteredSelected < _filterResults.size()) {
+				return _filterResults[_filteredSelected]->history();
+			}
 		}
-	}
+		return nullptr;
+	}();
 	if (!history) return;
-	_menuPeer = history->peer;
 
+	_menuPeer = history->peer;
 	if (_pressButton != Qt::LeftButton) {
 		mousePressReleased(_pressButton);
 	}
 
-	_menu = new Ui::PopupMenu(nullptr);
-	App::main()->fillPeerMenu(_menuPeer, [this](const QString &text, base::lambda<void()> callback) {
-		return _menu->addAction(text, std::move(callback));
-	}, true);
-	connect(_menu, SIGNAL(destroyed(QObject*)), this, SLOT(onMenuDestroyed(QObject*)));
-	_menu->popup(e->globalPos());
-	e->accept();
-}
-
-void DialogsInner::onMenuDestroyed(QObject *obj) {
-	if (_menu == obj) {
-		_menu = nullptr;
+	_menu = base::make_unique_q<Ui::PopupMenu>(nullptr);
+	Window::FillPeerMenu(
+		_controller,
+		_menuPeer,
+		[this](const QString &text, base::lambda<void()> callback) {
+			return _menu->addAction(text, std::move(callback));
+		},
+		Window::PeerMenuSource::ChatsList);
+	connect(_menu.get(), &QObject::destroyed, [this] {
 		if (_menuPeer) {
 			updateSelectedRow(base::take(_menuPeer));
 		}
@@ -1253,7 +1256,9 @@ void DialogsInner::onMenuDestroyed(QObject *obj) {
 			setMouseTracking(true);
 			updateSelected(localPos);
 		}
-	}
+	});
+	_menu->popup(e->globalPos());
+	e->accept();
 }
 
 void DialogsInner::onParentGeometryChanged() {
@@ -1264,13 +1269,13 @@ void DialogsInner::onParentGeometryChanged() {
 	}
 }
 
-void DialogsInner::handlePeerNameChange(not_null<PeerData*> peer, const PeerData::Names &oldNames, const PeerData::NameFirstChars &oldChars) {
-	_dialogs->peerNameChanged(Dialogs::Mode::All, peer, oldNames, oldChars);
+void DialogsInner::handlePeerNameChange(not_null<PeerData*> peer, const PeerData::NameFirstChars &oldChars) {
+	_dialogs->peerNameChanged(Dialogs::Mode::All, peer, oldChars);
 	if (_dialogsImportant) {
-		_dialogsImportant->peerNameChanged(Dialogs::Mode::Important, peer, oldNames, oldChars);
+		_dialogsImportant->peerNameChanged(Dialogs::Mode::Important, peer, oldChars);
 	}
-	_contactsNoDialogs->peerNameChanged(peer, oldNames, oldChars);
-	_contacts->peerNameChanged(peer, oldNames, oldChars);
+	_contactsNoDialogs->peerNameChanged(peer, oldChars);
+	_contacts->peerNameChanged(peer, oldChars);
 	update();
 }
 
@@ -1316,12 +1321,12 @@ void DialogsInner::onFilterUpdate(QString newFilter, bool force) {
 				_filterResults.reserve((toFilter ? toFilter->size() : 0) + (toFilterContacts ? toFilterContacts->size() : 0));
 				if (toFilter) {
 					for_const (auto row, *toFilter) {
-						const PeerData::Names &names(row->history()->peer->names);
-						PeerData::Names::const_iterator nb = names.cbegin(), ne = names.cend(), ni;
+						const auto &nameWords = row->history()->peer->nameWords();
+						auto nb = nameWords.cbegin(), ne = nameWords.cend(), ni = nb;
 						for (fi = fb; fi != fe; ++fi) {
-							QString filterName(*fi);
+							auto filterWord = *fi;
 							for (ni = nb; ni != ne; ++ni) {
-								if (ni->startsWith(*fi)) {
+								if (ni->startsWith(filterWord)) {
 									break;
 								}
 							}
@@ -1336,12 +1341,12 @@ void DialogsInner::onFilterUpdate(QString newFilter, bool force) {
 				}
 				if (toFilterContacts) {
 					for_const (auto row, *toFilterContacts) {
-						const PeerData::Names &names(row->history()->peer->names);
-						PeerData::Names::const_iterator nb = names.cbegin(), ne = names.cend(), ni;
+						const auto &nameWords = row->history()->peer->nameWords();
+						auto nb = nameWords.cbegin(), ne = nameWords.cend(), ni = nb;
 						for (fi = fb; fi != fe; ++fi) {
-							QString filterName(*fi);
+							auto filterWord = *fi;
 							for (ni = nb; ni != ne; ++ni) {
-								if (ni->startsWith(*fi)) {
+								if (ni->startsWith(filterWord)) {
 									break;
 								}
 							}
@@ -1423,7 +1428,9 @@ PeerData *DialogsInner::updateFromParentDrag(QPoint globalPos) {
 	return nullptr;
 }
 
-void DialogsInner::setVisibleTopBottom(int visibleTop, int visibleBottom) {
+void DialogsInner::visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) {
 	_visibleTop = visibleTop;
 	_visibleBottom = visibleBottom;
 	loadPeerPhotos();
@@ -1434,7 +1441,7 @@ void DialogsInner::setVisibleTopBottom(int visibleTop, int visibleBottom) {
 	}
 }
 
-void DialogsInner::itemRemoved(HistoryItem *item) {
+void DialogsInner::itemRemoved(not_null<const HistoryItem*> item) {
 	int wasCount = _searchResults.size();
 	for (auto i = _searchResults.begin(); i != _searchResults.end();) {
 		if ((*i)->item() == item) {

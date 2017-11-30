@@ -595,7 +595,11 @@ public:
 					auto &link = links[lnkIndex - maxLnkIndex - 1];
 					ClickHandlerPtr handler;
 					switch (link.type) {
-					case EntityInTextCustomUrl: handler = MakeShared<HiddenUrlClickHandler>(link.data); break;
+					case EntityInTextCustomUrl: {
+						if (!link.data.isEmpty()) {
+							handler = MakeShared<HiddenUrlClickHandler>(link.data);
+						}
+					} break;
 					case EntityInTextEmail:
 					case EntityInTextUrl: handler = MakeShared<UrlClickHandler>(link.data, link.displayStatus == LinkDisplayedFull); break;
 					case EntityInTextBotCommand: handler = MakeShared<BotCommandClickHandler>(link.data); break;
@@ -659,8 +663,13 @@ private:
 	};
 
 	void computeLinkText(const QString &linkData, QString *outLinkText, LinkDisplayStatus *outDisplayStatus) {
-		QUrl url(linkData), good(url.isValid() ? url.toEncoded() : "");
-		QString readable = good.isValid() ? good.toDisplayString() : linkData;
+		auto url = QUrl(linkData);
+		auto good = QUrl(url.isValid()
+			? url.toEncoded()
+			: QByteArray());
+		auto readable = good.isValid()
+			? good.toDisplayString()
+			: linkData;
 		*outLinkText = _t->_st->font->elided(readable, st::linkCropLimit);
 		*outDisplayStatus = (*outLinkText == readable) ? LinkDisplayedFull : LinkDisplayedElided;
 	}
@@ -717,7 +726,7 @@ enum { _MaxItemLength = 4096 };
 
 struct BidiControl {
 	inline BidiControl(bool rtl)
-		: cCtx(0), base(rtl ? 1 : 0), level(rtl ? 1 : 0), override(false) {}
+		: base(rtl ? 1 : 0), level(rtl ? 1 : 0) {}
 
 	inline void embed(bool rtl, bool o = false) {
 		unsigned int toAdd = 1;
@@ -751,13 +760,13 @@ struct BidiControl {
 	}
 
 	struct {
-		unsigned int level;
-		bool override;
+		unsigned int level = 0;
+		bool override = false;
 	} ctx[_MaxBidiLevel];
-	unsigned int cCtx;
+	unsigned int cCtx = 0;
 	const unsigned int base;
 	unsigned int level;
-	bool override;
+	bool override = false;
 };
 
 static void eAppendItems(QScriptAnalysis *analysis, int &start, int &stop, const BidiControl &control, QChar::Direction dir) {
@@ -2115,7 +2124,7 @@ private:
 								status.eor = QChar::DirON;
 								dir = QChar::DirAN;
 							}
-							// fall through
+							[[fallthrough]];
 						case QChar::DirEN:
 						case QChar::DirL:
 							eor = current;
@@ -2129,12 +2138,14 @@ private:
 							else
 								eor = current;
 							status.eor = QChar::DirEN;
-							dir = QChar::DirAN; break;
+							dir = QChar::DirAN;
+							break;
 						case QChar::DirES:
 						case QChar::DirCS:
 							if(status.eor == QChar::DirEN || dir == QChar::DirAN) {
 								eor = current; break;
 							}
+							[[fallthrough]];
 						case QChar::DirBN:
 						case QChar::DirB:
 						case QChar::DirS:
@@ -2164,11 +2175,13 @@ private:
 									eor = current; status.eor = dirCurrent;
 								}
 							}
+							[[fallthrough]];
 						default:
 							break;
 						}
 					break;
 				}
+				[[fallthrough]];
 			case QChar::DirAN:
 				hasBidi = true;
 				dirCurrent = QChar::DirAN;
@@ -2177,7 +2190,8 @@ private:
 					{
 					case QChar::DirL:
 					case QChar::DirAN:
-						eor = current; status.eor = QChar::DirAN; break;
+						eor = current; status.eor = QChar::DirAN;
+						break;
 					case QChar::DirR:
 					case QChar::DirAL:
 					case QChar::DirEN:
@@ -2192,6 +2206,7 @@ private:
 						if(status.eor == QChar::DirAN) {
 							eor = current; break;
 						}
+						[[fallthrough]];
 					case QChar::DirES:
 					case QChar::DirET:
 					case QChar::DirBN:
@@ -2222,6 +2237,7 @@ private:
 								eor = current; status.eor = dirCurrent;
 							}
 						}
+						[[fallthrough]];
 					default:
 						break;
 					}
@@ -2293,7 +2309,7 @@ private:
 					status.last = QChar::DirL;
 					break;
 				}
-				// fall through
+				[[fallthrough]];
 			default:
 				status.last = dirCurrent;
 			}

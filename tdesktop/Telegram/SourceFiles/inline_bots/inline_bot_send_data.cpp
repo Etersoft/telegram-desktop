@@ -20,6 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "inline_bots/inline_bot_send_data.h"
 
+#include "data/data_document.h"
 #include "inline_bots/inline_bot_result.h"
 #include "storage/localstorage.h"
 #include "lang/lang_keys.h"
@@ -47,7 +48,7 @@ UserId viaBotId, MsgId replyToId, const QString &postAuthor, const MTPReplyMarku
 
 QString SendDataCommon::getErrorOnSend(const Result *owner, History *history) const {
 	if (auto megagroup = history->peer->asMegagroup()) {
-		if (megagroup->restrictedRights().is_send_messages()) {
+		if (megagroup->restricted(ChannelRestriction::f_send_messages)) {
 			return lang(lng_restricted_send_message);
 		}
 	}
@@ -69,7 +70,14 @@ SendDataCommon::SentMTPMessageFields SendGeo::getSentMessageFields() const {
 
 SendDataCommon::SentMTPMessageFields SendVenue::getSentMessageFields() const {
 	SentMTPMessageFields result;
-	result.media = MTP_messageMediaVenue(_location.toMTP(), MTP_string(_title), MTP_string(_address), MTP_string(_provider), MTP_string(_venueId));
+	auto venueType = QString();
+	result.media = MTP_messageMediaVenue(
+		_location.toMTP(),
+		MTP_string(_title),
+		MTP_string(_address),
+		MTP_string(_provider),
+		MTP_string(_venueId),
+		MTP_string(venueType));
 	return result;
 }
 
@@ -95,7 +103,7 @@ UserId viaBotId, MsgId replyToId, const QString &postAuthor, const MTPReplyMarku
 
 QString SendPhoto::getErrorOnSend(const Result *owner, History *history) const {
 	if (auto megagroup = history->peer->asMegagroup()) {
-		if (megagroup->restrictedRights().is_send_media()) {
+		if (megagroup->restricted(ChannelRestriction::f_send_media)) {
 			return lang(lng_restricted_send_media);
 		}
 	}
@@ -110,11 +118,11 @@ UserId viaBotId, MsgId replyToId, const QString &postAuthor, const MTPReplyMarku
 
 QString SendFile::getErrorOnSend(const Result *owner, History *history) const {
 	if (auto megagroup = history->peer->asMegagroup()) {
-		if (megagroup->restrictedRights().is_send_media()) {
+		if (megagroup->restricted(ChannelRestriction::f_send_media)) {
 			return lang(lng_restricted_send_media);
-		} else if (megagroup->restrictedRights().is_send_stickers() && (_document->sticker() != nullptr)) {
+		} else if (megagroup->restricted(ChannelRestriction::f_send_stickers) && (_document->sticker() != nullptr)) {
 			return lang(lng_restricted_send_stickers);
-		} else if (megagroup->restrictedRights().is_send_gifs() && _document->isAnimation() && !_document->isRoundVideo()) {
+		} else if (megagroup->restricted(ChannelRestriction::f_send_gifs) && _document->isAnimation() && !_document->isRoundVideo()) {
 			return lang(lng_restricted_send_gifs);
 		}
 	}
@@ -129,7 +137,7 @@ void SendGame::addToHistory(const Result *owner, History *history,
 
 QString SendGame::getErrorOnSend(const Result *owner, History *history) const {
 	if (auto megagroup = history->peer->asMegagroup()) {
-		if (megagroup->restrictedRights().is_send_games()) {
+		if (megagroup->restricted(ChannelRestriction::f_send_games)) {
 			return lang(lng_restricted_send_inline);
 		}
 	}

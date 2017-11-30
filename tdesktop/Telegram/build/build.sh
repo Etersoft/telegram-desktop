@@ -131,12 +131,52 @@ if [ "$BuildTarget" == "linux" ] || [ "$BuildTarget" == "linux32" ]; then
     Error "$BinaryName not found!"
   fi
 
+  BadCount=`objdump -T $ReleasePath/$BinaryName | grep GLIBC_2\.1[6-9] | wc -l`
+  if [ "$BadCount" != "0" ]; then
+    Error "Bad GLIBC usages found: $BadCount"
+  fi
+
+  BadCount=`objdump -T $ReleasePath/$BinaryName | grep GLIBC_2\.2[0-9] | wc -l`
+  if [ "$BadCount" != "0" ]; then
+    Error "Bad GLIBC usages found: $BadCount"
+  fi
+
+  BadCount=`objdump -T $ReleasePath/$BinaryName | grep GCC_4\.[3-9] | wc -l`
+  if [ "$BadCount" != "0" ]; then
+    Error "Bad GCC usages found: $BadCount"
+  fi
+
+  BadCount=`objdump -T $ReleasePath/$BinaryName | grep GCC_[5-9]\. | wc -l`
+  if [ "$BadCount" != "0" ]; then
+    Error "Bad GCC usages found: $BadCount"
+  fi
+
   if [ ! -f "$ReleasePath/Updater" ]; then
     Error "Updater not found!"
   fi
 
+  BadCount=`objdump -T $ReleasePath/Updater | grep GLIBC_2\.1[6-9] | wc -l`
+  if [ "$BadCount" != "0" ]; then
+    Error "Bad GLIBC usages found: $BadCount"
+  fi
+
+  BadCount=`objdump -T $ReleasePath/Updater | grep GLIBC_2\.2[0-9] | wc -l`
+  if [ "$BadCount" != "0" ]; then
+    Error "Bad GLIBC usages found: $BadCount"
+  fi
+
+  BadCount=`objdump -T $ReleasePath/Updater | grep GCC_4\.[3-9] | wc -l`
+  if [ "$BadCount" != "0" ]; then
+    Error "Bad GCC usages found: $BadCount"
+  fi
+
+  BadCount=`objdump -T $ReleasePath/Updater | grep GCC_[5-9]\. | wc -l`
+  if [ "$BadCount" != "0" ]; then
+    Error "Bad GCC usages found: $BadCount"
+  fi
+
   echo "Dumping debug symbols.."
-  "$HomePath/../../Libraries/breakpad/src/tools/linux/dump_syms/dump_syms" "$ReleasePath/$BinaryName" > "$ReleasePath/$BinaryName.sym"
+  "$HomePath/../../Libraries/breakpad/out/Default/dump_syms" "$ReleasePath/$BinaryName" > "$ReleasePath/$BinaryName.sym"
   echo "Done!"
 
   echo "Stripping the executable.."
@@ -190,7 +230,7 @@ fi
 
 if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "mac32" ] || [ "$BuildTarget" == "macstore" ]; then
 
-  DropboxSymbolsPath="/Volumes/Storage/Dropbox/Telegram/symbols"
+  DropboxSymbolsPath="$HOME/Dropbox/Telegram/symbols"
   if [ ! -d "$DropboxSymbolsPath" ]; then
     Error "Dropbox path not found!"
   fi
@@ -329,7 +369,7 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "mac32" ] || [ "$BuildTarg
     mv "$ReleasePath/$SetupFile" "$DeployPath/"
 
     if [ "$BuildTarget" == "mac32" ]; then
-      ReleaseToPath="$HomePath/../../tother/tmac32"
+      ReleaseToPath="$HomePath/../../deploy_temp/tmac32"
       DeployToPath="$ReleaseToPath/$AppVersionStrMajor/$AppVersionStrFull"
       if [ ! -d "$ReleaseToPath/$AppVersionStrMajor" ]; then
         mkdir "$ReleaseToPath/$AppVersionStrMajor"

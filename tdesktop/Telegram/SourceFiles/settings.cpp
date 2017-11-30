@@ -21,6 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "settings.h"
 
 #include "platform/platform_specific.h"
+#include "data/data_document.h"
 
 bool gRtl = false;
 Qt::LayoutDirection gLangDir = gRtl ? Qt::RightToLeft : Qt::LeftToRight;
@@ -76,9 +77,6 @@ EmojiColorVariants gEmojiVariants;
 
 RecentStickerPreload gRecentStickersPreload;
 RecentStickerPack gRecentStickers;
-
-SavedGifs gSavedGifs;
-TimeMs gLastSavedGifsUpdate = 0;
 
 RecentHashtagPack gRecentWriteHashtags, gRecentSearchHashtags;
 

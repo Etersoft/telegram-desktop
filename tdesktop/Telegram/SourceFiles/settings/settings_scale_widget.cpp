@@ -52,15 +52,18 @@ ScaleWidget::ScaleWidget(QWidget *parent, UserData *self) : BlockWidget(parent, 
 void ScaleWidget::createControls() {
 	style::margins margin(0, 0, 0, st::settingsSmallSkip);
 
-	addChildRow(_auto, margin, lng_settings_scale_auto(lt_cur, scaleLabel(cScreenScale())), [this](bool) { onAutoChanged(); }, (cConfigScale() == dbisAuto));
-	addChildRow(_scale, style::margins(0, 0, 0, 0));
+	createChildRow(_auto, margin, lng_settings_scale_auto(lt_cur, scaleLabel(cScreenScale())), [this](bool) { onAutoChanged(); }, (cConfigScale() == dbisAuto));
+	createChildRow(_scale, style::margins(0, 0, 0, 0));
 
 	_scale->addSection(scaleLabel(dbisOne));
 	_scale->addSection(scaleLabel(dbisOneAndQuarter));
 	_scale->addSection(scaleLabel(dbisOneAndHalf));
 	_scale->addSection(scaleLabel(dbisTwo));
 	_scale->setActiveSectionFast(cEvalScale(cConfigScale()) - 1);
-	_scale->setSectionActivatedCallback([this] { scaleChanged(); });
+	_scale->sectionActivated()
+		| rpl::start_with_next(
+			[this] { scaleChanged(); },
+			lifetime());
 }
 
 void ScaleWidget::onAutoChanged() {

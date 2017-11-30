@@ -214,39 +214,39 @@ public:
 		SpecificRequestBuilder(SpecificRequestBuilder &&other) = default;
 
 	public:
-		SpecificRequestBuilder &toDC(ShiftedDcId dcId) noexcept WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &toDC(ShiftedDcId dcId) noexcept {
 			setToDC(dcId);
 			return *this;
 		}
-		SpecificRequestBuilder &canWait(TimeMs ms) noexcept WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &canWait(TimeMs ms) noexcept {
 			setCanWait(ms);
 			return *this;
 		}
-		SpecificRequestBuilder &done(base::lambda_once<void(const typename Request::ResponseType &result)> callback) WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &done(base::lambda_once<void(const typename Request::ResponseType &result)> callback) {
 			setDoneHandler(MakeShared<DoneHandler<typename Request::ResponseType, DonePlainPolicy>>(sender(), std::move(callback)));
 			return *this;
 		}
-		SpecificRequestBuilder &done(base::lambda_once<void(const typename Request::ResponseType &result, mtpRequestId requestId)> callback) WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &done(base::lambda_once<void(const typename Request::ResponseType &result, mtpRequestId requestId)> callback) {
 			setDoneHandler(MakeShared<DoneHandler<typename Request::ResponseType, DoneRequestIdPolicy>>(sender(), std::move(callback)));
 			return *this;
 		}
-		SpecificRequestBuilder &fail(base::lambda_once<void(const RPCError &error)> callback) noexcept WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &fail(base::lambda_once<void(const RPCError &error)> callback) noexcept {
 			setFailHandler(std::move(callback));
 			return *this;
 		}
-		SpecificRequestBuilder &fail(base::lambda_once<void(const RPCError &error, mtpRequestId requestId)> callback) noexcept WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &fail(base::lambda_once<void(const RPCError &error, mtpRequestId requestId)> callback) noexcept {
 			setFailHandler(std::move(callback));
 			return *this;
 		}
-		SpecificRequestBuilder &handleFloodErrors() noexcept WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &handleFloodErrors() noexcept {
 			setFailSkipPolicy(FailSkipPolicy::HandleFlood);
 			return *this;
 		}
-		SpecificRequestBuilder &handleAllErrors() noexcept WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &handleAllErrors() noexcept {
 			setFailSkipPolicy(FailSkipPolicy::HandleAll);
 			return *this;
 		}
-		SpecificRequestBuilder &after(mtpRequestId requestId) noexcept WARN_UNUSED_RESULT {
+		[[nodiscard]] SpecificRequestBuilder &after(mtpRequestId requestId) noexcept {
 			setAfter(requestId);
 			return *this;
 		}
@@ -279,12 +279,15 @@ public:
 
 	};
 
-	template <typename Request, typename = std::enable_if_t<std::is_rvalue_reference<Request&&>::value>, typename = typename Request::Unboxed>
-	SpecificRequestBuilder<Request> request(Request &&request) noexcept WARN_UNUSED_RESULT;
+	template <
+		typename Request,
+		typename = std::enable_if_t<!std::is_reference_v<Request>>,
+		typename = typename Request::Unboxed>
+	[[nodiscard]] SpecificRequestBuilder<Request> request(Request &&request) noexcept;
 
-	SentRequestWrap request(mtpRequestId requestId) noexcept WARN_UNUSED_RESULT;
+	[[nodiscard]] SentRequestWrap request(mtpRequestId requestId) noexcept;
 
-	decltype(auto) requestCanceller() noexcept WARN_UNUSED_RESULT {
+	[[nodiscard]] auto requestCanceller() noexcept {
 		return [this](mtpRequestId requestId) {
 			request(requestId).cancel();
 		};
@@ -305,7 +308,22 @@ public:
 private:
 	class RequestWrap {
 	public:
-		RequestWrap(Instance *instance, mtpRequestId requestId) noexcept : _id(requestId) {
+		RequestWrap(
+			Instance *instance,
+			mtpRequestId requestId) noexcept
+		: _id(requestId) {
+		}
+
+		RequestWrap(const RequestWrap &other) = delete;
+		RequestWrap &operator=(const RequestWrap &other) = delete;
+		RequestWrap(RequestWrap &&other) : _id(base::take(other._id)) {
+		}
+		RequestWrap &operator=(RequestWrap &&other) {
+			if (_id != other._id) {
+				cancelRequest();
+				_id = base::take(other._id);
+			}
+			return *this;
 		}
 
 		mtpRequestId id() const noexcept {
@@ -315,12 +333,17 @@ private:
 		}
 
 		~RequestWrap() {
-			if (auto instance = MainInstance()) {
-				instance->cancel(_id);
-			}
+			cancelRequest();
 		}
 
 	private:
+		void cancelRequest() {
+			if (_id) {
+				if (auto instance = MainInstance()) {
+					instance->cancel(_id);
+				}
+			}
+		}
 		mtpRequestId _id = 0;
 
 	};
@@ -370,7 +393,7 @@ private:
 		}
 	}
 
-	std::set<RequestWrap, RequestWrapComparator> _requests; // Better to use flatmap.
+	base::flat_set<RequestWrap, RequestWrapComparator> _requests;
 
 };
 

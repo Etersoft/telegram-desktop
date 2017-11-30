@@ -20,6 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "chat_helpers/field_autocomplete.h"
 
+#include "data/data_document.h"
 #include "mainwindow.h"
 #include "apiwrap.h"
 #include "storage/localstorage.h"
@@ -112,7 +113,7 @@ void FieldAutocomplete::showStickers(EmojiPtr emoji) {
 	_emoji = emoji;
 	_type = Type::Stickers;
 	if (!emoji) {
-		rowsUpdated(_mrows, _hrows, _brows, StickerPack(), false);
+		rowsUpdated(_mrows, _hrows, _brows, Stickers::Pack(), false);
 		return;
 	}
 
@@ -146,7 +147,7 @@ void FieldAutocomplete::updateFiltered(bool resetScroll) {
 	internal::MentionRows mrows;
 	internal::HashtagRows hrows;
 	internal::BotCommandRows brows;
-	StickerPack srows;
+	Stickers::Pack srows;
 	if (_emoji) {
 		srows = Stickers::GetListByEmoji(_emoji);
 	} else if (_type == Type::Mentions) {
@@ -171,9 +172,9 @@ void FieldAutocomplete::updateFiltered(bool resetScroll) {
 			return true;
 		};
 		auto filterNotPassedByName = [this, &filterNotPassedByUsername](UserData *user) -> bool {
-			for_const (auto &namePart, user->names) {
-				if (namePart.startsWith(_filter, Qt::CaseInsensitive)) {
-					bool exactUsername = (user->username.compare(_filter, Qt::CaseInsensitive) == 0);
+			for (auto &nameWord : user->nameWords()) {
+				if (nameWord.startsWith(_filter, Qt::CaseInsensitive)) {
+					auto exactUsername = (user->username.compare(_filter, Qt::CaseInsensitive) == 0);
 					return exactUsername;
 				}
 			}
@@ -329,7 +330,7 @@ void FieldAutocomplete::updateFiltered(bool resetScroll) {
 	_inner->setRecentInlineBotsInRows(recentInlineBots);
 }
 
-void FieldAutocomplete::rowsUpdated(const internal::MentionRows &mrows, const internal::HashtagRows &hrows, const internal::BotCommandRows &brows, const StickerPack &srows, bool resetScroll) {
+void FieldAutocomplete::rowsUpdated(const internal::MentionRows &mrows, const internal::HashtagRows &hrows, const internal::BotCommandRows &brows, const Stickers::Pack &srows, bool resetScroll) {
 	if (mrows.isEmpty() && hrows.isEmpty() && brows.isEmpty() && srows.isEmpty()) {
 		if (!isHidden()) {
 			hideAnimated();
@@ -507,7 +508,7 @@ FieldAutocomplete::~FieldAutocomplete() {
 
 namespace internal {
 
-FieldAutocompleteInner::FieldAutocompleteInner(FieldAutocomplete *parent, MentionRows *mrows, HashtagRows *hrows, BotCommandRows *brows, StickerPack *srows)
+FieldAutocompleteInner::FieldAutocompleteInner(FieldAutocomplete *parent, MentionRows *mrows, HashtagRows *hrows, BotCommandRows *brows, Stickers::Pack *srows)
 : _parent(parent)
 , _mrows(mrows)
 , _hrows(hrows)

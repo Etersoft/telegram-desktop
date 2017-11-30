@@ -22,6 +22,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "ui/widgets/dropdown_menu.h"
 #include "ui/effects/radial_animation.h"
+#include "data/data_shared_media.h"
+#include "data/data_user_photos.h"
 
 namespace Media {
 namespace Player {
@@ -56,14 +58,9 @@ public:
 
 	void setVisible(bool visible) override;
 
-	void updateOver(QPoint mpos);
-
-	void showPhoto(PhotoData *photo, HistoryItem *context);
-	void showPhoto(PhotoData *photo, PeerData *context);
-	void showDocument(DocumentData *doc, HistoryItem *context);
-	void moveToScreen();
-	bool moveToNext(int32 delta);
-	void preloadData(int32 delta);
+	void showPhoto(not_null<PhotoData*> photo, HistoryItem *context);
+	void showPhoto(not_null<PhotoData*> photo, not_null<PeerData*> context);
+	void showDocument(not_null<DocumentData*> document, HistoryItem *context);
 
 	void leaveToChildEvent(QEvent *e, QWidget *child) override { // e -- from enterEvent() of child TWidget
 		updateOverState(OverNone);
@@ -71,8 +68,6 @@ public:
 	void enterFromChildEvent(QEvent *e, QWidget *child) override { // e -- from leaveEvent() of child TWidget
 		updateOver(mapFromGlobal(QCursor::pos()));
 	}
-
-	void mediaOverviewUpdated(const Notify::PeerUpdate &update);
 
 	void close();
 
@@ -150,20 +145,55 @@ private:
 		OverVideo,
 	};
 
+	void updateOver(QPoint mpos);
+	void moveToScreen();
+	bool moveToNext(int32 delta);
+	void preloadData(int32 delta);
+	struct Entity {
+		base::optional_variant<
+			not_null<PhotoData*>,
+			not_null<DocumentData*>> data;
+		HistoryItem *item;
+	};
+	Entity entityForUserPhotos(int index) const;
+	Entity entityForSharedMedia(int index) const;
+	Entity entityByIndex(int index) const;
+	void setContext(base::optional_variant<
+		not_null<HistoryItem*>,
+		not_null<PeerData*>> context);
+
 	void refreshLang();
 	void showSaveMsgFile();
 	void updateMixerVideoVolume() const;
+
+	struct SharedMedia;
+	using SharedMediaType = SharedMediaWithLastSlice::Type;
+	using SharedMediaKey = SharedMediaWithLastSlice::Key;
+	base::optional<SharedMediaType> sharedMediaType() const;
+	base::optional<SharedMediaKey> sharedMediaKey() const;
+	bool validSharedMedia() const;
+	void validateSharedMedia();
+	void handleSharedMediaUpdate(SharedMediaWithLastSlice &&update);
+
+	struct UserPhotos;
+	using UserPhotosKey = UserPhotosSlice::Key;
+	base::optional<UserPhotosKey> userPhotosKey() const;
+	bool validUserPhotos() const;
+	void validateUserPhotos();
+	void handleUserPhotosUpdate(UserPhotosSlice &&update);
+
+	void refreshMediaViewer();
+	void refreshNavVisibility();
 
 	void dropdownHidden();
 	void updateDocSize();
 	void updateControls();
 	void updateActions();
 
-	void displayPhoto(PhotoData *photo, HistoryItem *item);
-	void displayDocument(DocumentData *doc, HistoryItem *item);
+	void displayPhoto(not_null<PhotoData*> photo, HistoryItem *item);
+	void displayDocument(DocumentData *document, HistoryItem *item);
 	void displayFinished();
 	void findCurrent();
-	void loadBack();
 
 	void updateCursor();
 	void setZoomLevel(int newZoom);
@@ -184,7 +214,7 @@ private:
 	void updateThemePreviewGeometry();
 
 	void documentUpdated(DocumentData *doc);
-	void changingMsgId(HistoryItem *row, MsgId newId);
+	void changingMsgId(not_null<HistoryItem*> row, MsgId newId);
 
 	// Radial animation interface.
 	float64 radialProgress() const;
@@ -192,16 +222,6 @@ private:
 	QRect radialRect() const;
 	void radialStart();
 	TimeMs radialTimeShift() const;
-
-	// Computes the last OverviewChatPhotos PhotoData* from _history or _migrated.
-	struct LastChatPhoto {
-		HistoryItem *item;
-		PhotoData *photo;
-	};
-	LastChatPhoto computeLastOverviewChatPhoto();
-	void computeAdditionalChatPhoto(PeerData *peer, PhotoData *lastOverviewPhoto);
-
-	void userPhotosLoaded(UserData *u, const MTPphotos_Photos &photos, mtpRequestId req);
 
 	void deletePhotosDone(const MTPVector<MTPlong> &result);
 	bool deletePhotosFail(const RPCError &error);
@@ -224,13 +244,16 @@ private:
 	bool updateOverState(OverState newState);
 	float64 overLevel(OverState control) const;
 
-	MsgId getMsgIdFromOverview(not_null<History*> history, int index) const;
-
 	QBrush _transparentBrush;
 
 	PhotoData *_photo = nullptr;
 	DocumentData *_doc = nullptr;
-	MediaOverviewType _overview = OverviewCount;
+	std::unique_ptr<SharedMedia> _sharedMedia;
+	base::optional<SharedMediaWithLastSlice> _sharedMediaData;
+	base::optional<SharedMediaWithLastSlice::Key> _sharedMediaDataKey;
+	std::unique_ptr<UserPhotos> _userPhotos;
+	base::optional<UserPhotosSlice> _userPhotosData;
+
 	QRect _closeNav, _closeNavIcon;
 	QRect _leftNav, _leftNavIcon, _rightNav, _rightNavIcon;
 	QRect _headerNav, _nameNav, _dateNav;
@@ -295,10 +318,6 @@ private:
 	PeerData *_peer = nullptr;
 	UserData *_user = nullptr; // if user profile photos overview
 
-	// There can be additional first photo in chat photos overview, that is not
-	// in the _history->overview(OverviewChatPhotos) (if the item was deleted).
-	PhotoData *_additionalChatPhoto = nullptr;
-
 	// We save the information about the reason of the current mediaview show:
 	// did we open a peer profile photo or a photo from some message.
 	// We use it when trying to delete a photo: if we've opened a peer photo,
@@ -308,12 +327,12 @@ private:
 	PeerData *_from = nullptr;
 	Text _fromName;
 
-	int _index = -1; // index in photos or files array, -1 if just photo
-	MsgId _msgid = 0; // msgId of current photo or file
-	bool _msgmigrated = false; // msgId is from _migrated history
-	ChannelId _channel = NoChannel;
-	bool _canForward = false;
-	bool _canDelete = false;
+	base::optional<int> _index; // Index in current _sharedMedia data.
+	base::optional<int> _fullIndex; // Index in full shared media.
+	base::optional<int> _fullCount;
+	FullMsgId _msgid;
+	bool _canForwardItem = false;
+	bool _canDeleteItem = false;
 
 	mtpRequestId _loadRequest = 0;
 

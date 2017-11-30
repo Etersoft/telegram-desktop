@@ -20,6 +20,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "inline_bots/inline_bot_result.h"
 
+#include "data/data_photo.h"
+#include "data/data_document.h"
 #include "inline_bots/inline_bot_layout_item.h"
 #include "inline_bots/inline_bot_send_data.h"
 #include "storage/file_download.h"
@@ -149,6 +151,7 @@ std::unique_ptr<Result> Result::create(uint64 queryId, const MTPBotInlineResult 
 	} break;
 
 	case mtpc_botInlineMessageMediaGeo: {
+		// #TODO layer 72 save period and send live location?..
 		auto &r = message->c_botInlineMessageMediaGeo();
 		if (r.vgeo.type() == mtpc_geoPoint) {
 			result->sendData = std::make_unique<internal::SendGeo>(r.vgeo.c_geoPoint());

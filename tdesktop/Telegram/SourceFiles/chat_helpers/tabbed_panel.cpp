@@ -25,6 +25,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "chat_helpers/tabbed_selector.h"
 #include "window/window_controller.h"
 #include "mainwindow.h"
+#include "messenger.h"
 
 namespace ChatHelpers {
 namespace {
@@ -34,10 +35,20 @@ constexpr auto kDelayedHideTimeoutMs = 3000;
 
 } // namespace
 
-TabbedPanel::TabbedPanel(QWidget *parent, not_null<Window::Controller*> controller) : TabbedPanel(parent, controller, object_ptr<TabbedSelector>(nullptr, controller)) {
+TabbedPanel::TabbedPanel(
+	QWidget *parent,
+	not_null<Window::Controller*> controller)
+: TabbedPanel(
+	parent,
+	controller,
+	object_ptr<TabbedSelector>(nullptr, controller)) {
 }
 
-TabbedPanel::TabbedPanel(QWidget *parent, not_null<Window::Controller*> controller, object_ptr<TabbedSelector> selector) : TWidget(parent)
+TabbedPanel::TabbedPanel(
+	QWidget *parent,
+	not_null<Window::Controller*> controller,
+	object_ptr<TabbedSelector> selector)
+: RpWidget(parent)
 , _controller(controller)
 , _selector(std::move(selector)) {
 	_selector->setParent(this);
@@ -52,6 +63,10 @@ TabbedPanel::TabbedPanel(QWidget *parent, not_null<Window::Controller*> controll
 			_controller->disableGifPauseReason(Window::GifPauseReason::SavedGifs);
 		}
 	});
+	_selector->showRequests()
+		| rpl::start_with_next([this] {
+			this->showFromSelector();
+		}, lifetime());
 
 	resize(QRect(0, 0, st::emojiPanWidth, st::emojiPanMaxHeight).marginsAdded(innerPadding()).size());
 
@@ -164,6 +179,7 @@ void TabbedPanel::moveByBottom() {
 }
 
 void TabbedPanel::enterEventHook(QEvent *e) {
+	Messenger::Instance().registerLeaveSubscription(this);
 	showAnimated();
 }
 
@@ -175,6 +191,7 @@ bool TabbedPanel::preventAutoHide() const {
 }
 
 void TabbedPanel::leaveEventHook(QEvent *e) {
+	Messenger::Instance().unregisterLeaveSubscription(this);
 	if (preventAutoHide()) {
 		return;
 	}
@@ -376,11 +393,7 @@ bool TabbedPanel::eventFilter(QObject *obj, QEvent *e) {
 	return false;
 }
 
-void TabbedPanel::stickersInstalled(uint64 setId) {
-	if (isDestroying()) {
-		return;
-	}
-	_selector->stickersInstalled(setId);
+void TabbedPanel::showFromSelector() {
 	if (isHidden()) {
 		moveByBottom();
 		startShowAnimation();

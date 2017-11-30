@@ -1,4 +1,4 @@
-image: Visual Studio 2015
+image: Visual Studio 2017
 clone_folder: C:\TBuild\tdesktop
 test: off
 deploy: off
@@ -13,9 +13,6 @@ environment:
 
 matrix:
   fast_finish: true
-
-install:
-  - .\.appveyor\check.bat
 
 before_build:
   - .\.appveyor\install.bat

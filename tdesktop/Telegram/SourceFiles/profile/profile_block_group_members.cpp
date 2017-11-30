@@ -35,7 +35,11 @@ namespace Profile {
 
 using UpdateFlag = Notify::PeerUpdate::Flag;
 
-GroupMembersWidget::GroupMembersWidget(QWidget *parent, PeerData *peer, TitleVisibility titleVisibility, const style::ProfilePeerListItem &st)
+GroupMembersWidget::GroupMembersWidget(
+	QWidget *parent,
+	PeerData *peer,
+	TitleVisibility titleVisibility,
+	const style::PeerListItem &st)
 : PeerListWidget(parent
 	, peer
 	, (titleVisibility == TitleVisibility::Visible) ? lang(lng_profile_participants_section) : QString()
@@ -171,12 +175,15 @@ void GroupMembersWidget::refreshUserOnline(UserData *user) {
 }
 
 void GroupMembersWidget::preloadMore() {
-	if (auto megagroup = peer()->asMegagroup()) {
-		auto &megagroupInfo = megagroup->mgInfo;
-		if (!megagroupInfo->lastParticipants.isEmpty() && megagroupInfo->lastParticipants.size() < megagroup->membersCount()) {
-			Auth().api().requestLastParticipants(megagroup, false);
-		}
-	}
+	//
+	// This can cause a ddos, because lastParticipants may never reach members count.
+	//
+	//if (auto megagroup = peer()->asMegagroup()) {
+	//	auto &megagroupInfo = megagroup->mgInfo;
+	//	if (!megagroupInfo->lastParticipants.isEmpty() && megagroupInfo->lastParticipants.size() < megagroup->membersCount()) {
+	//		Auth().api().requestLastParticipants(megagroup, false);
+	//	}
+	//}
 }
 
 int GroupMembersWidget::resizeGetHeight(int newWidth) {

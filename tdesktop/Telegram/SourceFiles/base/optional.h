@@ -20,6 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
+#include <gsl/gsl_assert>
 #include "base/variant.h"
 
 namespace base {
@@ -74,8 +75,11 @@ public:
 		return *this;
 	}
 
+	bool has_value() const {
+		return !is<none_type>();
+	}
 	explicit operator bool() const {
-		return (get_if<none_type>(&_impl) == nullptr);
+		return has_value();
 	}
 	bool operator==(const optional_variant &other) const {
 		return _impl == other._impl;
@@ -187,28 +191,13 @@ optional_wrap_once_t<Type> make_optional(Type &&value) {
 }
 
 template <typename Type, typename Method>
-inline auto optional_chain(
-	const optional<Type> &value,
-	Method &method,
-	std::false_type)
--> optional_chain_result_t<decltype(method(*value))> {
-	return value ? make_optional(method(*value)) : none;
-}
-
-template <typename Type, typename Method>
-inline auto optional_chain(
-	const optional<Type> &value,
-	Method &method,
-	std::true_type)
--> optional_chain_result_t<decltype(method(*value))> {
-	return value ? (method(*value), true) : false;
-}
-
-template <typename Type, typename Method>
 inline auto operator|(const optional<Type> &value, Method method)
 -> optional_chain_result_t<decltype(method(*value))> {
-	using is_void_return = std::is_same<decltype(method(*value)), void>;
-	return optional_chain(value, method, is_void_return {});
+	if constexpr (std::is_same_v<decltype(method(*value)), void>) {
+		return value ? (method(*value), true) : false;
+	} else {
+		return value ? make_optional(method(*value)) : none;
+	}
 }
 
 } // namespace base

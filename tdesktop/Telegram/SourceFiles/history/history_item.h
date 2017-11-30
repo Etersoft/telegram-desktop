@@ -23,6 +23,16 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "base/runtime_composer.h"
 #include "base/flags.h"
 
+namespace base {
+template <typename Enum>
+class enum_mask;
+} // namespace base
+
+namespace Storage {
+enum class SharedMediaType : char;
+using SharedMediaTypesMask = base::enum_mask<SharedMediaType>;
+} // namespace Storage
+
 namespace Ui {
 class RippleAnimation;
 } // namespace Ui
@@ -80,6 +90,8 @@ struct HistoryTextState {
 		afterSymbol = state.afterSymbol;
 		symbol = state.symbol;
 		return *this;
+	}
+	HistoryTextState(ClickHandlerPtr link) : link(link) {
 	}
 	HistoryCursorState cursor = HistoryDefaultCursorState;
 	ClickHandlerPtr link;
@@ -146,6 +158,10 @@ struct HistoryMessageForwarded : public RuntimeComponent<HistoryMessageForwarded
 };
 
 struct HistoryMessageReply : public RuntimeComponent<HistoryMessageReply> {
+	HistoryMessageReply() = default;
+	HistoryMessageReply(const HistoryMessageReply &other) = delete;
+	HistoryMessageReply(HistoryMessageReply &&other) = delete;
+	HistoryMessageReply &operator=(const HistoryMessageReply &other) = delete;
 	HistoryMessageReply &operator=(HistoryMessageReply &&other) {
 		replyToMsgId = other.replyToMsgId;
 		std::swap(replyToMsg, other.replyToMsg);
@@ -575,9 +591,7 @@ public:
 	bool mentionsMe() const {
 		return _flags & MTPDmessage::Flag::f_mentioned;
 	}
-	bool isMediaUnread() const {
-		return _flags & MTPDmessage::Flag::f_media_unread;
-	}
+	bool isMediaUnread() const;
 	void markMediaRead();
 
 	// Zero result means this message is not self-destructing right now.
@@ -642,11 +656,15 @@ public:
 		return false;
 	}
 
-	virtual HistoryTextState getState(QPoint point, HistoryStateRequest request) const WARN_UNUSED_RESULT = 0;
+	[[nodiscard]] virtual HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const = 0;
 	virtual void updatePressed(QPoint point) {
 	}
 
-	virtual TextSelection adjustSelection(TextSelection selection, TextSelectType type) const WARN_UNUSED_RESULT {
+	[[nodiscard]] virtual TextSelection adjustSelection(
+			TextSelection selection,
+			TextSelectType type) const {
 		return selection;
 	}
 
@@ -665,11 +683,14 @@ public:
 	}
 	virtual void updateReplyMarkup(const MTPReplyMarkup *markup) {
 	}
+
 	virtual int32 addToOverview(AddToOverviewMethod method) {
 		return 0;
 	}
 	virtual void eraseFromOverview() {
 	}
+	virtual Storage::SharedMediaTypesMask sharedMediaTypes() const;
+
 	virtual bool hasBubble() const {
 		return false;
 	}
@@ -728,6 +749,7 @@ public:
 		return _text.isEmpty();
 	}
 
+	bool isPinned() const;
 	bool canPin() const;
 	bool canForward() const;
 	bool canEdit(const QDateTime &cur) const;
@@ -971,7 +993,7 @@ protected:
 				return _block->items.at(_indexInBlock - 1);
 			}
 			if (auto previous = _block->previousBlock()) {
-				Assert(!previous->items.isEmpty());
+				Assert(!previous->items.empty());
 				return previous->items.back();
 			}
 		}
@@ -983,7 +1005,7 @@ protected:
 				return _block->items.at(_indexInBlock + 1);
 			}
 			if (auto next = _block->nextBlock()) {
-				Assert(!next->items.isEmpty());
+				Assert(!next->items.empty());
 				return next->items.front();
 			}
 		}
@@ -1034,10 +1056,12 @@ protected:
 		return nullptr;
 	}
 
-	TextSelection skipTextSelection(TextSelection selection) const WARN_UNUSED_RESULT {
+	[[nodiscard]] TextSelection skipTextSelection(
+			TextSelection selection) const {
 		return internal::unshiftSelection(selection, _text);
 	}
-	TextSelection unskipTextSelection(TextSelection selection) const WARN_UNUSED_RESULT {
+	[[nodiscard]] TextSelection unskipTextSelection(
+			TextSelection selection) const {
 		return internal::shiftSelection(selection, _text);
 	}
 

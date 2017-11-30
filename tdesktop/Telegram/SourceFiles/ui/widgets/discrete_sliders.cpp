@@ -25,12 +25,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 namespace Ui {
 
-DiscreteSlider::DiscreteSlider(QWidget *parent) : TWidget(parent) {
+DiscreteSlider::DiscreteSlider(QWidget *parent) : RpWidget(parent) {
 	setCursor(style::cur_pointer);
-}
-
-void DiscreteSlider::setSectionActivatedCallback(SectionActivatedCallback &&callback) {
-	_callback = std::move(callback);
 }
 
 void DiscreteSlider::setActiveSection(int index) {
@@ -48,9 +44,7 @@ void DiscreteSlider::activateCallback() {
 	}
 	auto ms = getms();
 	if (ms >= _callbackAfterMs) {
-		if (_callback) {
-			_callback();
-		}
+		_sectionActivated.fire_copy(_activeIndex);
 	} else {
 		_timerId = startTimer(_callbackAfterMs - ms, Qt::PreciseTimer);
 	}
@@ -62,6 +56,10 @@ void DiscreteSlider::timerEvent(QTimerEvent *e) {
 
 void DiscreteSlider::setActiveSectionFast(int index) {
 	setActiveSection(index);
+	finishAnimating();
+}
+
+void DiscreteSlider::finishAnimating() {
 	_a_left.finish();
 	update();
 }
@@ -98,6 +96,15 @@ int DiscreteSlider::getCurrentActiveLeft(TimeMs ms) {
 
 template <typename Lambda>
 void DiscreteSlider::enumerateSections(Lambda callback) {
+	for (auto &section : _sections) {
+		if (!callback(section)) {
+			return;
+		}
+	}
+}
+
+template <typename Lambda>
+void DiscreteSlider::enumerateSections(Lambda callback) const {
 	for (auto &section : _sections) {
 		if (!callback(section)) {
 			return;
@@ -185,18 +192,53 @@ void SettingsSlider::resizeSections(int newWidth) {
 	auto count = getSectionsCount();
 	if (!count) return;
 
-	auto sectionsWidth = newWidth - (count - 1) * _st.barSkip;
-	auto sectionWidth = sectionsWidth / float64(count);
+	auto sectionWidths = countSectionsWidths(newWidth);
+
 	auto skip = 0;
 	auto x = 0.;
-	enumerateSections([this, &x, &skip, sectionWidth](Section &section) {
+	auto sectionWidth = sectionWidths.begin();
+	enumerateSections([&](Section &section) {
+		Expects(sectionWidth != sectionWidths.end());
+
 		section.left = qFloor(x) + skip;
-		x += sectionWidth;
+		x += *sectionWidth;
 		section.width = qRound(x) - (section.left - skip);
 		skip += _st.barSkip;
+		++sectionWidth;
 		return true;
 	});
 	stopAnimation();
+}
+
+std::vector<float64> SettingsSlider::countSectionsWidths(
+		int newWidth) const {
+	auto count = getSectionsCount();
+	auto sectionsWidth = newWidth - (count - 1) * _st.barSkip;
+	auto sectionWidth = sectionsWidth / float64(count);
+
+	auto result = std::vector<float64>(count, sectionWidth);
+	auto labelsWidth = 0;
+	auto commonWidth = true;
+	enumerateSections([&](const Section &section) {
+		labelsWidth += section.labelWidth;
+		if (section.labelWidth >= sectionWidth) {
+			commonWidth = false;
+		}
+		return true;
+	});
+	// If labelsWidth > sectionsWidth we're screwed anyway.
+	if (!commonWidth && labelsWidth <= sectionsWidth) {
+		auto padding = (sectionsWidth - labelsWidth) / (2. * count);
+		auto currentWidth = result.begin();
+		enumerateSections([&](const Section &section) {
+			Expects(currentWidth != result.end());
+
+			*currentWidth = padding + section.labelWidth + padding;
+			++currentWidth;
+			return true;
+		});
+	}
+	return result;
 }
 
 int SettingsSlider::resizeGetHeight(int newWidth) {

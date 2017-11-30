@@ -20,12 +20,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "mainwindow.h"
 
+#include "data/data_document.h"
 #include "dialogs/dialogs_layout.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_window.h"
 #include "styles/style_boxes.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/buttons.h"
+#include "ui/widgets/shadow.h"
 #include "base/zlib_help.h"
 #include "lang/lang_cloud_manager.h"
 #include "lang/lang_instance.h"
@@ -37,7 +39,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "passcodewidget.h"
 #include "intro/introwidget.h"
 #include "mainwidget.h"
-#include "layerwidget.h"
 #include "boxes/confirm_box.h"
 #include "boxes/add_contact_box.h"
 #include "boxes/connection_box.h"
@@ -48,6 +49,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "apiwrap.h"
 #include "settings/settings_widget.h"
 #include "platform/platform_notifications_manager.h"
+#include "window/layer_widget.h"
 #include "window/notifications_manager.h"
 #include "window/themes/window_theme.h"
 #include "window/themes/window_theme_warning.h"
@@ -227,7 +229,7 @@ void MainWindow::setupPasscode() {
 
 	if (_main) _main->hide();
 	Messenger::Instance().hideMediaView();
-	Ui::hideSettingsAndLayer(true);
+	Ui::hideSettingsAndLayer(anim::type::instant);
 	if (_intro) _intro->hide();
 	if (animated) {
 		_passcode->showAnimated(bg);
@@ -239,7 +241,7 @@ void MainWindow::setupPasscode() {
 void MainWindow::setupIntro() {
 	if (_intro && !_intro->isHidden() && !_main) return;
 
-	Ui::hideSettingsAndLayer(true);
+	Ui::hideSettingsAndLayer(anim::type::instant);
 
 	auto animated = (_main || _passcode);
 	auto bg = animated ? grabInner() : QPixmap();
@@ -285,12 +287,43 @@ void MainWindow::showDelayedServiceMsgs() {
 void MainWindow::sendServiceHistoryRequest() {
 	if (!_main || !_main->started() || _delayedServiceMsgs.isEmpty() || _serviceHistoryRequest) return;
 
-	UserData *user = App::userLoaded(ServiceUserId);
+	auto user = App::userLoaded(ServiceUserId);
 	if (!user) {
 		auto userFlags = MTPDuser::Flag::f_first_name | MTPDuser::Flag::f_phone | MTPDuser::Flag::f_status | MTPDuser::Flag::f_verified;
-		user = App::feedUsers(MTP_vector<MTPUser>(1, MTP_user(MTP_flags(userFlags), MTP_int(ServiceUserId), MTPlong(), MTP_string("Telegram"), MTPstring(), MTPstring(), MTP_string("42777"), MTP_userProfilePhotoEmpty(), MTP_userStatusRecently(), MTPint(), MTPstring(), MTPstring(), MTPstring())));
+		user = App::feedUsers(MTP_vector<MTPUser>(1, MTP_user(
+			MTP_flags(userFlags),
+			MTP_int(ServiceUserId),
+			MTPlong(),
+			MTP_string("Telegram"),
+			MTPstring(),
+			MTPstring(),
+			MTP_string("42777"),
+			MTP_userProfilePhotoEmpty(),
+			MTP_userStatusRecently(),
+			MTPint(),
+			MTPstring(),
+			MTPstring(),
+			MTPstring())));
 	}
-	_serviceHistoryRequest = MTP::send(MTPmessages_GetHistory(user->input, MTP_int(0), MTP_int(0), MTP_int(0), MTP_int(1), MTP_int(0), MTP_int(0)), _main->rpcDone(&MainWidget::serviceHistoryDone), _main->rpcFail(&MainWidget::serviceHistoryFail));
+	auto offsetId = 0;
+	auto offsetDate = 0;
+	auto addOffset = 0;
+	auto limit = 1;
+	auto maxId = 0;
+	auto minId = 0;
+	auto historyHash = 0;
+	_serviceHistoryRequest = MTP::send(
+		MTPmessages_GetHistory(
+			user->input,
+			MTP_int(offsetId),
+			MTP_int(offsetDate),
+			MTP_int(addOffset),
+			MTP_int(limit),
+			MTP_int(maxId),
+			MTP_int(minId),
+			MTP_int(historyHash)),
+		_main->rpcDone(&MainWidget::serviceHistoryDone),
+		_main->rpcFail(&MainWidget::serviceHistoryFail));
 }
 
 void MainWindow::setupMain(const MTPUser *self) {
@@ -320,14 +353,29 @@ void MainWindow::setupMain(const MTPUser *self) {
 void MainWindow::showSettings() {
 	if (isHidden()) showFromTray();
 
-	showSpecialLayer(Box<Settings::Widget>());
+	controller()->showSpecialLayer(Box<Settings::Widget>());
 }
 
-void MainWindow::showSpecialLayer(object_ptr<LayerWidget> layer) {
+void MainWindow::showSpecialLayer(
+		object_ptr<Window::LayerWidget> layer,
+		anim::type animated) {
 	if (_passcode) return;
 
-	ensureLayerCreated();
-	_layerBg->showSpecialLayer(std::move(layer));
+	if (layer) {
+		ensureLayerCreated();
+		_layerBg->showSpecialLayer(std::move(layer), animated);
+	} else if (_layerBg) {
+		_layerBg->hideSpecialLayer(animated);
+	}
+}
+
+bool MainWindow::showSectionInExistingLayer(
+		not_null<Window::SectionMemento*> memento,
+		const Window::SectionShow &params) {
+	if (_layerBg) {
+		return _layerBg->showSectionInternal(memento, params);
+	}
+	return false;
 }
 
 void MainWindow::showMainMenu() {
@@ -336,7 +384,7 @@ void MainWindow::showMainMenu() {
 	if (isHidden()) showFromTray();
 
 	ensureLayerCreated();
-	_layerBg->showMainMenu();
+	_layerBg->showMainMenu(anim::type::normal);
 }
 
 void MainWindow::ensureLayerCreated() {
@@ -357,10 +405,10 @@ void MainWindow::destroyLayerDelayed() {
 	}
 }
 
-void MainWindow::ui_hideSettingsAndLayer(ShowLayerOptions options) {
+void MainWindow::ui_hideSettingsAndLayer(anim::type animated) {
 	if (_layerBg) {
-		_layerBg->hideAll();
-		if (options & ForceFastShowLayer) {
+		_layerBg->hideAll(animated);
+		if (animated == anim::type::instant) {
 			destroyLayerDelayed();
 		}
 	}
@@ -396,25 +444,26 @@ PasscodeWidget *MainWindow::passcodeWidget() {
 	return _passcode;
 }
 
-void MainWindow::ui_showBox(object_ptr<BoxContent> box, ShowLayerOptions options) {
+void MainWindow::ui_showBox(
+		object_ptr<BoxContent> box,
+		LayerOptions options,
+		anim::type animated) {
 	if (box) {
 		ensureLayerCreated();
-		if (options & KeepOtherLayers) {
-			if (options & ShowAfterOtherLayers) {
-				_layerBg->prependBox(std::move(box));
+		if (options & LayerOption::KeepOther) {
+			if (options & LayerOption::ShowAfterOther) {
+				_layerBg->prependBox(std::move(box), animated);
 			} else {
-				_layerBg->appendBox(std::move(box));
+				_layerBg->appendBox(std::move(box), animated);
 			}
 		} else {
-			_layerBg->showBox(std::move(box));
-		}
-		if (options & ForceFastShowLayer) {
-			_layerBg->finishAnimation();
+			_layerBg->showBox(std::move(box), animated);
 		}
 	} else {
 		if (_layerBg) {
-			_layerBg->hideTopLayer();
-			if ((options & ForceFastShowLayer) && !_layerBg->layerShown()) {
+			_layerBg->hideTopLayer(animated);
+			if ((animated == anim::type::instant)
+				&& !_layerBg->layerShown()) {
 				destroyLayerDelayed();
 			}
 		}
@@ -460,6 +509,7 @@ void MainWindow::ui_hideMediaPreview() {
 void MainWindow::showConnecting(const QString &text, const QString &reconnect) {
 	if (_connecting) {
 		_connecting->set(text, reconnect);
+		_connecting->show();
 	} else {
 		_connecting.create(bodyWidget(), text, reconnect);
 		_connecting->show();
@@ -470,7 +520,7 @@ void MainWindow::showConnecting(const QString &text, const QString &reconnect) {
 
 void MainWindow::hideConnecting() {
 	if (_connecting) {
-		_connecting.destroyDelayed();
+		_connecting->hide();
 	}
 }
 
@@ -637,7 +687,7 @@ void MainWindow::onShowAddContact() {
 	if (isHidden()) showFromTray();
 
 	if (App::self()) {
-		Ui::show(Box<AddContactBox>(), KeepOtherLayers);
+		Ui::show(Box<AddContactBox>(), LayerOption::KeepOther);
 	}
 }
 
@@ -645,14 +695,20 @@ void MainWindow::onShowNewGroup() {
 	if (isHidden()) showFromTray();
 
 	if (App::self()) {
-		Ui::show(Box<GroupInfoBox>(CreatingGroupGroup, false), KeepOtherLayers);
+		Ui::show(
+			Box<GroupInfoBox>(CreatingGroupGroup, false),
+			LayerOption::KeepOther);
 	}
 }
 
 void MainWindow::onShowNewChannel() {
 	if (isHidden()) showFromTray();
 
-	if (_main) Ui::show(Box<GroupInfoBox>(CreatingGroupChannel, false), KeepOtherLayers);
+	if (_main) {
+		Ui::show(
+			Box<GroupInfoBox>(CreatingGroupChannel, false),
+			LayerOption::KeepOther);
+	}
 }
 
 void MainWindow::onLogout() {
@@ -687,24 +743,30 @@ void MainWindow::noIntro(Intro::Widget *was) {
 	}
 }
 
-void MainWindow::noLayerStack(LayerStackWidget *was) {
+void MainWindow::noLayerStack(Window::LayerStackWidget *was) {
 	if (was == _layerBg) {
 		_layerBg = nullptr;
 		if (controller()) {
-			controller()->disableGifPauseReason(Window::GifPauseReason::Layer);
+			controller()->disableGifPauseReason(
+				Window::GifPauseReason::Layer);
 		}
 	}
 }
 
-void MainWindow::layerFinishedHide(LayerStackWidget *was) {
+void MainWindow::layerFinishedHide(Window::LayerStackWidget *was) {
 	if (was == _layerBg) {
-		auto resetFocus = (was == App::wnd()->focusWidget());
+		auto resetFocus = Ui::InFocusChain(was);
+		if (resetFocus) setFocus();
 		destroyLayerDelayed();
-		InvokeQueued(this, [this, resetFocus] {
-			if (resetFocus) setInnerFocus();
+		if (resetFocus) setInnerFocus();
+		InvokeQueued(this, [this] {
 			checkHistoryActivation();
 		});
 	}
+}
+
+bool MainWindow::takeThirdSectionFromLayer() {
+	return _layerBg ? _layerBg->takeToThirdSection() : false;
 }
 
 void MainWindow::fixOrder() {
@@ -797,6 +859,8 @@ void MainWindow::updateControlsGeometry() {
 	if (_mediaPreview) _mediaPreview->setGeometry(body);
 	if (_connecting) _connecting->moveToLeft(0, body.height() - _connecting->height());
 	if (_testingThemeWarning) _testingThemeWarning->setGeometry(body);
+
+	if (_main) _main->checkMainSectionToLayer();
 }
 
 MainWindow::TempDirState MainWindow::tempDirState() {
@@ -957,7 +1021,7 @@ QImage MainWindow::iconWithCounter(int size, int count, style::color bg, style::
 void MainWindow::sendPaths() {
 	if (App::passcoded()) return;
 	Messenger::Instance().hideMediaView();
-	Ui::hideSettingsAndLayer(true);
+	Ui::hideSettingsAndLayer(anim::type::instant);
 	if (_main) {
 		_main->activate();
 	}

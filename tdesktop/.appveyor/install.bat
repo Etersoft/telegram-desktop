@@ -1,11 +1,9 @@
 @echo off
 
-SET BUILD_DIR=C:\TBuild
+IF "%BUILD_DIR%"=="" SET BUILD_DIR=C:\TBuild
 SET LIB_DIR=%BUILD_DIR%\Libraries
 SET SRC_DIR=%BUILD_DIR%\tdesktop
 SET QT_VERSION=5_6_2
-
-call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86
 
 call:configureBuild
 call:getDependencies
@@ -45,7 +43,7 @@ GOTO:EOF
     git clone https://chromium.googlesource.com/external/gyp
     cd gyp
     git checkout a478c1ab51
-    SET PATH=%PATH%;C:\TBuild\Libraries\gyp;C:\TBuild\Libraries\ninja;
+    SET PATH=%PATH%;%BUILD_DIR%\Libraries\gyp;%BUILD_DIR%\Libraries\ninja;
     cd %SRC_DIR%
     git submodule init
     git submodule update
@@ -80,6 +78,10 @@ GOTO:EOF
 
     echo %BUILD_VERSION% | findstr /C:"disable_unity_integration">nul && (
         set TDESKTOP_BUILD_DEFINES=%TDESKTOP_BUILD_DEFINES%,TDESKTOP_DISABLE_UNITY_INTEGRATION
+    )
+
+    echo %BUILD_VERSION% | findstr /C:"disable_gtk_integration">nul && (
+        set TDESKTOP_BUILD_DEFINES=%TDESKTOP_BUILD_DEFINES%,TDESKTOP_DISABLE_GTK_INTEGRATION
     )
 
     if not "%TDESKTOP_BUILD_DEFINES%" == "" (

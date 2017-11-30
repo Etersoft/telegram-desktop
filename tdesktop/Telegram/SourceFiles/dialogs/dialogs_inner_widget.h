@@ -107,7 +107,6 @@ public:
 	void setLoadMoreCallback(base::lambda<void()> callback) {
 		_loadMoreCallback = std::move(callback);
 	}
-	void setVisibleTopBottom(int visibleTop, int visibleBottom) override;
 
 	base::Observable<UserData*> searchFromUserChanged;
 
@@ -120,8 +119,6 @@ public slots:
 	void onParentGeometryChanged();
 	void onDialogRowReplaced(Dialogs::Row *oldRow, Dialogs::Row *newRow);
 
-	void onMenuDestroyed(QObject*);
-
 signals:
 	void draggingScrollDelta(int delta);
 	void mustScrollTo(int scrollToTop, int scrollToBottom);
@@ -133,6 +130,10 @@ signals:
 	void refreshHashtags();
 
 protected:
+	void visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) override;
+
 	void paintRegion(Painter &p, const QRegion &region, bool paintingOther) override;
 	void mouseMoveEvent(QMouseEvent *e) override;
 	void mousePressEvent(QMouseEvent *e) override;
@@ -171,9 +172,9 @@ private:
 	bool isSelected() const {
 		return _importantSwitchSelected || _selected || (_hashtagSelected >= 0) || (_filteredSelected >= 0) || (_peerSearchSelected >= 0) || (_searchedSelected >= 0);
 	}
-	void handlePeerNameChange(not_null<PeerData*> peer, const PeerData::Names &oldNames, const PeerData::NameFirstChars &oldChars);
+	void handlePeerNameChange(not_null<PeerData*> peer, const PeerData::NameFirstChars &oldChars);
 
-	void itemRemoved(HistoryItem *item);
+	void itemRemoved(not_null<const HistoryItem*> item);
 	enum class UpdateRowSection {
 		Default       = (1 << 0),
 		Filtered      = (1 << 1),
@@ -290,8 +291,8 @@ private:
 	Text _searchFromUserText;
 	PeerData *_menuPeer = nullptr;
 
-	Ui::PopupMenu *_menu = nullptr;
-
 	base::lambda<void()> _loadMoreCallback;
+
+	base::unique_qptr<Ui::PopupMenu> _menu;
 
 };

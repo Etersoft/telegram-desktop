@@ -24,7 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/buttons.h"
-#include "ui/effects/widget_slide_wrap.h"
+#include "ui/wrap/slide_wrap.h"
 #include "boxes/peer_list_controllers.h"
 #include "apiwrap.h"
 #include "auth_session.h"
@@ -119,7 +119,7 @@ int EditPrivacyBox::resizeGetHeight(int newWidth) {
 	layoutRow(_contacts, st::editPrivacyOptionMargin);
 	layoutRow(_nobody, st::editPrivacyOptionMargin);
 	layoutRow(_warning, st::editPrivacyWarningPadding);
-	layoutRow(_exceptionsTitle, st::editPrivacyPadding);
+	layoutRow(_exceptionsTitle, st::editPrivacyTitlePadding);
 	auto linksTop = top;
 	layoutRow(_alwaysLink, st::editPrivacyPadding);
 	layoutRow(_neverLink, st::editPrivacyPadding);
@@ -167,7 +167,7 @@ int EditPrivacyBox::countDefaultHeight(int newWidth) {
 	height += optionHeight(Option::Contacts);
 	height += optionHeight(Option::Nobody);
 	height += labelHeight(_controller->warning(), st::editPrivacyLabel, st::editPrivacyWarningPadding);
-	height += labelHeight(lang(lng_edit_privacy_exceptions), st::editPrivacyTitle, st::editPrivacyPadding);
+	height += labelHeight(lang(lng_edit_privacy_exceptions), st::editPrivacyTitle, st::editPrivacyTitlePadding);
 	height += linkHeight();
 	height += linkHeight();
 	height += labelHeight(_controller->exceptionsDescription(), st::editPrivacyLabel, st::editPrivacyPadding);
@@ -205,7 +205,9 @@ void EditPrivacyBox::editExceptionUsers(Exception exception) {
 		}));
 		box->addButton(langFactory(lng_cancel), [box] { box->closeBox(); });
 	};
-	Ui::show(Box<PeerListBox>(std::move(controller), std::move(initBox)), KeepOtherLayers);
+	Ui::show(
+		Box<PeerListBox>(std::move(controller), std::move(initBox)),
+		LayerOption::KeepOther);
 }
 
 QString EditPrivacyBox::exceptionLinkText(Exception exception) {
@@ -252,7 +254,7 @@ std::vector<not_null<UserData*>> &EditPrivacyBox::exceptionUsers(Exception excep
 	Unexpected("Invalid exception value.");
 }
 
-object_ptr<Ui::WidgetSlideWrap<Ui::LinkButton>> &EditPrivacyBox::exceptionLink(Exception exception) {
+object_ptr<Ui::SlideWrap<Ui::LinkButton>> &EditPrivacyBox::exceptionLink(Exception exception) {
 	switch (exception) {
 	case Exception::Always: return _alwaysLink;
 	case Exception::Never: return _neverLink;
@@ -284,9 +286,11 @@ void EditPrivacyBox::createWidgets() {
 		widget.create(this, text, Ui::FlatLabel::InitType::Simple, st);
 	};
 	auto createExceptionLink = [this](Exception exception) {
-		exceptionLink(exception).create(this, object_ptr<Ui::LinkButton>(this, exceptionLinkText(exception)), exceptionLinkMargins(), [this] {
-			resizeGetHeight(width());
-		});
+		exceptionLink(exception).create(this, object_ptr<Ui::LinkButton>(this, exceptionLinkText(exception)), exceptionLinkMargins());
+		exceptionLink(exception)->heightValue()
+			| rpl::start_with_next([this] {
+				resizeToWidth(width());
+			}, lifetime());
 		exceptionLink(exception)->entity()->setClickedCallback([this, exception] { editExceptionUsers(exception); });
 	};
 
@@ -312,13 +316,21 @@ void EditPrivacyBox::createWidgets() {
 
 	_optionGroup->setChangedCallback([this](Option value) {
 		_option = value;
-		_alwaysLink->toggleAnimated(showExceptionLink(Exception::Always));
-		_neverLink->toggleAnimated(showExceptionLink(Exception::Never));
+		_alwaysLink->toggle(
+			showExceptionLink(Exception::Always),
+			anim::type::normal);
+		_neverLink->toggle(
+			showExceptionLink(Exception::Never),
+			anim::type::normal);
 	});
 
 	showChildren();
-	_alwaysLink->toggleFast(showExceptionLink(Exception::Always));
-	_neverLink->toggleFast(showExceptionLink(Exception::Never));
+	_alwaysLink->toggle(
+		showExceptionLink(Exception::Always),
+		anim::type::instant);
+	_neverLink->toggle(
+		showExceptionLink(Exception::Never),
+		anim::type::instant);
 
 	setDimensions(st::boxWideWidth, resizeGetHeight(st::boxWideWidth));
 }

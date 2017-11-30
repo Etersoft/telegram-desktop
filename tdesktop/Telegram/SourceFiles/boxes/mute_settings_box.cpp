@@ -23,14 +23,20 @@ void MuteSettingsBox::prepare() {
 	info->moveToLeft(st::boxPadding.left(), y);
 	y += info->height() + st::boxLittleSkip;
 
-	object_ptr<Ui::PeerAvatarButton> icon(this, _peer, st::mutePhotoButton);
+	auto icon = object_ptr<Ui::UserpicButton>(
+		this,
+		controller(),
+		_peer,
+		Ui::UserpicButton::Role::Custom,
+		st::mutePhotoButton);
 	icon->setPointerCursor(false);
 	icon->moveToLeft(st::boxPadding.left(), y);
 
 	object_ptr<Ui::FlatLabel> title(this, st::muteChatTitle);
 	title->setText(App::peerName(_peer, true));
-	title->moveToLeft(st::boxPadding.left(),
-		y + icon->height() / 2 - title->height() / 2);
+	title->moveToLeft(
+		st::boxPadding.left() + st::muteChatTitleLeft,
+		y + (icon->height() / 2) - (title->height() / 2));
 	// the icon is always higher than this chat title
 	y += icon->height() + st::boxMediumSkip;
 

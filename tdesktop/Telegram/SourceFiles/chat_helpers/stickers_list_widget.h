@@ -35,7 +35,10 @@ namespace ChatHelpers {
 
 struct StickerIcon;
 
-class StickersListWidget : public TabbedSelector::Inner, private base::Subscriber, private MTP::Sender {
+class StickersListWidget
+	: public TabbedSelector::Inner
+	, private base::Subscriber
+	, private MTP::Sender {
 	Q_OBJECT
 
 public:
@@ -54,8 +57,6 @@ public:
 	void fillIcons(QList<StickerIcon> &icons);
 	bool preventAutoHide();
 
-	void setVisibleTopBottom(int visibleTop, int visibleBottom) override;
-
 	uint64 currentSet(int yOffset) const;
 
 	void installedLocally(uint64 setId);
@@ -65,6 +66,10 @@ public:
 	~StickersListWidget();
 
 protected:
+	void visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) override;
+
 	void mousePressEvent(QMouseEvent *e) override;
 	void mouseReleaseEvent(QMouseEvent *e) override;
 	void mouseMoveEvent(QMouseEvent *e) override;
@@ -77,7 +82,7 @@ protected:
 	TabbedSelector::InnerFooter *getFooter() const override;
 	void processHideFinished() override;
 	void processPanelHideFinished() override;
-	int countHeight() override;
+	int countDesiredHeight(int newWidth) override;
 
 private slots:
 	void onSettings();
@@ -133,12 +138,12 @@ private:
 	};
 
 	struct Set {
-		Set(uint64 id, MTPDstickerSet::Flags flags, const QString &title, int32 hoversSize, const StickerPack &pack = StickerPack()) : id(id), flags(flags), title(title), pack(pack) {
+		Set(uint64 id, MTPDstickerSet::Flags flags, const QString &title, int32 hoversSize, const Stickers::Pack &pack = Stickers::Pack()) : id(id), flags(flags), title(title), pack(pack) {
 		}
 		uint64 id;
 		MTPDstickerSet::Flags flags;
 		QString title;
-		StickerPack pack;
+		Stickers::Pack pack;
 		QSharedPointer<Ui::RippleAnimation> ripple;
 	};
 	using Sets = QList<Set>;
@@ -162,6 +167,7 @@ private:
 		Hidden,
 	};
 	void refreshMegagroupStickers(GroupStickersPlace place);
+	void refreshSettingsVisibility();
 
 	void updateSelected();
 	void setSelected(OverState newSelected);
@@ -212,6 +218,8 @@ private:
 
 	void removeRecentSticker(int section, int index);
 	void removeFavedSticker(int section, int index);
+	void setColumnCount(int count);
+	void refreshFooterIcons();
 
 	ChannelData *_megagroupSet = nullptr;
 	Sets _mySets;
@@ -226,6 +234,9 @@ private:
 	uint64 _removingSetId = 0;
 
 	Footer *_footer = nullptr;
+	int _rowsLeft = 0;
+	int _columnCount = 1;
+	QSize _singleSize;
 
 	OverState _selected;
 	OverState _pressed;

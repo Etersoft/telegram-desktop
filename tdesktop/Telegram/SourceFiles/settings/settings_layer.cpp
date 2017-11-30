@@ -20,14 +20,16 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "settings/settings_layer.h"
 
+#include <rpl/mappers.h>
 #include "settings/settings_inner_widget.h"
 #include "settings/settings_fixed_bar.h"
 #include "styles/style_settings.h"
 #include "styles/style_window.h"
 #include "styles/style_boxes.h"
-#include "ui/effects/widget_fade_wrap.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/widgets/buttons.h"
+#include "ui/widgets/shadow.h"
+#include "ui/wrap/fade_wrap.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "storage/localstorage.h"
@@ -42,27 +44,21 @@ Layer::Layer()
 : _scroll(this, st::settingsScroll)
 , _fixedBar(this)
 , _fixedBarClose(this, st::settingsFixedBarClose)
-, _fixedBarShadow(this, object_ptr<BoxLayerTitleShadow>(this)) {
+, _fixedBarShadow(this) {
 	_fixedBar->moveToLeft(0, st::boxRadius);
 	_fixedBarClose->moveToRight(0, 0);
 	_fixedBarShadow->entity()->resize(width(), st::lineWidth);
 	_fixedBarShadow->moveToLeft(0, _fixedBar->y() + _fixedBar->height());
-	_fixedBarShadow->hideFast();
+	_fixedBarShadow->hide(anim::type::instant);
 	_scroll->moveToLeft(0, st::settingsFixedBarHeight);
 
-	connect(_scroll, SIGNAL(scrolled()), this, SLOT(onScroll()));
+	using namespace rpl::mappers;
+	_fixedBarShadow->toggleOn(_scroll->scrollTopValue()
+		| rpl::map(_1 > 0));
 }
 
 void Layer::setCloseClickHandler(base::lambda<void()> callback) {
 	_fixedBarClose->setClickedCallback(std::move(callback));
-}
-
-void Layer::onScroll() {
-	if (_scroll->scrollTop() > 0) {
-		_fixedBarShadow->showAnimated();
-	} else {
-		_fixedBarShadow->hideAnimated();
-	}
 }
 
 void Layer::resizeToWidth(int newWidth, int newContentLeft) {
@@ -73,13 +69,12 @@ void Layer::resizeToWidth(int newWidth, int newContentLeft) {
 	resizeUsingInnerHeight(newWidth, _inner->height());
 }
 
-void Layer::onInnerHeightUpdated() {
-	resizeUsingInnerHeight(width(), _inner->height());
-}
-
 void Layer::doSetInnerWidget(object_ptr<LayerInner> widget) {
 	_inner = _scroll->setOwnedWidget(std::move(widget));
-	connect(_inner, SIGNAL(heightUpdated()), this, SLOT(onInnerHeightUpdated()));
+	_inner->heightValue()
+		| rpl::start_with_next([this](int innerHeight) {
+			resizeUsingInnerHeight(width(), innerHeight);
+		}, lifetime());
 }
 
 void Layer::paintEvent(QPaintEvent *e) {
@@ -111,6 +106,7 @@ void Layer::resizeEvent(QResizeEvent *e) {
 
 	_fixedBar->resizeToWidth(width());
 	_fixedBar->moveToLeft(0, st::boxRadius);
+	_fixedBar->update();
 	_fixedBarClose->moveToRight(0, 0);
 	auto shadowTop = _fixedBar->y() + _fixedBar->height();
 	_fixedBarShadow->entity()->resize(width(), st::lineWidth);

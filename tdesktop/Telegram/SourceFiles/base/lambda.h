@@ -22,6 +22,36 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include <memory>
 
+#ifndef CUSTOM_LAMBDA_WRAP
+
+#include <functional>
+#include "base/unique_function.h"
+
+namespace base {
+
+template <typename Function>
+using lambda = std::function<Function>;
+
+template <typename Function>
+using lambda_once = unique_function<Function>;
+
+namespace lambda_internal {
+
+template <typename Lambda>
+struct lambda_call_type {
+	using type = decltype(&Lambda::operator());
+};
+
+} // namespace lambda_internal
+
+template <typename Lambda>
+using lambda_call_type_t
+	= typename lambda_internal::lambda_call_type<Lambda>::type;
+
+} // namespace base
+
+#else // CUSTOM_LAMBDA_WRAP
+
 #ifndef Assert
 #define LambdaAssertDefined
 #define Assert(v) ((v) ? ((void)0) : std::abort())
@@ -66,9 +96,6 @@ struct type_helper {
 
 template <typename Lambda>
 using lambda_type = typename lambda_internal::type_helper<std::decay_t<Lambda>>::type;
-
-template <typename Lambda>
-constexpr bool lambda_is_mutable = lambda_internal::type_helper<std::decay_t<Lambda>>::is_mutable;
 
 namespace lambda_internal {
 
@@ -365,9 +392,14 @@ public:
 		}
 	}
 
-	inline Return operator()(Args... args) {
+	template <
+		typename ...OtherArgs,
+		typename = std::enable_if_t<(sizeof...(Args) == sizeof...(OtherArgs))>>
+	inline Return operator()(OtherArgs&&... args) {
 		Assert(data_.vtable != nullptr);
-		return data_.vtable->call(data_.storage, std::forward<Args>(args)...);
+		return data_.vtable->call(
+			data_.storage,
+			std::forward<OtherArgs>(args)...);
 	}
 
 	explicit operator bool() const {
@@ -437,9 +469,14 @@ public:
 		return *this;
 	}
 
-	inline Return operator()(Args... args) const {
+	template <
+		typename ...OtherArgs,
+		typename = std::enable_if_t<(sizeof...(Args) == sizeof...(OtherArgs))>>
+	inline Return operator()(OtherArgs&&... args) const {
 		Assert(this->data_.vtable != nullptr);
-		return this->data_.vtable->const_call(this->data_.storage, std::forward<Args>(args)...);
+		return this->data_.vtable->const_call(
+			this->data_.storage,
+			std::forward<OtherArgs>(args)...);
 	}
 
 	void swap(lambda &other) {
@@ -459,3 +496,5 @@ public:
 #ifdef LambdaUnexpectedDefined
 #undef Unexpected
 #endif // LambdaUnexpectedDefined
+
+#endif // CUSTOM_LAMBDA_WRAP

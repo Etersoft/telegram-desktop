@@ -21,6 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #pragma once
 
 #include "lang/lang_instance.h"
+#include "lang/lang_hardcoded.h"
 
 inline QString lang(LangKey key) {
 	return Lang::Current().getValue(key);
@@ -106,14 +107,6 @@ inline QString langDayOfWeek(int index) {
 
 inline QString langDayOfWeek(const QDate &date) {
 	return langDayOfWeek(date.dayOfWeek());
-}
-
-inline QString langDayOfWeekFull(int index) {
-	return (index > 0 && index <= 7) ? lang(LangKey(lng_weekday1_full + index - 1)) : qsl("DAY_ERR");
-}
-
-inline QString langDayOfWeekFull(const QDate &date) {
-	return langDayOfWeekFull(date.dayOfWeek());
 }
 
 inline QString langDateTime(const QDateTime &date) {

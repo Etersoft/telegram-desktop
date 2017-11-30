@@ -20,6 +20,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "inline_bots/inline_results_widget.h"
 
+#include "data/data_photo.h"
+#include "data/data_document.h"
 #include "styles/style_chat_helpers.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/shadow.h"
@@ -80,7 +82,9 @@ Inner::Inner(QWidget *parent, not_null<Window::Controller*> controller) : TWidge
 	}));
 }
 
-void Inner::setVisibleTopBottom(int visibleTop, int visibleBottom) {
+void Inner::visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) {
 	_visibleBottom = visibleBottom;
 	if (_visibleTop != visibleTop) {
 		_visibleTop = visibleTop;
@@ -90,7 +94,7 @@ void Inner::setVisibleTopBottom(int visibleTop, int visibleBottom) {
 
 void Inner::checkRestrictedPeer() {
 	if (auto megagroup = _inlineQueryPeer ? _inlineQueryPeer->asMegagroup() : nullptr) {
-		if (megagroup->restrictedRights().is_send_inline()) {
+		if (megagroup->restricted(ChannelRestriction::f_send_inline)) {
 			if (!_restrictedLabel) {
 				_restrictedLabel.create(this, lang(lng_restricted_send_inline), Ui::FlatLabel::InitType::Simple, st::stickersRestrictedLabel);
 				_restrictedLabel->show();
@@ -640,8 +644,10 @@ void Inner::updateSelected() {
 		}
 		if (col < inlineItems.size()) {
 			sel = row * MatrixRowShift + col;
-			inlineItems.at(col)->getState(lnk, cursor, QPoint(sx, sy));
-			lnkhost = inlineItems.at(col);
+			auto result = inlineItems[col]->getState(QPoint(sx, sy), HistoryStateRequest());
+			lnk = result.link;
+			cursor = result.cursor;
+			lnkhost = inlineItems[col];
 		} else {
 			row = col = -1;
 		}
@@ -1015,6 +1021,7 @@ void Widget::inlineResultsDone(const MTPmessages_BotResults &result) {
 
 	auto it = _inlineCache.find(_inlineQuery);
 	auto adding = (it != _inlineCache.cend());
+	// #TODO layer 72 feed users
 	if (result.type() == mtpc_messages_botResults) {
 		auto &d = result.c_messages_botResults();
 		auto &v = d.vresults.v;
@@ -1062,13 +1069,7 @@ void Widget::queryInlineBot(UserData *bot, PeerData *peer, QString query) {
 		inlineBotChanged();
 		_inlineBot = bot;
 		force = true;
-		//if (_inlineBot->isBotInlineGeo()) {
-		//	Ui::show(Box<InformBox>(lang(lng_bot_inline_geo_unavailable)));
-		//}
 	}
-	//if (_inlineBot && _inlineBot->isBotInlineGeo()) {
-	//	return;
-	//}
 
 	if (_inlineQuery != query || force) {
 		if (_inlineRequestId) {

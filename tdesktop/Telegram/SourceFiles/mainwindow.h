@@ -26,7 +26,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 class PasscodeWidget;
 class MainWidget;
-class LayerStackWidget;
 class BoxContent;
 
 namespace Intro {
@@ -38,6 +37,10 @@ class ClearManager;
 } // namespace Local
 
 namespace Window {
+class LayerWidget;
+class LayerStackWidget;
+class SectionMemento;
+struct SectionShow;
 namespace Theme {
 struct BackgroundUpdate;
 class WarningWidget;
@@ -89,6 +92,10 @@ public:
 
 	void mtpStateChanged(int32 dc, int32 state);
 
+	MainWidget *chatsWidget() {
+		return mainWidget();
+	}
+
 	MainWidget *mainWidget();
 	PasscodeWidget *passcodeWidget();
 
@@ -98,8 +105,9 @@ public:
 	void activate();
 
 	void noIntro(Intro::Widget *was);
-	void noLayerStack(LayerStackWidget *was);
-	void layerFinishedHide(LayerStackWidget *was);
+	void noLayerStack(Window::LayerStackWidget *was);
+	void layerFinishedHide(Window::LayerStackWidget *was);
+	bool takeThirdSectionFromLayer();
 
 	void checkHistoryActivation();
 
@@ -129,10 +137,17 @@ public:
 	void showMainMenu();
 	void updateTrayMenu(bool force = false) override;
 
-	void showSpecialLayer(object_ptr<LayerWidget> layer);
-
-	void ui_showBox(object_ptr<BoxContent> box, ShowLayerOptions options);
-	void ui_hideSettingsAndLayer(ShowLayerOptions options);
+	void showSpecialLayer(
+		object_ptr<Window::LayerWidget> layer,
+		anim::type animated);
+	bool showSectionInExistingLayer(
+		not_null<Window::SectionMemento*> memento,
+		const Window::SectionShow &params);
+	void ui_showBox(
+		object_ptr<BoxContent> box,
+		LayerOptions options,
+		anim::type animated);
+	void ui_hideSettingsAndLayer(anim::type animated);
 	bool ui_isLayerShown();
 	void ui_showMediaPreview(DocumentData *document);
 	void ui_showMediaPreview(PhotoData *photo);
@@ -200,7 +215,7 @@ private:
 	object_ptr<PasscodeWidget> _passcode = { nullptr };
 	object_ptr<Intro::Widget> _intro = { nullptr };
 	object_ptr<MainWidget> _main = { nullptr };
-	object_ptr<LayerStackWidget> _layerBg = { nullptr };
+	object_ptr<Window::LayerStackWidget> _layerBg = { nullptr };
 	object_ptr<MediaPreviewWidget> _mediaPreview = { nullptr };
 
 	object_ptr<ConnectingWidget> _connecting = { nullptr };

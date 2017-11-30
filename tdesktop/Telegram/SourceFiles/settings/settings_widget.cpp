@@ -25,7 +25,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_settings.h"
 #include "styles/style_window.h"
 #include "styles/style_boxes.h"
-#include "ui/effects/widget_fade_wrap.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/widgets/buttons.h"
 #include "mainwindow.h"
@@ -210,10 +209,6 @@ void Widget::refreshLang() {
 	update();
 }
 
-void Widget::showFinished() {
-	_inner->showFinished();
-}
-
 void Widget::keyPressEvent(QKeyEvent *e) {
 	codesFeedString(e->text());
 	return LayerWidget::keyPressEvent(e);
@@ -245,7 +240,7 @@ void Widget::parentResized() {
 }
 
 void Widget::resizeUsingInnerHeight(int newWidth, int innerHeight) {
-	if (!App::wnd()) return;
+	if (!parentWidget()) return;
 
 	auto parentSize = parentWidget()->size();
 	auto windowWidth = parentSize.width();

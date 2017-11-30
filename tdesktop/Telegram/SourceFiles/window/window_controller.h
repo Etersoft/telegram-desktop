@@ -20,9 +20,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
+#include <rpl/variable.h>
 #include "base/flags.h"
 
+class MainWidget;
+
 namespace Window {
+
+class LayerWidget;
 
 enum class GifPauseReason {
 	Any           = 0,
@@ -35,12 +40,42 @@ enum class GifPauseReason {
 using GifPauseReasons = base::flags<GifPauseReason>;
 inline constexpr bool is_flag_type(GifPauseReason) { return true; };
 
+struct SectionShow {
+	enum class Way {
+		Forward,
+		Backward,
+		ClearStack,
+	};
+	SectionShow(
+		Way way = Way::Forward,
+		anim::type animated = anim::type::normal,
+		anim::activation activation = anim::activation::normal)
+	: way(way)
+	, animated(animated)
+	, activation(activation) {
+	}
+	SectionShow(
+		anim::type animated,
+		anim::activation activation = anim::activation::normal)
+	: animated(animated)
+	, activation(activation) {
+	}
+
+	SectionShow withWay(Way newWay) const {
+		return SectionShow(newWay, animated, activation);
+	}
+
+	Way way = Way::Forward;
+	anim::type animated = anim::type::normal;
+	anim::activation activation = anim::activation::normal;
+
+};
+
 class MainWindow;
+class SectionMemento;
 
 class Controller {
 public:
-	static constexpr auto kDefaultDialogsWidthRatio = 5. / 14;
-
 	Controller(not_null<MainWindow*> window) : _window(window) {
 	}
 
@@ -50,16 +85,17 @@ public:
 
 	// This is needed for History TopBar updating when searchInPeer
 	// is changed in the DialogsWidget of the current window.
-	base::Observable<PeerData*> &searchInPeerChanged() {
-		return _searchInPeerChanged;
-	}
+	rpl::variable<PeerData*> searchInPeer;
 
 	// This is needed while we have one HistoryWidget and one TopBarWidget
 	// for all histories we show in a window. Once each history is shown
 	// in its own HistoryWidget with its own TopBarWidget this can be removed.
-	base::Observable<PeerData*> &historyPeerChanged() {
-		return _historyPeerChanged;
-	}
+	//
+	// Also used in the Info::Profile to toggle Send Message button.
+	rpl::variable<PeerData*> historyPeer;
+
+	// This is used for auto-switch in third column Info::Profile.
+	rpl::variable<PeerData*> activePeer;
 
 	void enableGifPauseReason(GifPauseReason reason);
 	void disableGifPauseReason(GifPauseReason reason);
@@ -75,21 +111,68 @@ public:
 		int bodyWidth;
 		int dialogsWidth;
 		int chatWidth;
+		int thirdWidth;
 		Adaptive::WindowLayout windowLayout;
 	};
 	ColumnLayout computeColumnLayout() const;
 	int dialogsSmallColumnWidth() const;
-	bool canProvideChatWidth(int requestedWidth) const;
-	void provideChatWidth(int requestedWidth);
+	bool forceWideDialogs() const;
+	void updateColumnLayout();
+	bool canShowThirdSection() const;
+	bool canShowThirdSectionWithoutResize() const;
+	bool takeThirdSectionFromLayer();
+	void resizeForThirdSection();
+	void closeThirdSection();
 
-	void showJumpToDate(not_null<PeerData*> peer, QDate requestedDate);
+	void showSection(
+		SectionMemento &&memento,
+		const SectionShow &params = SectionShow());
+	void showBackFromStack(
+		const SectionShow &params = SectionShow());
 
-	base::Variable<float64> &dialogsWidthRatio() {
-		return _dialogsWidthRatio;
+	void showPeerHistory(
+		PeerId peerId,
+		const SectionShow &params = SectionShow::Way::ClearStack,
+		MsgId msgId = ShowAtUnreadMsgId);
+	void showPeerHistory(
+		not_null<PeerData*> peer,
+		const SectionShow &params = SectionShow::Way::ClearStack,
+		MsgId msgId = ShowAtUnreadMsgId);
+	void showPeerHistory(
+		not_null<History*> history,
+		const SectionShow &params = SectionShow::Way::ClearStack,
+		MsgId msgId = ShowAtUnreadMsgId);
+
+	void showPeerInfo(
+		PeerId peerId,
+		const SectionShow &params = SectionShow());
+	void showPeerInfo(
+		not_null<PeerData*> peer,
+		const SectionShow &params = SectionShow());
+	void showPeerInfo(
+		not_null<History*> history,
+		const SectionShow &params = SectionShow());
+
+	void clearSectionStack(
+			const SectionShow &params = SectionShow::Way::ClearStack) {
+		showPeerHistory(
+			PeerId(0),
+			params,
+			ShowAtUnreadMsgId);
 	}
-	const base::Variable<float64> &dialogsWidthRatio() const {
-		return _dialogsWidthRatio;
+
+	void showSpecialLayer(
+		object_ptr<LayerWidget> &&layer,
+		anim::type animated = anim::type::normal);
+	void hideSpecialLayer(
+			anim::type animated = anim::type::normal) {
+		showSpecialLayer(nullptr, animated);
 	}
+
+	void showJumpToDate(
+		not_null<PeerData*> peer,
+		QDate requestedDate);
+
 	base::Variable<bool> &dialogsListFocused() {
 		return _dialogsListFocused;
 	}
@@ -104,16 +187,25 @@ public:
 	}
 
 private:
-	not_null<MainWindow*> _window;
+	int minimalThreeColumnWidth() const;
+	not_null<MainWidget*> chats() const;
+	int countDialogsWidthFromRatio(int bodyWidth) const;
+	int countThirdColumnWidthFromRatio(int bodyWidth) const;
+	struct ShrinkResult {
+		int dialogsWidth;
+		int thirdWidth;
+	};
+	ShrinkResult shrinkDialogsAndThirdColumns(
+		int dialogsWidth,
+		int thirdWidth,
+		int bodyWidth) const;
 
-	base::Observable<PeerData*> _searchInPeerChanged;
-	base::Observable<PeerData*> _historyPeerChanged;
+	not_null<MainWindow*> _window;
 
 	GifPauseReasons _gifPauseReasons = 0;
 	base::Observable<void> _gifPauseLevelChanged;
 	base::Observable<void> _floatPlayerAreaUpdated;
 
-	base::Variable<float64> _dialogsWidthRatio = { kDefaultDialogsWidthRatio };
 	base::Variable<bool> _dialogsListFocused = { false };
 	base::Variable<bool> _dialogsListDisplayForced = { false };
 

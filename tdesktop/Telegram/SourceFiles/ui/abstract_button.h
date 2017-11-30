@@ -20,18 +20,17 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "ui/twidget.h"
+#include <rpl/event_stream.h>
+#include "ui/rp_widget.h"
 #include "base/flags.h"
 
 namespace Ui {
 
-class AbstractButton : public TWidget {
+class AbstractButton : public RpWidget {
 	Q_OBJECT
 
 public:
-	AbstractButton(QWidget *parent) : TWidget(parent) {
-		setMouseTracking(true);
-	}
+	AbstractButton(QWidget *parent);
 
 	Qt::KeyboardModifiers clickModifiers() const {
 		return _modifiers;
@@ -57,11 +56,14 @@ public:
 		_clickedCallback = std::move(callback);
 	}
 
-	void setVisible(bool visible) override {
-		TWidget::setVisible(visible);
-		if (!visible) {
-			clearState();
-		}
+	auto clicks() const {
+		return _clicks.events();
+	}
+	template <typename Handler>
+	void addClickHandler(Handler &&handler) {
+		clicks() | rpl::start_with_next(
+			std::forward<Handler>(handler),
+			lifetime());
 	}
 
 protected:
@@ -81,6 +83,7 @@ protected:
 		Down     = (1 << 1),
 		Disabled = (1 << 2),
 	};
+	friend constexpr bool is_flag_type(StateFlag) { return true; };
 	using State = base::flags<StateFlag>;
 
 	State state() const {
@@ -108,6 +111,8 @@ private:
 	bool _enablePointerCursor = true;
 
 	base::lambda<void()> _clickedCallback;
+
+	rpl::event_stream<> _clicks;
 
 };
 

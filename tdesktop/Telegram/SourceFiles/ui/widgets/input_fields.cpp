@@ -1744,7 +1744,12 @@ void FlatInput::onTextChange(const QString &text) {
 	if (App::wnd()) App::wnd()->updateGlobalMenu();
 }
 
-InputArea::InputArea(QWidget *parent, const style::InputField &st, base::lambda<QString()> placeholderFactory, const QString &val) : TWidget(parent)
+InputArea::InputArea(
+	QWidget *parent,
+	const style::InputField &st,
+	base::lambda<QString()> placeholderFactory,
+	const QString &val)
+: RpWidget(parent)
 , _st(st)
 , _inner(this)
 , _oldtext(val)
@@ -1796,7 +1801,7 @@ InputArea::InputArea(QWidget *parent, const style::InputField &st, base::lambda<
 
 	startBorderAnimation();
 	startPlaceholderAnimation();
-	finishAnimations();
+	finishAnimating();
 }
 
 void InputArea::updatePalette() {
@@ -2344,10 +2349,10 @@ void InputArea::onRedoAvailable(bool avail) {
 
 void InputArea::setDisplayFocused(bool focused) {
 	setFocused(focused);
-	finishAnimations();
+	finishAnimating();
 }
 
-void InputArea::finishAnimations() {
+void InputArea::finishAnimating() {
 	_a_focused.finish();
 	_a_error.finish();
 	_a_placeholderShifted.finish();
@@ -2499,9 +2504,14 @@ void InputArea::setErrorShown(bool error) {
 	}
 }
 
-InputField::InputField(QWidget *parent, const style::InputField &st, base::lambda<QString()> placeholderFactory, const QString &val) : TWidget(parent)
+InputField::InputField(
+	QWidget *parent,
+	const style::InputField &st,
+	base::lambda<QString()> placeholderFactory,
+	const QString &val)
+: RpWidget(parent)
 , _st(st)
-, _inner(this)
+, _inner(std::make_unique<Inner>(this))
 , _oldtext(val)
 , _placeholderFactory(std::move(placeholderFactory)) {
 	_inner->setAcceptRichText(false);
@@ -2542,9 +2552,9 @@ InputField::InputField(QWidget *parent, const style::InputField &st, base::lambd
 
 	connect(_inner->document(), SIGNAL(contentsChange(int,int,int)), this, SLOT(onDocumentContentsChange(int,int,int)));
 	connect(_inner->document(), SIGNAL(contentsChanged()), this, SLOT(onDocumentContentsChanged()));
-	connect(_inner, SIGNAL(undoAvailable(bool)), this, SLOT(onUndoAvailable(bool)));
-	connect(_inner, SIGNAL(redoAvailable(bool)), this, SLOT(onRedoAvailable(bool)));
-	if (App::wnd()) connect(_inner, SIGNAL(selectionChanged()), App::wnd(), SLOT(updateGlobalMenu()));
+	connect(_inner.get(), SIGNAL(undoAvailable(bool)), this, SLOT(onUndoAvailable(bool)));
+	connect(_inner.get(), SIGNAL(redoAvailable(bool)), this, SLOT(onRedoAvailable(bool)));
+	if (App::wnd()) connect(_inner.get(), SIGNAL(selectionChanged()), App::wnd(), SLOT(updateGlobalMenu()));
 
 	setCursor(style::cur_text);
 	if (!val.isEmpty()) {
@@ -2554,7 +2564,7 @@ InputField::InputField(QWidget *parent, const style::InputField &st, base::lambd
 
 	startPlaceholderAnimation();
 	startBorderAnimation();
-	finishAnimations();
+	finishAnimating();
 }
 
 void InputField::updatePalette() {
@@ -2744,7 +2754,9 @@ void InputField::setFocused(bool focused) {
 }
 
 void InputField::startPlaceholderAnimation() {
-	auto placeholderShifted = _forcePlaceholderHidden || (_focused && _st.placeholderScale > 0.) || !getLastText().isEmpty();
+	auto placeholderShifted = _forcePlaceholderHidden
+		|| (_focused && _st.placeholderScale > 0.)
+		|| !getLastText().isEmpty();
 	if (_placeholderShifted != placeholderShifted) {
 		_placeholderShifted = placeholderShifted;
 		_a_placeholderShifted.start([this] { update(); }, _placeholderShifted ? 0. : 1., _placeholderShifted ? 1. : 0., _st.duration);
@@ -3115,10 +3127,10 @@ void InputField::selectAll() {
 
 void InputField::setDisplayFocused(bool focused) {
 	setFocused(focused);
-	finishAnimations();
+	finishAnimating();
 }
 
-void InputField::finishAnimations() {
+void InputField::finishAnimating() {
 	_a_focused.finish();
 	_a_error.finish();
 	_a_placeholderShifted.finish();
@@ -3265,7 +3277,12 @@ void InputField::setErrorShown(bool error) {
 	}
 }
 
-MaskedInputField::MaskedInputField(QWidget *parent, const style::InputField &st, base::lambda<QString()> placeholderFactory, const QString &val) : TWidgetHelper<QLineEdit>(val, parent)
+MaskedInputField::MaskedInputField(
+	QWidget *parent,
+	const style::InputField &st,
+	base::lambda<QString()> placeholderFactory,
+	const QString &val)
+: Parent(val, parent)
 , _st(st)
 , _oldtext(val)
 , _placeholderFactory(std::move(placeholderFactory)) {
@@ -3304,7 +3321,7 @@ MaskedInputField::MaskedInputField(QWidget *parent, const style::InputField &st,
 
 	startPlaceholderAnimation();
 	startBorderAnimation();
-	finishAnimations();
+	finishAnimating();
 }
 
 void MaskedInputField::updatePalette() {
@@ -3343,15 +3360,18 @@ void MaskedInputField::onTouchTimer() {
 	_touchRightButton = true;
 }
 
-bool MaskedInputField::event(QEvent *e) {
-	if (e->type() == QEvent::TouchBegin || e->type() == QEvent::TouchUpdate || e->type() == QEvent::TouchEnd || e->type() == QEvent::TouchCancel) {
-		QTouchEvent *ev = static_cast<QTouchEvent*>(e);
-		if (ev->device()->type() == QTouchDevice::TouchScreen) {
-			touchEvent(ev);
-			return QLineEdit::event(e);
+bool MaskedInputField::eventHook(QEvent *e) {
+	auto type = e->type();
+	if (type == QEvent::TouchBegin
+		|| type == QEvent::TouchUpdate
+		|| type == QEvent::TouchEnd
+		|| type == QEvent::TouchCancel) {
+		auto event = static_cast<QTouchEvent*>(e);
+		if (event->device()->type() == QTouchDevice::TouchScreen) {
+			touchEvent(event);
 		}
 	}
-	return QLineEdit::event(e);
+	return Parent::eventHook(e);
 }
 
 void MaskedInputField::touchEvent(QTouchEvent *e) {
@@ -3579,10 +3599,10 @@ QSize MaskedInputField::minimumSizeHint() const {
 
 void MaskedInputField::setDisplayFocused(bool focused) {
 	setFocused(focused);
-	finishAnimations();
+	finishAnimating();
 }
 
-void MaskedInputField::finishAnimations() {
+void MaskedInputField::finishAnimating() {
 	_a_focused.finish();
 	_a_error.finish();
 	_a_placeholderShifted.finish();
@@ -3625,8 +3645,8 @@ void MaskedInputField::keyPressEvent(QKeyEvent *e) {
 		QLineEdit::keyPressEvent(e);
 	}
 
-	QString newText(text());
-	int32 newCursor(cursorPosition());
+	auto newText = text();
+	auto newCursor = cursorPosition();
 	if (wasText == newText && wasCursor == newCursor) { // call correct manually
 		correctValue(wasText, wasCursor, newText, newCursor);
 		_oldtext = newText;
@@ -3693,7 +3713,11 @@ void CountryCodeInput::codeSelected(const QString &code) {
 	emit changed();
 }
 
-void CountryCodeInput::correctValue(const QString &was, int32 wasCursor, QString &now, int32 &nowCursor) {
+void CountryCodeInput::correctValue(
+		const QString &was,
+		int wasCursor,
+		QString &now,
+		int &nowCursor) {
 	QString newText, addToNumber;
 	int oldPos(nowCursor), newPos(-1), oldLen(now.length()), start = 0, digits = 5;
 	newText.reserve(oldLen + 1);
@@ -3760,7 +3784,11 @@ void PhonePartInput::keyPressEvent(QKeyEvent *e) {
 	}
 }
 
-void PhonePartInput::correctValue(const QString &was, int32 wasCursor, QString &now, int32 &nowCursor) {
+void PhonePartInput::correctValue(
+		const QString &was,
+		int wasCursor,
+		QString &now,
+		int &nowCursor) {
 	QString newText;
 	int oldPos(nowCursor), newPos(-1), oldLen(now.length()), digitCount = 0;
 	for (int i = 0; i < oldLen; ++i) {
@@ -3868,7 +3896,11 @@ PortInput::PortInput(QWidget *parent, const style::InputField &st, base::lambda<
 	}
 }
 
-void PortInput::correctValue(const QString &was, int32 wasCursor, QString &now, int32 &nowCursor) {
+void PortInput::correctValue(
+		const QString &was,
+		int wasCursor,
+		QString &now,
+		int &nowCursor) {
 	QString newText;
 	newText.reserve(now.size());
 	auto newPos = nowCursor;
@@ -3909,7 +3941,11 @@ void UsernameInput::paintAdditionalPlaceholder(Painter &p, TimeMs ms) {
 	}
 }
 
-void UsernameInput::correctValue(const QString &was, int32 wasCursor, QString &now, int32 &nowCursor) {
+void UsernameInput::correctValue(
+		const QString &was,
+		int wasCursor,
+		QString &now,
+		int &nowCursor) {
 	auto newPos = nowCursor;
 	auto from = 0, len = now.size();
 	for (; from < len; ++from) {
@@ -3975,7 +4011,11 @@ void PhoneInput::paintAdditionalPlaceholder(Painter &p, TimeMs ms) {
 	}
 }
 
-void PhoneInput::correctValue(const QString &was, int32 wasCursor, QString &now, int32 &nowCursor) {
+void PhoneInput::correctValue(
+		const QString &was,
+		int wasCursor,
+		QString &now,
+		int &nowCursor) {
 	auto digits = now;
 	digits.replace(QRegularExpression(qsl("[^\\d]")), QString());
 	_pattern = phoneNumberParse(digits);

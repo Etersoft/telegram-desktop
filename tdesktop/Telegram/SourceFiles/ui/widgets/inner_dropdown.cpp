@@ -79,7 +79,7 @@ void InnerDropdown::resizeToContent() {
 	if (newWidth != width() || newHeight != height()) {
 		resize(newWidth, newHeight);
 		update();
-		finishAnimations();
+		finishAnimating();
 	}
 }
 
@@ -194,7 +194,7 @@ void InnerDropdown::hideAnimated(HideOption option) {
 	startOpacityAnimation(true);
 }
 
-void InnerDropdown::finishAnimations() {
+void InnerDropdown::finishAnimating() {
 	if (_a_show.animating()) {
 		_a_show.finish();
 		showAnimationCallback();
@@ -211,7 +211,7 @@ void InnerDropdown::finishAnimations() {
 
 void InnerDropdown::showFast() {
 	_hideTimer.stop();
-	finishAnimations();
+	finishAnimating();
 	if (isHidden()) {
 		showChildren();
 		show();
@@ -223,7 +223,7 @@ void InnerDropdown::hideFast() {
 	if (isHidden()) return;
 
 	_hideTimer.stop();
-	finishAnimations();
+	finishAnimating();
 	_hiding = false;
 	hideFinished();
 }
@@ -372,8 +372,10 @@ InnerDropdown::Container::Container(QWidget *parent, object_ptr<TWidget> child, 
 	_child->moveToLeft(_st.scrollPadding.left(), _st.scrollPadding.top());
 }
 
-void InnerDropdown::Container::setVisibleTopBottom(int visibleTop, int visibleBottom) {
-	_child->setVisibleTopBottom(visibleTop - _st.scrollPadding.top(), visibleBottom - _st.scrollPadding.top());
+void InnerDropdown::Container::visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) {
+	setChildVisibleTopBottom(_child, visibleTop, visibleBottom);
 }
 
 void InnerDropdown::Container::resizeToContent() {

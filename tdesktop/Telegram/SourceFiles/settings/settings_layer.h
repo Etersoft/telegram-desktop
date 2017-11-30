@@ -20,23 +20,21 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "layerwidget.h"
-
-class BoxLayerTitleShadow;
+#include "window/layer_widget.h"
+#include "ui/rp_widget.h"
 
 namespace Ui {
 class ScrollArea;
 class IconButton;
-template <typename Widget>
-class WidgetFadeWrap;
+class FadeShadow;
 } // namespace Ui
 
 namespace Settings {
 
 class FixedBar;
-class LayerInner : public TWidget {
+class LayerInner : public Ui::RpWidget {
 public:
-	LayerInner(QWidget *parent) : TWidget(parent) {
+	LayerInner(QWidget *parent) : RpWidget(parent) {
 	}
 
 	virtual void resizeToWidth(int newWidth, int contentLeft) {
@@ -45,9 +43,7 @@ public:
 
 };
 
-class Layer : public LayerWidget {
-	Q_OBJECT
-
+class Layer : public Window::LayerWidget {
 public:
 	Layer();
 
@@ -70,10 +66,6 @@ protected:
 		_roundedCorners = roundedCorners;
 	}
 
-private slots:
-	void onInnerHeightUpdated();
-	void onScroll();
-
 private:
 	void doSetInnerWidget(object_ptr<LayerInner> widget);
 
@@ -85,7 +77,7 @@ private:
 	QPointer<LayerInner> _inner;
 	object_ptr<FixedBar> _fixedBar;
 	object_ptr<Ui::IconButton> _fixedBarClose;
-	object_ptr<Ui::WidgetFadeWrap<BoxLayerTitleShadow>> _fixedBarShadow;
+	object_ptr<Ui::FadeShadow> _fixedBarShadow;
 
 	bool _roundedCorners = false;
 

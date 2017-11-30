@@ -17,18 +17,22 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "styles/style_widgets.h"
+#include "ui/rp_widget.h"
+
+namespace style {
+struct Shadow;
+} // namespace style
 
 namespace Ui {
 
-class PlainShadow : public TWidget {
+class PlainShadow : public RpWidget {
 public:
-	PlainShadow(QWidget *parent, style::color color) : TWidget(parent), _color(color) {
-	}
+	PlainShadow(QWidget *parent);
+	PlainShadow(QWidget *parent, style::color color);
 
 protected:
 	void paintEvent(QPaintEvent *e) override {
-		Painter(this).fillRect(e->rect(), _color->b);
+		Painter(this).fillRect(e->rect(), _color);
 	}
 
 private:
@@ -48,10 +52,7 @@ public:
 	static QPixmap grab(TWidget *target, const style::Shadow &shadow, RectParts sides = RectPart::Left | RectPart::Top | RectPart::Right | RectPart::Bottom);
 
 protected:
-	void paintEvent(QPaintEvent *e) override {
-		Painter p(this);
-		paint(p, rect().marginsRemoved(_st.extend), width(), _st, _sides);
-	}
+	void paintEvent(QPaintEvent *e) override;
 
 private:
 	const style::Shadow &_st;

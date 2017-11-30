@@ -24,6 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "history/history_common.h"
 #include "core/single_timer.h"
 #include "base/weak_unique_ptr.h"
+#include "ui/rp_widget.h"
 
 namespace Notify {
 struct PeerUpdate;
@@ -43,20 +44,21 @@ class Float;
 } // namespace Media
 
 namespace Ui {
+class ResizeArea;
 class PlainShadow;
 class DropdownMenu;
 template <typename Widget>
-class WidgetSlideWrap;
+class SlideWrap;
 } // namespace Ui
 
 namespace Window {
 class Controller;
 class PlayerWrapWidget;
-class TopBarWidget;
 class SectionMemento;
 class SectionWidget;
 class AbstractSectionWidget;
 struct SectionSlideParams;
+struct SectionShow;
 enum class Column;
 } // namespace Window
 
@@ -69,68 +71,9 @@ class MainWindow;
 class ConfirmBox;
 class DialogsWidget;
 class HistoryWidget;
-class OverviewWidget;
 class HistoryHider;
 
-enum StackItemType {
-	HistoryStackItem,
-	SectionStackItem,
-	OverviewStackItem,
-};
-
-class StackItem {
-public:
-	StackItem(PeerData *peer) : peer(peer) {
-	}
-	virtual StackItemType type() const = 0;
-	virtual ~StackItem() {
-	}
-	PeerData *peer;
-};
-
-class StackItemHistory : public StackItem {
-public:
-	StackItemHistory(PeerData *peer, MsgId msgId, QList<MsgId> replyReturns) : StackItem(peer)
-		, msgId(msgId)
-		, replyReturns(replyReturns) {
-	}
-	StackItemType type() const {
-		return HistoryStackItem;
-	}
-	MsgId msgId;
-	QList<MsgId> replyReturns;
-};
-
-class StackItemSection : public StackItem {
-public:
-	StackItemSection(std::unique_ptr<Window::SectionMemento> &&memento);
-	~StackItemSection();
-
-	StackItemType type() const {
-		return SectionStackItem;
-	}
-	Window::SectionMemento *memento() const {
-		return _memento.get();
-	}
-
-private:
-	std::unique_ptr<Window::SectionMemento> _memento;
-
-};
-
-class StackItemOverview : public StackItem {
-public:
-	StackItemOverview(PeerData *peer, MediaOverviewType mediaType, int32 lastWidth, int32 lastScrollTop) : StackItem(peer)
-		, mediaType(mediaType)
-		, lastWidth(lastWidth)
-		, lastScrollTop(lastScrollTop) {
-	}
-	StackItemType type() const {
-		return OverviewStackItem;
-	}
-	MediaOverviewType mediaType;
-	int32 lastWidth, lastScrollTop;
-};
+class StackItem;
 
 enum SilentNotifiesStatus {
 	SilentNotifiesDontChange,
@@ -149,18 +92,16 @@ class ItemBase;
 } // namespace Layout
 } // namespace InlineBots
 
-class MainWidget : public TWidget, public RPCSender, private base::Subscriber {
+class MainWidget : public Ui::RpWidget, public RPCSender, private base::Subscriber {
 	Q_OBJECT
 
 public:
+	using SectionShow = Window::SectionShow;
+
 	MainWidget(QWidget *parent, not_null<Window::Controller*> controller);
 
-	bool isSectionShown() const;
-
-	// Temporary methods, while top bar was not done inside HistoryWidget / OverviewWidget.
-	bool paintTopBar(Painter &, int decreaseWidth, TimeMs ms);
-	QRect getMembersShowAreaGeometry() const;
-	void setMembersShowAreaActive(bool active);
+	bool isMainSectionShown() const;
+	bool isThirdSectionShown() const;
 
 	int contentScrollAddToY() const;
 
@@ -202,22 +143,23 @@ public:
 
 	void peerBefore(const PeerData *inPeer, MsgId inMsg, PeerData *&outPeer, MsgId &outMsg);
 	void peerAfter(const PeerData *inPeer, MsgId inMsg, PeerData *&outPeer, MsgId &outMsg);
-	PeerData *historyPeer();
 	PeerData *peer();
 
 	PeerData *activePeer();
 	MsgId activeMsgId();
 
 	int backgroundFromY() const;
-	PeerData *overviewPeer();
-	bool showMediaTypeSwitch() const;
-	void showWideSection(Window::SectionMemento &&memento);
-	void showMediaOverview(PeerData *peer, MediaOverviewType type, bool back = false, int32 lastScrollTop = -1);
+	void showSection(
+		Window::SectionMemento &&memento,
+		const SectionShow &params);
+	void updateColumnLayout();
 	bool stackIsEmpty() const;
-	void showBackFromStack();
+	void showBackFromStack(
+		const SectionShow &params);
 	void orderWidgets();
 	QRect historyRect() const;
 	QPixmap grabForShowAnimation(const Window::SectionSlideParams &params);
+	void checkMainSectionToLayer();
 
 	void onSendFileConfirm(const FileLoadResultPtr &file);
 	bool onSendSticker(DocumentData *sticker);
@@ -268,7 +210,6 @@ public:
 	void deletedContact(UserData *user, const MTPcontacts_Link &result);
 	void deleteConversation(PeerData *peer, bool deleteHistory = true);
 	void deleteAndExit(ChatData *chat);
-	void clearHistory(PeerData *peer);
 	void deleteAllFromUser(ChannelData *channel, UserData *from);
 
 	void addParticipants(PeerData *chatOrChannel, const std::vector<not_null<UserData*>> &users);
@@ -367,8 +308,6 @@ public:
 
 	void scheduleViewIncrement(HistoryItem *item);
 
-	void fillPeerMenu(PeerData *peer, base::lambda<QAction*(const QString &text, base::lambda<void()> handler)> callback, bool pinToggle);
-
 	void gotRangeDifference(ChannelData *channel, const MTPupdates_ChannelDifference &diff);
 	void onSelfParticipantUpdated(ChannelData *channel);
 
@@ -380,12 +319,18 @@ public:
 
 	bool contentOverlapped(const QRect &globalRect);
 
+	bool ptsUpdateAndApply(int32 pts, int32 ptsCount, const MTPUpdates &updates);
+	bool ptsUpdateAndApply(int32 pts, int32 ptsCount, const MTPUpdate &update);
+	bool ptsUpdateAndApply(int32 pts, int32 ptsCount);
+
 	void documentLoadProgress(DocumentData *document);
 
 	void app_sendBotCallback(const HistoryMessageReplyMarkup::Button *button, const HistoryItem *msg, int row, int col);
 
-	void ui_repaintHistoryItem(not_null<const HistoryItem*> item);
-	void ui_showPeerHistory(quint64 peer, qint32 msgId, Ui::ShowWay way);
+	void ui_showPeerHistory(
+		PeerId peer,
+		const SectionShow &params,
+		MsgId msgId);
 	PeerData *ui_getPeerForMouseAction();
 
 	void notify_botCommandsChanged(UserData *bot);
@@ -396,7 +341,6 @@ public:
 	void notify_userIsBotChanged(UserData *bot);
 	void notify_userIsContactChanged(UserData *user, bool fromThisApp);
 	void notify_migrateUpdated(PeerData *peer);
-	void notify_historyItemLayoutChanged(const HistoryItem *item);
 	void notify_historyMuteUpdated(History *history);
 
 	bool cmd_search();
@@ -426,7 +370,6 @@ public slots:
 
 	void updateOnline(bool gotOtherOffline = false);
 	void checkIdleFinish();
-	void updateOnlineDisplay();
 
 	void onHistoryShown(History *history, MsgId atMsgId);
 
@@ -440,12 +383,7 @@ public slots:
 
 	void onUpdateMuted();
 
-	void onStickersInstalled(uint64 setId);
-
 	void onViewsIncrement();
-
-	void ui_showPeerHistoryAsync(quint64 peerId, qint32 showAtMsgId, Ui::ShowWay way);
-	void ui_autoplayMediaInlineAsync(qint32 channelId, qint32 msgId);
 
 protected:
 	void paintEvent(QPaintEvent *e) override;
@@ -496,6 +434,12 @@ private:
 	void updateMediaPlaylistPosition(int x);
 	void updateControlsGeometry();
 	void updateDialogsWidthAnimated();
+	void updateThirdColumnToCurrentPeer(
+		PeerData *peer,
+		bool canWrite);
+	[[nodiscard]] bool saveThirdSectionToStackBack() const;
+	[[nodiscard]] auto thirdSectionForCurrentMainSection(
+		not_null<PeerData*> peer) -> std::unique_ptr<Window::SectionMemento>;
 
 	void createPlayer();
 	void switchToPanelPlayer();
@@ -506,7 +450,7 @@ private:
 	void setCurrentCall(Calls::Call *call);
 	void createCallTopBar();
 	void destroyCallTopBar();
-	void callTopBarHeightUpdated();
+	void callTopBarHeightUpdated(int callTopBarHeight);
 
 	void sendReadRequest(PeerData *peer, MsgId upTo);
 	void channelReadDone(PeerData *peer, const MTPBool &result);
@@ -515,16 +459,23 @@ private:
 	void readRequestDone(PeerData *peer);
 
 	void messagesAffected(PeerData *peer, const MTPmessages_AffectedMessages &result);
-	void overviewLoaded(not_null<History*> history, const MTPmessages_Messages &result, mtpRequestId req);
-	void mediaOverviewUpdated(const Notify::PeerUpdate &update);
+	void overviewLoaded(
+		std::pair<not_null<History*>, MsgId> historyAndStartMsgId,
+		const MTPmessages_Messages &result,
+		mtpRequestId req);
 
-	Window::SectionSlideParams prepareShowAnimation(bool willHaveTopBarShadow, bool willHaveTabbedSection);
-	void showNewWideSection(Window::SectionMemento &&memento, bool back, bool saveInStack);
+	Window::SectionSlideParams prepareShowAnimation(
+		bool willHaveTopBarShadow);
+	void showNewSection(
+		Window::SectionMemento &&memento,
+		const SectionShow &params);
+	void dropMainSection(Window::SectionWidget *widget);
+
+	Window::SectionSlideParams prepareThirdSectionAnimation(Window::SectionWidget *section);
 
 	// All this methods use the prepareShowAnimation().
-	Window::SectionSlideParams prepareWideSectionAnimation(Window::SectionWidget *section);
+	Window::SectionSlideParams prepareMainSectionAnimation(Window::SectionWidget *section);
 	Window::SectionSlideParams prepareHistoryAnimation(PeerId historyPeerId);
-	Window::SectionSlideParams prepareOverviewAnimation();
 	Window::SectionSlideParams prepareDialogsAnimation();
 
 	void startWithSelf(const MTPUserFull &user);
@@ -558,7 +509,8 @@ private:
 	void inviteImportDone(const MTPUpdates &result);
 	bool inviteImportFail(const RPCError &error);
 
-	int getSectionTop() const;
+	int getMainSectionTop() const;
+	int getThirdSectionTop() const;
 
 	void hideAll();
 	void showAll();
@@ -575,20 +527,32 @@ private:
 	Float *currentFloatPlayer() const {
 		return _playerFloats.empty() ? nullptr : _playerFloats.back().get();
 	}
-	Window::AbstractSectionWidget *getFloatPlayerSection(not_null<Window::Column*> column) const;
-	void finishFloatPlayerDrag(not_null<Float*> instance, bool closed);
+	Window::AbstractSectionWidget *getFloatPlayerSection(
+		Window::Column column) const;
+	void finishFloatPlayerDrag(
+		not_null<Float*> instance,
+		bool closed);
 	void updateFloatPlayerColumnCorner(QPoint center);
 	QPoint getFloatPlayerPosition(not_null<Float*> instance) const;
-	QPoint getFloatPlayerHiddenPosition(QPoint position, QSize size, RectPart side) const;
+	QPoint getFloatPlayerHiddenPosition(
+		QPoint position,
+		QSize size,
+		RectPart side) const;
 	RectPart getFloatPlayerSide(QPoint center) const;
 
-	bool ptsUpdateAndApply(int32 pts, int32 ptsCount, const MTPUpdates &updates);
-	bool ptsUpdateAndApply(int32 pts, int32 ptsCount, const MTPUpdate &update);
-	bool ptsUpdateAndApply(int32 pts, int32 ptsCount);
 	bool getDifferenceTimeChanged(ChannelData *channel, int32 ms, ChannelGetDifferenceTime &channelCurTime, TimeMs &curTime);
 
 	void viewsIncrementDone(QVector<MTPint> ids, const MTPVector<MTPint> &result, mtpRequestId req);
 	bool viewsIncrementFail(const RPCError &error, mtpRequestId req);
+
+	void refreshResizeAreas();
+	template <typename MoveCallback, typename FinishCallback>
+	void createResizeArea(
+		object_ptr<Ui::ResizeArea> &area,
+		MoveCallback &&moveCallback,
+		FinishCallback &&finishCallback);
+	void ensureFirstColumnResizeAreaCreated();
+	void ensureThirdColumnResizeAreaCreated();
 
 	not_null<Window::Controller*> _controller;
 	bool _started = false;
@@ -605,19 +569,22 @@ private:
 	bool _showBack = false;
 	QPixmap _cacheUnder, _cacheOver;
 
-	int _dialogsWidth;
+	int _dialogsWidth = 0;
+	int _thirdColumnWidth = 0;
 	Animation _a_dialogsWidth;
 
 	object_ptr<Ui::PlainShadow> _sideShadow;
-	object_ptr<TWidget> _sideResizeArea;
+	object_ptr<Ui::PlainShadow> _thirdShadow = { nullptr };
+	object_ptr<Ui::ResizeArea> _firstColumnResizeArea = { nullptr };
+	object_ptr<Ui::ResizeArea> _thirdColumnResizeArea = { nullptr };
 	object_ptr<DialogsWidget> _dialogs;
 	object_ptr<HistoryWidget> _history;
-	object_ptr<Window::SectionWidget> _wideSection = { nullptr };
+	object_ptr<Window::SectionWidget> _mainSection = { nullptr };
 	object_ptr<Window::SectionWidget> _thirdSection = { nullptr };
-	object_ptr<OverviewWidget> _overview = { nullptr };
+	std::unique_ptr<Window::SectionMemento> _thirdSectionFromStack;
 
 	base::weak_unique_ptr<Calls::Call> _currentCall;
-	object_ptr<Ui::WidgetSlideWrap<Calls::TopBar>> _callTopBar = { nullptr };
+	object_ptr<Ui::SlideWrap<Calls::TopBar>> _callTopBar = { nullptr };
 
 	object_ptr<Window::PlayerWrapWidget> _player = { nullptr };
 	object_ptr<Media::Player::VolumeWidget> _playerVolume = { nullptr };
@@ -655,7 +622,7 @@ private:
 	SingleTimer _byMinChannelTimer;
 
 	mtpRequestId _onlineRequest = 0;
-	SingleTimer _onlineTimer, _onlineUpdater, _idleFinishTimer;
+	SingleTimer _onlineTimer, _idleFinishTimer;
 	bool _lastWasOnline = false;
 	TimeMs _lastSetOnline = 0;
 	bool _isIdle = false;
@@ -701,7 +668,7 @@ private:
 
 	std::unique_ptr<App::WallPaper> _background;
 
-	bool _resizingSide = false;
-	int _resizingSideShift = 0;
+	bool _firstColumnResizing = false;
+	int _firstColumnResizingShift = 0;
 
 };

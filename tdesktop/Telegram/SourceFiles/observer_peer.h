@@ -20,6 +20,10 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
+#include <rpl/producer.h>
+#include <rpl/filter.h>
+#include <rpl/then.h>
+#include <rpl/range.h>
 #include "base/observer.h"
 #include "base/flags.h"
 
@@ -81,7 +85,6 @@ struct PeerUpdate {
 	Flags flags = 0;
 
 	// NameChanged data
-	PeerData::Names oldNames;
 	PeerData::NameFirstChars oldNameFirstChars;
 
 	// SharedMediaChanged data
@@ -121,5 +124,16 @@ private:
 
 };
 base::Observable<PeerUpdate, PeerUpdatedHandler> &PeerUpdated();
+
+rpl::producer<PeerUpdate> PeerUpdateViewer(
+	PeerUpdate::Flags flags);
+
+rpl::producer<PeerUpdate> PeerUpdateViewer(
+	not_null<PeerData*> peer,
+	PeerUpdate::Flags flags);
+
+rpl::producer<PeerUpdate> PeerUpdateValue(
+	not_null<PeerData*> peer,
+	PeerUpdate::Flags flags);
 
 } // namespace Notify

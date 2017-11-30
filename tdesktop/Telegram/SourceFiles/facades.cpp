@@ -18,16 +18,19 @@ to link the code of portions of this program with the OpenSSL library.
 Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
-#include "profile/profile_section_memento.h"
+#include "facades.h"
+
+#include "info/info_memento.h"
 #include "core/click_handler_types.h"
 #include "media/media_clip_reader.h"
+#include "window/window_controller.h"
 #include "observer_peer.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "messenger.h"
 #include "auth_session.h"
 #include "boxes/confirm_box.h"
-#include "layerwidget.h"
+#include "window/layer_widget.h"
 #include "lang/lang_keys.h"
 #include "base/observer.h"
 #include "base/task_queue.h"
@@ -35,7 +38,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 Q_DECLARE_METATYPE(ClickHandlerPtr);
 Q_DECLARE_METATYPE(Qt::MouseButton);
-Q_DECLARE_METATYPE(Ui::ShowWay);
 
 namespace App {
 namespace internal {
@@ -152,7 +154,14 @@ void activateBotCommand(const HistoryItem *msg, int row, int col) {
 }
 
 void searchByHashtag(const QString &tag, PeerData *inPeer) {
-	if (MainWidget *m = main()) m->searchMessages(tag + ' ', (inPeer && inPeer->isChannel() && !inPeer->isMegagroup()) ? inPeer : 0);
+	if (MainWidget *m = main()) {
+		Ui::hideSettingsAndLayer();
+		Messenger::Instance().hideMediaView();
+		if (inPeer && (!inPeer->isChannel() || inPeer->isMegagroup())) {
+			inPeer = nullptr;
+		}
+		m->searchMessages(tag + ' ', inPeer);
+	}
 }
 
 void openPeerByName(const QString &username, MsgId msgId, const QString &startToken) {
@@ -161,10 +170,6 @@ void openPeerByName(const QString &username, MsgId msgId, const QString &startTo
 
 void joinGroupByHash(const QString &hash) {
 	if (MainWidget *m = main()) m->joinGroupByHash(hash);
-}
-
-void stickersBox(const QString &name) {
-	if (MainWidget *m = main()) m->stickersBox(MTP_inputStickerSetShortName(MTP_string(name)));
 }
 
 void removeDialog(History *history) {
@@ -198,9 +203,12 @@ void logOutDelayed() {
 namespace Ui {
 namespace internal {
 
-void showBox(object_ptr<BoxContent> content, ShowLayerOptions options) {
+void showBox(
+		object_ptr<BoxContent> content,
+		LayerOptions options,
+		anim::type animated) {
 	if (auto w = App::wnd()) {
-		w->ui_showBox(std::move(content), options);
+		w->ui_showBox(std::move(content), options, animated);
 	}
 }
 
@@ -224,15 +232,18 @@ void hideMediaPreview() {
 	}
 }
 
-void hideLayer(bool fast) {
+void hideLayer(anim::type animated) {
 	if (auto w = App::wnd()) {
-		w->ui_showBox({ nullptr }, CloseOtherLayers | (fast ? ForceFastShowLayer : AnimatedShowLayer));
+		w->ui_showBox(
+			{ nullptr },
+			LayerOption::CloseOther,
+			animated);
 	}
 }
 
-void hideSettingsAndLayer(bool fast) {
+void hideSettingsAndLayer(anim::type animated) {
 	if (auto w = App::wnd()) {
-		w->ui_hideSettingsAndLayer(fast ? ForceFastShowLayer : AnimatedShowLayer);
+		w->ui_hideSettingsAndLayer(animated);
 	}
 }
 
@@ -241,39 +252,38 @@ bool isLayerShown() {
 	return false;
 }
 
-void repaintHistoryItem(not_null<const HistoryItem*> item) {
-	if (auto main = App::main()) {
-		main->ui_repaintHistoryItem(item);
-	}
-}
-
 void autoplayMediaInlineAsync(const FullMsgId &msgId) {
 	if (auto main = App::main()) {
-		QMetaObject::invokeMethod(main, "ui_autoplayMediaInlineAsync", Qt::QueuedConnection, Q_ARG(qint32, msgId.channel), Q_ARG(qint32, msgId.msg));
+		InvokeQueued(main, [msgId] {
+			if (auto item = App::histItemById(msgId)) {
+				if (auto media = item->getMedia()) {
+					media->playInline(true);
+				}
+			}
+		});
 	}
 }
 
 void showPeerProfile(const PeerId &peer) {
-	if (auto main = App::main()) {
-		main->showWideSection(Profile::SectionMemento(App::peer(peer)));
+	if (auto window = App::wnd()) {
+		if (auto controller = window->controller()) {
+			controller->showPeerInfo(peer);
+		}
 	}
 }
 
-void showPeerOverview(const PeerId &peer, MediaOverviewType type) {
+void showPeerHistory(
+		const PeerId &peer,
+		MsgId msgId) {
+	auto ms = getms();
+	LOG(("Show Peer Start"));
 	if (auto m = App::main()) {
-		m->showMediaOverview(App::peer(peer), type);
+		m->ui_showPeerHistory(
+			peer,
+			Window::SectionShow::Way::ClearStack,
+			msgId);
 	}
-}
-
-void showPeerHistory(const PeerId &peer, MsgId msgId, ShowWay way) {
-	if (MainWidget *m = App::main()) m->ui_showPeerHistory(peer, msgId, way);
-}
-
-void showPeerHistoryAsync(const PeerId &peer, MsgId msgId, ShowWay way) {
-	if (MainWidget *m = App::main()) {
-		qRegisterMetaType<Ui::ShowWay>();
-		QMetaObject::invokeMethod(m, "ui_showPeerHistoryAsync", Qt::QueuedConnection, Q_ARG(quint64, peer), Q_ARG(qint32, msgId), Q_ARG(Ui::ShowWay, way));
-	}
+	LOG(("Show Peer End: %1").arg(getms() - ms));
 }
 
 PeerData *getPeerForMouseAction() {
@@ -335,10 +345,6 @@ void migrateUpdated(PeerData *peer) {
 	if (MainWidget *m = App::main()) m->notify_migrateUpdated(peer);
 }
 
-void historyItemLayoutChanged(const HistoryItem *item) {
-	if (MainWidget *m = App::main()) m->notify_historyItemLayoutChanged(item);
-}
-
 void historyMuteUpdated(History *history) {
 	if (MainWidget *m = App::main()) m->notify_historyMuteUpdated(history);
 }
@@ -350,7 +356,7 @@ void handlePendingHistoryUpdate() {
 	Auth().data().pendingHistoryResize().notify(true);
 
 	for (auto item : base::take(Global::RefPendingRepaintItems())) {
-		Ui::repaintHistoryItem(item);
+		Auth().data().requestItemRepaint(item);
 
 		// Start the video if it is waiting for that.
 		if (item->pendingInitDimensions()) {
@@ -566,6 +572,7 @@ struct Data {
 	int32 StickersFavedLimit = 5;
 	int32 PinnedDialogsCountMax = 5;
 	QString InternalLinksDomain = qsl("https://t.me/");
+	int32 ChannelsReadMediaPeriod = 86400 * 7;
 	int32 CallReceiveTimeoutMs = 20000;
 	int32 CallRingTimeoutMs = 90000;
 	int32 CallConnectTimeoutMs = 30000;
@@ -619,7 +626,6 @@ struct Data {
 
 	base::Variable<DBIWorkMode> WorkMode = { dbiwmWindowAndTray };
 
-	base::Observable<HistoryItem*> ItemRemoved;
 	base::Observable<void> UnreadCounterUpdate;
 	base::Observable<void> PeerChooseCancel;
 
@@ -689,6 +695,7 @@ DefineVar(Global, int32, StickersRecentLimit);
 DefineVar(Global, int32, StickersFavedLimit);
 DefineVar(Global, int32, PinnedDialogsCountMax);
 DefineVar(Global, QString, InternalLinksDomain);
+DefineVar(Global, int32, ChannelsReadMediaPeriod);
 DefineVar(Global, int32, CallReceiveTimeoutMs);
 DefineVar(Global, int32, CallRingTimeoutMs);
 DefineVar(Global, int32, CallConnectTimeoutMs);
@@ -742,7 +749,6 @@ DefineRefVar(Global, base::Observable<void>, LocalPasscodeChanged);
 
 DefineRefVar(Global, base::Variable<DBIWorkMode>, WorkMode);
 
-DefineRefVar(Global, base::Observable<HistoryItem*>, ItemRemoved);
 DefineRefVar(Global, base::Observable<void>, UnreadCounterUpdate);
 DefineRefVar(Global, base::Observable<void>, PeerChooseCancel);
 

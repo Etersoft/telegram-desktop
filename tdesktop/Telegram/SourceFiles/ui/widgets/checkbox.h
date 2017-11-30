@@ -22,6 +22,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "ui/widgets/buttons.h"
 #include "styles/style_widgets.h"
+#include <rpl/event_stream.h>
 
 namespace Ui {
 
@@ -31,12 +32,16 @@ public:
 
 	void setCheckedFast(bool checked);
 	void setCheckedAnimated(bool checked);
-	void finishAnimation();
+	void finishAnimating();
 	void setUpdateCallback(base::lambda<void()> updateCallback);
 	bool checked() const {
 		return _checked;
 	}
 	float64 currentAnimationValue(TimeMs ms);
+
+	auto checkedValue() const {
+		return _checks.events_starting_with(checked());
+	}
 
 	virtual QSize getSize() const = 0;
 
@@ -58,6 +63,8 @@ private:
 	bool _checked = false;
 	base::lambda<void()> _updateCallback;
 	Animation _toggleAnimation;
+
+	rpl::event_stream<bool> _checks;
 
 };
 
@@ -123,6 +130,7 @@ public:
 	Checkbox(QWidget *parent, const QString &text, const style::Checkbox &st, std::unique_ptr<AbstractCheckView> check);
 
 	void setText(const QString &text);
+	void setCheckAlignment(style::align alignment);
 
 	bool checked() const;
 	enum class NotifyAboutChange {
@@ -132,12 +140,17 @@ public:
 	void setChecked(bool checked, NotifyAboutChange notify = NotifyAboutChange::Notify);
 	base::Observable<bool> checkedChanged;
 
-	void finishAnimations();
+	void finishAnimating();
 
 	QMargins getMargins() const override {
 		return _st.margin;
 	}
 	int naturalWidth() const override;
+
+	void updateCheck() {
+		rtlupdate(checkRect());
+	}
+	QRect checkRect() const;
 
 protected:
 	void paintEvent(QPaintEvent *e) override;
@@ -150,10 +163,6 @@ protected:
 
 	virtual void handlePress();
 
-	void updateCheck() {
-		rtlupdate(_checkRect);
-	}
-
 private:
 	void resizeToText();
 	QPixmap grabCheckCache() const;
@@ -163,7 +172,7 @@ private:
 	QPixmap _checkCache;
 
 	Text _text;
-	QRect _checkRect;
+	style::align _checkAlignment = style::al_left;
 
 };
 

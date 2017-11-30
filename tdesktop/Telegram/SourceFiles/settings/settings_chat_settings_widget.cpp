@@ -22,14 +22,13 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "styles/style_settings.h"
 #include "lang/lang_keys.h"
-#include "ui/effects/widget_slide_wrap.h"
+#include "ui/wrap/slide_wrap.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "storage/localstorage.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
-#include "boxes/emoji_box.h"
 #include "boxes/stickers_box.h"
 #include "boxes/download_path_box.h"
 #include "boxes/connection_box.h"
@@ -37,7 +36,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 namespace Settings {
 
-LabeledLink::LabeledLink(QWidget *parent, const QString &label, const QString &text, Type type, const char *slot) : TWidget(parent)
+LabeledLink::LabeledLink(QWidget *parent, const QString &label, const QString &text, Type type, const char *slot) : RpWidget(parent)
 , _label(this, label, Ui::FlatLabel::InitType::Simple, (type == Type::Primary) ? st::settingsPrimaryLabel : st::defaultFlatLabel)
 , _link(this, text, (type == Type::Primary) ? st::boxLinkButton : st::defaultLinkButton) {
 	connect(_link, SIGNAL(clicked()), parent, slot);
@@ -59,7 +58,7 @@ int LabeledLink::resizeGetHeight(int newWidth) {
 }
 
 #ifndef OS_WIN_STORE
-DownloadPathState::DownloadPathState(QWidget *parent) : TWidget(parent)
+DownloadPathState::DownloadPathState(QWidget *parent) : RpWidget(parent)
 , _path(this, lang(lng_download_path_label), downloadPathText(), LabeledLink::Type::Secondary, SLOT(onDownloadPath()))
 , _clear(this, lang(lng_download_path_clear)) {
 	connect(_clear, SIGNAL(clicked()), this, SLOT(onClear()));
@@ -91,7 +90,7 @@ void DownloadPathState::paintEvent(QPaintEvent *e) {
 		switch (_state) {
 		case State::Clearing: return lang(lng_download_path_clearing);
 		case State::Cleared: return lang(lng_download_path_cleared);
-		case State::ClearFailed: return lang(lng_download_path_clear_failed);
+		case State::ClearFailed: return Lang::Hard::ClearPathFailed();
 		}
 		return QString();
 	})();
@@ -154,55 +153,46 @@ void ChatSettingsWidget::createControls() {
 	style::margins marginSub(0, 0, 0, st::settingsSubSkip);
 	style::margins slidedPadding(0, marginSub.bottom() / 2, 0, marginSub.bottom() - (marginSub.bottom() / 2));
 
-	addChildRow(_replaceEmoji, marginSub, lang(lng_settings_replace_emojis), [this](bool) { onReplaceEmoji(); }, cReplaceEmojis());
-	style::margins marginList(st::defaultCheck.diameter + st::defaultBoxCheckbox.textPosition.x(), 0, 0, st::settingsSkip);
-	addChildRow(_viewList, marginList, slidedPadding, lang(lng_settings_view_emojis), SLOT(onViewList()), st::defaultLinkButton);
-//	if (!cReplaceEmojis()) {
-		_viewList->hideFast();
-//	}
+	createChildRow(_replaceEmoji, marginSkip, lang(lng_settings_replace_emojis), [this](bool) { onReplaceEmoji(); }, cReplaceEmojis());
 
 #ifndef OS_WIN_STORE
 	auto pathMargin = marginSub;
 #else // OS_WIN_STORE
 	auto pathMargin = marginSkip;
 #endif // OS_WIN_STORE
-	addChildRow(_dontAskDownloadPath, pathMargin, lang(lng_download_path_dont_ask), [this](bool) { onDontAskDownloadPath(); }, !Global::AskDownloadPath());
+	createChildRow(_dontAskDownloadPath, pathMargin, lang(lng_download_path_dont_ask), [this](bool) { onDontAskDownloadPath(); }, !Global::AskDownloadPath());
 
 #ifndef OS_WIN_STORE
 	style::margins marginPath(st::defaultCheck.diameter + st::defaultBoxCheckbox.textPosition.x(), 0, 0, st::settingsSkip);
-	addChildRow(_downloadPath, marginPath, slidedPadding);
+	createChildRow(_downloadPath, marginPath, slidedPadding);
 	if (Global::AskDownloadPath()) {
-		_downloadPath->hideFast();
+		_downloadPath->hide(anim::type::instant);
 	}
 #endif // OS_WIN_STORE
 
 	auto group = std::make_shared<Ui::RadioenumGroup<SendByType>>(cCtrlEnter() ? SendByType::CtrlEnter : SendByType::Enter);
-	addChildRow(_sendByEnter, marginSmall, group, SendByType::Enter, lang(lng_settings_send_enter));
-	addChildRow(_sendByCtrlEnter, marginSkip, group, SendByType::CtrlEnter, lang((cPlatform() == dbipMac || cPlatform() == dbipMacOld) ? lng_settings_send_cmdenter : lng_settings_send_ctrlenter));
+	createChildRow(_sendByEnter, marginSmall, group, SendByType::Enter, lang(lng_settings_send_enter));
+	createChildRow(_sendByCtrlEnter, marginSkip, group, SendByType::CtrlEnter, lang((cPlatform() == dbipMac || cPlatform() == dbipMacOld) ? lng_settings_send_cmdenter : lng_settings_send_ctrlenter));
 	group->setChangedCallback([this](SendByType value) {
 		sendByChanged(value);
 	});
 
-	addChildRow(_automaticMediaDownloadSettings, marginSmall, lang(lng_media_auto_settings), SLOT(onAutomaticMediaDownloadSettings()));
-	addChildRow(_manageStickerSets, marginSmall, lang(lng_stickers_you_have), SLOT(onManageStickerSets()));
+	createChildRow(_automaticMediaDownloadSettings, marginSmall, lang(lng_media_auto_settings), SLOT(onAutomaticMediaDownloadSettings()));
+	createChildRow(_manageStickerSets, marginSmall, lang(lng_stickers_you_have), SLOT(onManageStickerSets()));
 }
 
 void ChatSettingsWidget::onReplaceEmoji() {
 	cSetReplaceEmojis(_replaceEmoji->checked());
 	Local::writeUserSettings();
-
-	//_viewList->toggleAnimated(_replaceEmoji->checked());
-}
-
-void ChatSettingsWidget::onViewList() {
-	Ui::show(Box<EmojiBox>());
 }
 
 void ChatSettingsWidget::onDontAskDownloadPath() {
 	Global::SetAskDownloadPath(!_dontAskDownloadPath->checked());
 	Local::writeUserSettings();
 #ifndef OS_WIN_STORE
-	_downloadPath->toggleAnimated(_dontAskDownloadPath->checked());
+	_downloadPath->toggle(
+		_dontAskDownloadPath->checked(),
+		anim::type::normal);
 #endif // OS_WIN_STORE
 }
 

@@ -46,7 +46,6 @@ base::Observable<PeerUpdate, PeerUpdatedHandler> PeerUpdatedObservable;
 void mergePeerUpdate(PeerUpdate &mergeTo, const PeerUpdate &mergeFrom) {
 	if (!(mergeTo.flags & PeerUpdate::Flag::NameChanged)) {
 		if (mergeFrom.flags & PeerUpdate::Flag::NameChanged) {
-			mergeTo.oldNames = mergeFrom.oldNames;
 			mergeTo.oldNameFirstChars = mergeFrom.oldNameFirstChars;
 		}
 	}
@@ -107,6 +106,37 @@ void peerUpdatedSendDelayed() {
 
 base::Observable<PeerUpdate, PeerUpdatedHandler> &PeerUpdated() {
 	return PeerUpdatedObservable;
+}
+
+rpl::producer<PeerUpdate> PeerUpdateViewer(
+		PeerUpdate::Flags flags) {
+	return [=](const auto &consumer) {
+		auto lifetime = rpl::lifetime();
+		lifetime.make_state<base::Subscription>(
+			PeerUpdated().add_subscription({ flags, [=](
+					const PeerUpdate &update) {
+				consumer.put_next_copy(update);
+			}}));
+		return lifetime;
+	};
+}
+
+rpl::producer<PeerUpdate> PeerUpdateViewer(
+		not_null<PeerData*> peer,
+		PeerUpdate::Flags flags) {
+	return PeerUpdateViewer(flags)
+		| rpl::filter([=](const PeerUpdate &update) {
+			return (update.peer == peer);
+		});
+}
+
+rpl::producer<PeerUpdate> PeerUpdateValue(
+		not_null<PeerData*> peer,
+		PeerUpdate::Flags flags) {
+	auto initial = PeerUpdate(peer);
+	initial.flags = flags;
+	return rpl::single(initial)
+		| rpl::then(PeerUpdateViewer(peer, flags));
 }
 
 } // namespace Notify

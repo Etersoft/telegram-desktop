@@ -20,7 +20,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "structs.h"
+#include "data/data_types.h"
+#include "data/data_peer.h"
 #include "dialogs/dialogs_common.h"
 #include "ui/effects/send_action_animations.h"
 #include "base/observer.h"
@@ -215,11 +216,12 @@ public:
 	History *migrateFrom() const;
 
 	bool isEmpty() const {
-		return blocks.isEmpty();
+		return blocks.empty();
 	}
 	bool isDisplayedEmpty() const;
 
 	void clear(bool leaveItems = false);
+	void clearUpTill(MsgId availableMinId);
 
 	virtual ~History();
 
@@ -284,7 +286,7 @@ public:
 	};
 	PositionInChatListChange adjustByPosInChatList(Dialogs::Mode list, Dialogs::IndexedList *indexed);
 	bool inChatList(Dialogs::Mode list) const {
-		return !chatListLinks(list).isEmpty();
+		return !chatListLinks(list).empty();
 	}
 	int posInChatList(Dialogs::Mode list) const;
 	Dialogs::Row *addToChatList(Dialogs::Mode list, Dialogs::IndexedList *indexed);
@@ -375,7 +377,7 @@ public:
 	void eraseFromUnreadMentions(MsgId msgId);
 	void addUnreadMentionsSlice(const MTPmessages_Messages &result);
 
-	using Blocks = QList<HistoryBlock*>;
+	using Blocks = std::deque<HistoryBlock*>;
 	Blocks blocks;
 
 	int width = 0;
@@ -491,7 +493,11 @@ public:
 	MsgId overviewMinId(int32 overviewIndex) const {
 		return _overview[overviewIndex].empty() ? 0 : *_overview[overviewIndex].begin();
 	}
-	void overviewSliceDone(int32 overviewIndex, const MTPmessages_Messages &result, bool onlyCounts = false);
+	void overviewSliceDone(
+		int32 overviewIndex,
+		MsgId startMessageId,
+		const MTPmessages_Messages &result,
+		bool onlyCounts = false);
 	bool overviewHasMsgId(int32 overviewIndex, MsgId msgId) const {
 		return _overview[overviewIndex].contains(msgId);
 	}
@@ -545,6 +551,10 @@ private:
 	// Add all items to the media overview if we were not loaded at bottom and now are.
 	void checkAddAllToOverview();
 
+	template <int kSharedMediaTypeCount>
+	void addToSharedMedia(std::vector<MsgId> (&medias)[kSharedMediaTypeCount], bool force);
+	void addBlockToSharedMedia(HistoryBlock *block);
+
 	enum class Flag {
 		f_has_pending_resized_items = (1 << 0),
 		f_pending_resize            = (1 << 1),
@@ -567,9 +577,9 @@ private:
 		return _chatListLinks[static_cast<int>(list)];
 	}
 	Dialogs::Row *mainChatListLink(Dialogs::Mode list) const {
-		auto it = chatListLinks(list).constFind(0);
+		auto it = chatListLinks(list).find(0);
 		Assert(it != chatListLinks(list).cend());
-		return it.value();
+		return it->second;
 	}
 	uint64 _sortKeyInChatList = 0; // like ((unixtime) << 32) | (incremented counter)
 
@@ -649,7 +659,7 @@ public:
 	HistoryBlock(const HistoryBlock &) = delete;
 	HistoryBlock &operator=(const HistoryBlock &) = delete;
 
-	QVector<HistoryItem*> items;
+	std::vector<HistoryItem*> items;
 
 	void clear(bool leaveItems = false);
 	~HistoryBlock() {

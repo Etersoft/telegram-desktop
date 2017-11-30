@@ -22,6 +22,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include <vector>
 #include <deque>
+#include <rpl/producer.h>
 #include "base/type_traits.h"
 
 namespace base {
@@ -366,9 +367,9 @@ class Observable : public internal::BaseObservable<EventType, Handler, base::typ
 public:
 	Observable() = default;
 	Observable(const Observable &other) = delete;
-	Observable(Observable &&other) = delete;
+	Observable(Observable &&other) = default;
 	Observable &operator=(const Observable &other) = delete;
-	Observable &operator=(Observable &&other) = delete;
+	Observable &operator=(Observable &&other) = default;
 
 };
 
@@ -459,5 +460,23 @@ private:
 };
 
 void HandleObservables();
+
+template <
+	typename Type,
+	typename = std::enable_if_t<!std::is_same_v<Type, void>>>
+inline auto ObservableViewer(base::Observable<Type> &observable) {
+	return rpl::make_producer<Type>([&observable](
+			const auto &consumer) {
+		auto lifetime = rpl::lifetime();
+		lifetime.make_state<base::Subscription>(
+			observable.add_subscription([consumer](auto &&update) {
+				consumer.put_next_forward(
+					std::forward<decltype(update)>(update));
+			}));
+		return lifetime;
+	});
+}
+
+rpl::producer<> ObservableViewer(base::Observable<void> &observable);
 
 } // namespace base

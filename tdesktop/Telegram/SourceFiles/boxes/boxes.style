@@ -88,7 +88,6 @@ boxLayerTitlePosition: point(23px, 16px);
 boxLayerTitleHeight: 56px;
 boxLayerTitleAdditionalSkip: 9px;
 boxLayerTitleAdditionalFont: normalFont;
-boxLayerTitleShadow: shadowFg;
 boxLayerScroll: defaultSolidScroll;
 
 boxTopMargin: 6px;
@@ -127,7 +126,7 @@ boxMediumSkip: 20px;
 boxButtonPadding: margins(8px, 12px, 13px, 12px);
 boxLayerButtonPadding: margins(8px, 8px, 8px, 8px);
 boxLabel: FlatLabel(defaultFlatLabel) {
-	width: 285px;
+	minWidth: 285px;
 	align: align(topleft);
 	style: boxLabelStyle;
 }
@@ -160,7 +159,7 @@ cropMinSize: 20px;
 
 confirmInviteTitle: FlatLabel(defaultFlatLabel) {
 	align: align(center);
-	width: 320px;
+	minWidth: 320px;
 	maxHeight: 24px;
 	textFg: windowBoldFg;
 	style: TextStyle(defaultTextStyle) {
@@ -171,7 +170,7 @@ confirmInviteTitle: FlatLabel(defaultFlatLabel) {
 }
 confirmInviteStatus: FlatLabel(boxLabel) {
 	align: align(center);
-	width: 320px;
+	minWidth: 320px;
 	maxHeight: 20px;
 	textFg: windowSubTextFg;
 }
@@ -184,13 +183,13 @@ confirmInviteUserPhotoSize: 56px;
 confirmInviteUserPhotoTop: 166px;
 confirmInviteUserName: FlatLabel(defaultFlatLabel) {
 	align: align(center);
-	width: 66px;
+	minWidth: 66px;
 	maxHeight: 20px;
 }
 confirmInviteUserNameTop: 227px;
 
 confirmPhoneAboutLabel: FlatLabel(defaultFlatLabel) {
-	width: 282px;
+	minWidth: 282px;
 }
 confirmPhoneCodeField: InputField(defaultInputField) {
 }
@@ -200,7 +199,7 @@ revokePublicLinkStatusPalette: TextPalette(defaultTextPalette) {
 }
 aboutRevokePublicLabel: FlatLabel(defaultFlatLabel) {
 	align: align(topleft);
-	width: 320px;
+	minWidth: 320px;
 }
 editBioCountdownLabel: FlatLabel(defaultFlatLabel) {
 	style: boxTextStyle;
@@ -312,17 +311,23 @@ contactsMultiSelect: MultiSelect {
 	fieldCancel: contactsSearchCancel;
 	fieldCancelSkip: 40px;
 }
+contactsPhotoCheckIcon: icon {{
+	"default_checkbox_check",
+	windowFgActive,
+	point(3px, 6px)
+}};
+contactsPhotoCheck: RoundCheckbox(defaultRoundCheckbox) {
+	size: 20px;
+	sizeSmall: 0.3;
+	check: contactsPhotoCheckIcon;
+}
 contactsPhotoCheckbox: RoundImageCheckbox {
 	imageRadius: 21px;
 	imageSmallRadius: 18px;
 	selectWidth: 2px;
 	selectFg: windowBgActive;
 	selectDuration: 150;
-	check: RoundCheckbox(defaultRoundCheckbox) {
-		size: 20px;
-		sizeSmall: 0.3;
-		check: icon {{ "default_checkbox_check", windowFgActive, point(3px, 6px) }};
-	}
+	check: contactsPhotoCheck;
 }
 contactsPhotoDisabledCheckFg: menuIconFg;
 contactsNameCheckedFg: windowActiveTextFg;
@@ -332,6 +337,29 @@ contactsMarginTop: 4px;
 contactsMarginBottom: 4px;
 membersMarginTop: 10px;
 membersMarginBottom: 10px;
+
+peerListBox: PeerList(defaultPeerList) {
+	padding: margins(
+		0px,
+		membersMarginTop,
+		0px,
+		membersMarginBottom);
+	item: PeerListItem(defaultPeerListItem) {
+		height: 56px;
+		photoSize: contactsPhotoSize;
+		photoPosition: point(16px, 7px);
+		namePosition: point(74px, 9px);
+		statusPosition: point(74px, 30px);
+		button: OutlineButton(defaultPeerListButton) {
+			textBg: contactsBg;
+			textBgOver: contactsBgOver;
+			ripple: contactsRipple;
+		}
+		statusFg: contactsStatusFg;
+		statusFgOver: contactsStatusFgOver;
+		statusFgActive: contactsStatusFgOnline;
+	}
+}
 
 localStorageBoxSkip: 10px;
 
@@ -372,7 +400,7 @@ notificationSampleSize: size(64px, 16px);
 
 membersAboutLimitPadding: margins(0px, 12px, 0px, 12px);
 membersAbout: FlatLabel(defaultFlatLabel) {
-	width: 332px;
+	minWidth: 240px;
 	textFg: membersAboutLimitFg;
 	align: align(top);
 	style: boxLabelStyle;
@@ -435,11 +463,6 @@ newGroupLinkPadding: margins(4px, 27px, 4px, 21px);
 newGroupLinkTop: 3px;
 newGroupLinkFont: font(16px);
 
-newGroupPhotoSize: 76px;
-newGroupPhotoIcon: icon {{ "new_chat_photo", activeButtonFg }};
-newGroupPhotoIconPosition: point(23px, 25px);
-newGroupPhotoDuration: 150;
-
 newGroupNamePosition: point(27px, 5px);
 
 newGroupDescriptionPadding: margins(0px, 13px, 0px, 4px);
@@ -468,7 +491,7 @@ aboutVersionLink: LinkButton(defaultLinkButton) {
 aboutTextTop: 34px;
 aboutSkip: 14px;
 aboutLabel: FlatLabel(defaultFlatLabel) {
-	width: 330px;
+	minWidth: 330px;
 	align: align(topleft);
 	style: TextStyle(defaultTextStyle) {
 		lineHeight: 22px;
@@ -579,18 +602,18 @@ editPrivacyOptionMargin: margins(23px, 14px, 21px, 0px);
 editPrivacyPadding: margins(23px, 0px, 21px, 0px);
 editPrivacyWarningPadding: margins(23px, 14px, 21px, 0px);
 editPrivacyTitle: FlatLabel(defaultFlatLabel) {
-	width: 320px;
+	minWidth: 320px;
 	textFg: boxTitleFg;
 	maxHeight: 56px;
-	margin: margins(0px, 20px, 0px, 13px);
 	style: TextStyle(defaultTextStyle) {
 		font: boxTitleFont;
 		linkFont: boxTitleFont;
 		linkFontOver: boxTitleFont;
 	}
 }
+editPrivacyTitlePadding: margins(23px, 20px, 21px, 13px);
 editPrivacyLabel: FlatLabel(defaultFlatLabel) {
-	width: 320px;
+	minWidth: 320px;
 	textFg: membersAboutLimitFg;
 	style: defaultTextStyle;
 }
@@ -602,13 +625,13 @@ changePhoneIcon: icon {
 	{ "phone_simcard_to", changePhoneSimcardTo, point(78px, 0px) }
 };
 changePhoneDescription: FlatLabel(boxLabel) {
-	width: 332px;
+	minWidth: 332px;
 	align: align(top);
 }
 changePhoneIconTop: 20px;
 changePhoneDescriptionTop: 96px;
 changePhoneLabel: FlatLabel(defaultFlatLabel) {
-	width: 275px;
+	minWidth: 275px;
 	textFg: windowSubTextFg;
 }
 changePhoneError: FlatLabel(changePhoneLabel) {
@@ -627,6 +650,7 @@ adminLogFilterCheckbox: Checkbox(defaultBoxCheckbox) {
 adminLogFilterSkip: 32px;
 adminLogFilterUserCheckbox: Checkbox(defaultBoxCheckbox) {
 	margin: margins(8px, 6px, 8px, 6px);
+	checkPosition: point(8px, 6px);
 }
 
 rightsCheckbox: Checkbox(defaultBoxCheckbox) {
@@ -641,12 +665,12 @@ rightsToggle: Toggle(defaultToggle) {
 	stroke: 2px;
 	duration: 120;
 }
-rightsDividerHeight: 11px;
+rightsDividerHeight: 10px;
 rightsHeaderMargin: margins(23px, 20px, 23px, 8px);
 rightsToggleMargin: margins(23px, 8px, 23px, 8px);
 rightsAboutMargin: margins(23px, 8px, 23px, 8px);
-rightsPhotoButton: PeerAvatarButton {
-	size: 60px;
+rightsPhotoButton: UserpicButton(defaultUserpicButton) {
+	size: size(60px, 60px);
 	photoSize: 60px;
 }
 rightsPhotoMargin: margins(20px, 0px, 15px, 18px);
@@ -667,18 +691,18 @@ rightsHeaderLabel: FlatLabel(boxLabel) {
 }
 rightsUntilMargin: margins(0px, 8px, 0px, 0px);
 
-mutePhotoButton: PeerAvatarButton {
-	size: 40px;
+mutePhotoButton: UserpicButton(defaultUserpicButton) {
+	size: size(40px, 40px);
 	photoSize: 40px;
 }
 muteChatTitle: FlatLabel(boxLabel) {
-	width: 235px;
+	minWidth: 235px;
 	maxHeight: 20px;  // block word wrap
-	margin: margins(50px, 0px, 0px, 0px);  // left offset for place peer avatar
 	style: TextStyle(boxTextStyle) {
 		font: font(boxFontSize semibold);
 	}
 }
+muteChatTitleLeft: 50px;
 
 groupStickersRemove: contactsSearchCancel;
 groupStickersRemovePosition: point(6px, 6px);

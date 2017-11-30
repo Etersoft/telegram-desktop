@@ -47,6 +47,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 5, 0)
 #define OS_MAC_OLD
+#define RANGES_CXX_THREAD_LOCAL 0
 #endif // QT_VERSION < 5.5.0
 
 #ifdef OS_MAC_STORE
@@ -63,6 +64,11 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include <algorithm>
 #include <memory>
 
+#include <range/v3/all.hpp>
+#ifdef Q_OS_WIN
+#include "platform/win/windows_range_v3_helpers.h"
+#endif // Q_OS_WIN
+
 // Ensures/Expects.
 #include <gsl/gsl_assert>
 
@@ -70,10 +76,17 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "base/assertion.h"
 
 #include <gsl/gsl>
+#include <rpl/rpl.h>
 
 #include "base/variant.h"
 #include "base/optional.h"
 #include "base/algorithm.h"
+#include "base/functors.h"
+
+namespace func = base::functors;
+
+#include "base/flat_set.h"
+#include "base/flat_map.h"
 
 #include "core/basic_types.h"
 #include "logs.h"
@@ -93,6 +106,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/images.h"
 #include "ui/text/text.h"
 
+#include "data/data_types.h"
 #include "app.h"
 #include "facades.h"
 

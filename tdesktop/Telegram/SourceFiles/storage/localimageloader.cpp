@@ -20,6 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "storage/localimageloader.h"
 
+#include "data/data_document.h"
 #include "core/file_utilities.h"
 #include "media/media_audio.h"
 #include "boxes/send_files_box.h"
@@ -573,12 +574,15 @@ void FileLoadTask::process() {
 }
 
 void FileLoadTask::finish() {
-	if (!_result || !_result->filesize) {
-		Ui::show(Box<InformBox>(lng_send_image_empty(lt_name, _filepath)), KeepOtherLayers);
-	} else if (_result->filesize == -1) { // dir
-		Ui::show(Box<InformBox>(lng_send_folder(lt_name, QFileInfo(_filepath).dir().dirName())), KeepOtherLayers);
+	if (!_result || !_result->filesize || _result->filesize < 0) {
+		Ui::show(
+			Box<InformBox>(lng_send_image_empty(lt_name, _filepath)),
+			LayerOption::KeepOther);
 	} else if (_result->filesize > App::kFileSizeLimit) {
-		Ui::show(Box<InformBox>(lng_send_image_too_large(lt_name, _filepath)), KeepOtherLayers);
+		Ui::show(
+			Box<InformBox>(
+				lng_send_image_too_large(lt_name, _filepath)),
+			LayerOption::KeepOther);
 	} else if (App::main()) {
 		App::main()->onSendFileConfirm(_result);
 	}

@@ -22,6 +22,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "core/basic_types.h"
 #include "base/flags.h"
+#include "base/algorithm.h"
 
 // Define specializations for QByteArray for Qt 5.3.2, because
 // QByteArray in Qt 5.3.2 doesn't declare "pointer" subtype.
@@ -43,35 +44,15 @@ inline span<const char> make_span(const QByteArray &cont) {
 
 namespace base {
 
-template <typename T, size_t N>
-inline constexpr size_t array_size(const T(&)[N]) {
-	return N;
-}
-
-template <typename T>
-inline T take(T &source) {
-	return std::exchange(source, T());
-}
-
-namespace internal {
-
-template <typename D, typename T>
-inline constexpr D up_cast_helper(std::true_type, T object) {
-	return object;
-}
-
-template <typename D, typename T>
-inline constexpr D up_cast_helper(std::false_type, T object) {
-	return nullptr;
-}
-
-} // namespace internal
-
 template <typename D, typename T>
 inline constexpr D up_cast(T object) {
 	using DV = std::decay_t<decltype(*D())>;
 	using TV = std::decay_t<decltype(*T())>;
-	return internal::up_cast_helper<D>(std::integral_constant<bool, std::is_base_of<DV, TV>::value || std::is_same<DV, TV>::value>(), object);
+	if constexpr (std::is_base_of_v<DV, TV>) {
+		return object;
+	} else {
+		return nullptr;
+	}
 }
 
 template <typename Container, typename T>
@@ -259,7 +240,7 @@ void unixtimeInit();
 void unixtimeSet(TimeId servertime, bool force = false);
 TimeId unixtime();
 TimeId fromServerTime(const MTPint &serverTime);
-void toServerTime(const TimeId &clientTime, MTPint &outServerTime);
+MTPint toServerTime(const TimeId &clientTime);
 uint64 msgid();
 int32 reqid();
 
@@ -507,16 +488,6 @@ enum DBIPeerReportSpamStatus {
 	dbiprsRequesting = 5, // requesting the cloud setting right now
 };
 
-template <int Size>
-inline QString strMakeFromLetters(const uint32 (&letters)[Size]) {
-	QString result;
-	result.reserve(Size);
-	for (int32 i = 0; i < Size; ++i) {
-		result.push_back(QChar((((letters[i] >> 16) & 0xFF) << 8) | (letters[i] & 0xFF)));
-	}
-	return result;
-}
-
 class MimeType {
 public:
 	enum class Known {
@@ -568,17 +539,6 @@ enum ForwardWhatMessages {
 	ForwardPressedMessage,
 	ForwardPressedLinkMessage
 };
-
-enum ShowLayerOption {
-	CloseOtherLayers     = (1 << 0),
-	KeepOtherLayers      = (1 << 1),
-	ShowAfterOtherLayers = (1 << 2),
-
-	AnimatedShowLayer    = (1 << 3),
-	ForceFastShowLayer   = (1 << 4),
-};
-using ShowLayerOptions = base::flags<ShowLayerOption>;
-inline constexpr auto is_flag_type(ShowLayerOption) { return true; };
 
 static int32 FullArcLength = 360 * 16;
 static int32 QuarterArcLength = (FullArcLength / 4);

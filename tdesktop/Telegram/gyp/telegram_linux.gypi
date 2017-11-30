@@ -20,6 +20,7 @@
 {
   'conditions': [[ 'build_linux', {
     'variables': {
+      'not_need_gtk%': '<!(python -c "print(\'TDESKTOP_DISABLE_GTK_INTEGRATION\' in \'<(build_defines)\')")',
       'pkgconfig_libs': [
 # In order to work libxkbcommon must be linked statically,
 # PKGCONFIG links it like "-L/usr/local/lib -lxkbcommon"
@@ -29,10 +30,9 @@
       ],
       'linux_path_ffmpeg%': '/usr/local',
       'linux_path_openal%': '/usr/local',
-      'linux_path_libexif_lib%': '<(libs_loc)/libexif-0.6.20/libexif/.libs',
       'linux_path_va%': '/usr/local',
       'linux_path_vdpau%': '/usr/local',
-      'linux_path_breakpad%': '<(libs_loc)/breakpad',
+      'linux_path_breakpad%': '/usr/local',
       'linux_path_opus_include%': '<(libs_loc)/opus/include',
     },
     'include_dirs': [
@@ -46,7 +46,6 @@
       '/usr/local/lib',
       '<(linux_path_ffmpeg)/lib',
       '<(linux_path_openal)/lib',
-      '<(linux_path_libexif_lib)',
       '<(linux_path_va)/lib',
       '<(linux_path_vdpau)/lib',
       '<(linux_path_breakpad)/lib',
@@ -74,29 +73,56 @@
 #      '<!(pkg-config 2> /dev/null --libs <@(pkgconfig_libs))',
     ],
     'cflags_cc': [
-      '<!(pkg-config 2> /dev/null --cflags appindicator-0.1)',
-      '<!(pkg-config 2> /dev/null --cflags gtk+-2.0)',
-      '<!(pkg-config 2> /dev/null --cflags glib-2.0)',
-      '<!(pkg-config 2> /dev/null --cflags dee-1.0)',
+      '-Wno-strict-overflow',
+    ],
+    'ldflags': [
+      '-Wl,-wrap,aligned_alloc',
+      '-Wl,-wrap,secure_getenv',
+      '-Wl,-wrap,clock_gettime',
+      '-Wl,--no-as-needed,-lrt',
     ],
     'configurations': {
       'Release': {
-        'cflags': [
+        'cflags_c': [
           '-Ofast',
-          '-flto',
           '-fno-strict-aliasing',
         ],
         'cflags_cc': [
           '-Ofast',
-          '-flto',
           '-fno-strict-aliasing',
         ],
         'ldflags': [
           '-Ofast',
-          '-flto',
         ],
       },
     },
+    'conditions': [
+      [ '"<!(uname -p)" == "x86_64"', {
+        # 32 bit version can't be linked with debug info or LTO,
+        # virtual memory exhausted :(
+        'cflags_c': [ '-g' ],
+        'cflags_cc': [ '-g' ],
+        'ldflags': [ '-g' ],
+        'configurations': {
+          'Release': {
+            'cflags_c': [ '-flto' ],
+            'cflags_cc': [ '-flto' ],
+            'ldflags': [ '-flto' ],
+          },
+        },
+      }, {
+        'ldflags': [
+          '-Wl,-wrap,__divmoddi4',
+        ],
+      }], ['not_need_gtk!="True"', {
+        'cflags_cc': [
+          '<!(pkg-config 2> /dev/null --cflags appindicator-0.1)',
+          '<!(pkg-config 2> /dev/null --cflags gtk+-2.0)',
+          '<!(pkg-config 2> /dev/null --cflags glib-2.0)',
+          '<!(pkg-config 2> /dev/null --cflags dee-1.0)',
+        ],
+      }]
+    ],
     'cmake_precompiled_header': '<(src_loc)/stdafx.h',
     'cmake_precompiled_header_script': 'PrecompiledHeader.cmake',
   }]],

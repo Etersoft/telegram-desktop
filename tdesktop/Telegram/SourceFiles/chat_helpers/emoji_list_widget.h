@@ -41,6 +41,7 @@ public:
 	void clearSelection();
 	void handleMouseMove(QPoint globalPos);
 	void handleMouseRelease(QPoint globalPos);
+	void setSingleSize(QSize size);
 
 	void hideFast();
 
@@ -62,6 +63,7 @@ protected:
 
 private:
 	void animationCallback();
+	void updateSize();
 
 	void drawVariant(Painter &p, int variant);
 
@@ -75,6 +77,7 @@ private:
 	int _selected = -1;
 	int _pressedSel = -1;
 	QPoint _lastMousePos;
+	QSize _singleSize;
 
 	bool _hiding = false;
 	QPixmap _cache;
@@ -92,7 +95,6 @@ public:
 
 	using Section = Ui::Emoji::Section;
 
-	void setVisibleTopBottom(int visibleTop, int visibleBottom) override;
 	void refreshRecent() override;
 	void clearSelection() override;
 	object_ptr<TabbedSelector::InnerFooter> createFooter() override;
@@ -112,6 +114,10 @@ signals:
 	void switchToStickers();
 
 protected:
+	void visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) override;
+
 	void mousePressEvent(QMouseEvent *e) override;
 	void mouseReleaseEvent(QMouseEvent *e) override;
 	void mouseMoveEvent(QMouseEvent *e) override;
@@ -119,11 +125,11 @@ protected:
 	void leaveEventHook(QEvent *e) override;
 	void leaveToChildEvent(QEvent *e, QWidget *child) override;
 	void enterFromChildEvent(QEvent *e, QWidget *child) override;
-	bool event(QEvent *e) override;
+	bool eventHook(QEvent *e) override;
 
 	TabbedSelector::InnerFooter *getFooter() const override;
 	void processHideFinished() override;
-	int countHeight() override;
+	int countDesiredHeight(int newWidth) override;
 
 private:
 	class Footer;
@@ -136,6 +142,7 @@ private:
 		int rowsTop = 0;
 		int rowsBottom = 0;
 	};
+
 	template <typename Callback>
 	bool enumerateSections(Callback callback) const;
 	SectionInfo sectionInfo(int section) const;
@@ -155,7 +162,10 @@ private:
 	int _counts[kEmojiSectionCount];
 	QVector<EmojiPtr> _emoji[kEmojiSectionCount];
 
-	int32 _esize;
+	int _rowsLeft = 0;
+	int _columnCount = 1;
+	QSize _singleSize;
+	int _esize = 0;
 
 	int _selected = -1;
 	int _pressedSel = -1;

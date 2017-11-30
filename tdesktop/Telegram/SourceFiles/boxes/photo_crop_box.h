@@ -23,19 +23,13 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "boxes/abstract_box.h"
 
 class PhotoCropBox : public BoxContent {
-	Q_OBJECT
-
 public:
 	PhotoCropBox(QWidget*, const QImage &img, const PeerId &peer);
-	PhotoCropBox(QWidget*, const QImage &img, PeerData *peer);
+	PhotoCropBox(QWidget*, const QImage &img, not_null<PeerData*> peer);
 
 	int32 mouseState(QPoint p);
 
-signals:
-	void ready(const QImage &tosend);
-
-private slots:
-	void onReady(const QImage &tosend);
+	rpl::producer<QImage> ready() const;
 
 protected:
 	void prepare() override;
@@ -58,6 +52,7 @@ private:
 	QImage _img;
 	QPixmap _thumb;
 	QImage _mask, _fade;
-	PeerId _peerId;
+	PeerId _peerId = 0;
+	rpl::event_stream<QImage> _readyImages;
 
 };

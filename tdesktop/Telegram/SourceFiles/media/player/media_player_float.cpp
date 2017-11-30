@@ -20,17 +20,25 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "media/player/media_player_float.h"
 
-#include "styles/style_media_player.h"
+#include <rpl/merge.h>
+#include "data/data_document.h"
 #include "history/history_media.h"
 #include "media/media_clip_reader.h"
 #include "media/view/media_clip_playback.h"
 #include "media/media_audio.h"
+#include "auth_session.h"
+#include "styles/style_media_player.h"
 #include "styles/style_history.h"
 
 namespace Media {
 namespace Player {
 
-Float::Float(QWidget *parent, HistoryItem *item, base::lambda<void(bool visible)> toggleCallback, base::lambda<void(bool closed)> draggedCallback) : TWidget(parent)
+Float::Float(
+	QWidget *parent,
+	HistoryItem *item,
+	base::lambda<void(bool visible)> toggleCallback,
+	base::lambda<void(bool closed)> draggedCallback)
+: RpWidget(parent)
 , _item(item)
 , _toggleCallback(std::move(toggleCallback))
 , _draggedCallback(std::move(draggedCallback)) {
@@ -47,11 +55,21 @@ Float::Float(QWidget *parent, HistoryItem *item, base::lambda<void(bool visible)
 
 	prepareShadow();
 
-	subscribe(Global::RefItemRemoved(), [this](HistoryItem *item) {
-		if (_item == item) {
-			detach();
-		}
-	});
+	// #TODO rpl::merge
+	rpl::merge(
+		Auth().data().itemLayoutChanged(),
+		Auth().data().itemRepaintRequest())
+		| rpl::start_with_next([this](auto item) {
+			if (_item == item) {
+				repaintItem();
+			}
+		}, lifetime());
+	Auth().data().itemRemoved()
+		| rpl::start_with_next([this](auto item) {
+			if (_item == item) {
+				detach();
+			}
+		}, lifetime());
 
 	setCursor(style::cur_pointer);
 }

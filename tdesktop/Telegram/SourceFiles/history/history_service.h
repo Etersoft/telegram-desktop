@@ -88,7 +88,9 @@ public:
 	bool hasPoint(QPoint point) const override;
 	HistoryTextState getState(QPoint point, HistoryStateRequest request) const override;
 
-	TextSelection adjustSelection(TextSelection selection, TextSelectType type) const override WARN_UNUSED_RESULT {
+	[[nodiscard]] TextSelection adjustSelection(
+			TextSelection selection,
+			TextSelectType type) const override {
 		return _text.adjustSelection(selection, type);
 	}
 
@@ -100,6 +102,7 @@ public:
 
 	int32 addToOverview(AddToOverviewMethod method) override;
 	void eraseFromOverview() override;
+	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	bool needCheck() const override {
 		return false;

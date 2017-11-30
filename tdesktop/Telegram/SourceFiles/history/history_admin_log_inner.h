@@ -23,6 +23,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "history/history_admin_log_item.h"
 #include "history/history_admin_log_section.h"
 #include "ui/widgets/tooltip.h"
+#include "ui/rp_widget.h"
 #include "mtproto/sender.h"
 #include "base/timer.h"
 
@@ -38,9 +39,16 @@ namespace AdminLog {
 
 class SectionMemento;
 
-class InnerWidget final : public TWidget, public Ui::AbstractTooltipShower, private MTP::Sender, private base::Subscriber {
+class InnerWidget final
+	: public Ui::RpWidget
+	, public Ui::AbstractTooltipShower
+	, private MTP::Sender
+	, private base::Subscriber {
 public:
-	InnerWidget(QWidget *parent, not_null<Window::Controller*> controller, not_null<ChannelData*> channel);
+	InnerWidget(
+		QWidget *parent,
+		not_null<Window::Controller*> controller,
+		not_null<ChannelData*> channel);
 
 	base::Observable<void> showSearchSignal;
 	base::Observable<int> scrollToSignal;
@@ -49,9 +57,6 @@ public:
 	not_null<ChannelData*> channel() const {
 		return _channel;
 	}
-
-	// Updates the area that is visible inside the scroll container.
-	void setVisibleTopBottom(int visibleTop, int visibleBottom) override;
 
 	// Set the correct scroll position after being resized.
 	void restoreScrollPosition();
@@ -76,6 +81,10 @@ public:
 	~InnerWidget();
 
 protected:
+	void visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) override;
+
 	void paintEvent(QPaintEvent *e) override;
 	void keyPressEvent(QKeyEvent *e) override;
 	void mousePressEvent(QMouseEvent *e) override;

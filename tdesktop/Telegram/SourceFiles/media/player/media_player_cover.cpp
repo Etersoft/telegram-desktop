@@ -20,6 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "media/player/media_player_cover.h"
 
+#include "data/data_document.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/continuous_sliders.h"
 #include "ui/widgets/buttons.h"
@@ -321,9 +322,15 @@ void CoverWidget::handleSongChange() {
 
 	TextWithEntities textWithEntities;
 	if (song->performer.isEmpty()) {
-		textWithEntities.text = song->title.isEmpty() ? (current.audio()->name.isEmpty() ? qsl("Unknown Track") : current.audio()->name) : song->title;
+		textWithEntities.text = song->title.isEmpty()
+			? (current.audio()->filename().isEmpty()
+				? qsl("Unknown Track")
+				: current.audio()->filename())
+			: song->title;
 	} else {
-		auto title = song->title.isEmpty() ? qsl("Unknown Track") : TextUtilities::Clean(song->title);
+		auto title = song->title.isEmpty()
+			? qsl("Unknown Track")
+			: TextUtilities::Clean(song->title);
 		textWithEntities.text = song->performer + QString::fromUtf8(" \xe2\x80\x93 ") + title;
 		textWithEntities.entities.append({ EntityInTextBold, 0, song->performer.size(), QString() });
 	}

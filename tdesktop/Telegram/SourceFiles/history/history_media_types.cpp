@@ -24,6 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "storage/localstorage.h"
+#include "storage/storage_shared_media.h"
 #include "media/media_audio.h"
 #include "media/media_clip_reader.h"
 #include "media/player/media_player_instance.h"
@@ -33,6 +34,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "core/click_handler_types.h"
 #include "history/history_location_manager.h"
 #include "history/history_message.h"
+#include "window/main_window.h"
 #include "window/window_controller.h"
 #include "styles/style_history.h"
 #include "calls/calls_instance.h"
@@ -174,11 +176,11 @@ void HistoryFileMedia::clickHandlerActiveChanged(const ClickHandlerPtr &p, bool 
 }
 
 void HistoryFileMedia::thumbAnimationCallback() {
-	Ui::repaintHistoryItem(_parent);
+	Auth().data().requestItemRepaint(_parent);
 }
 
 void HistoryFileMedia::clickHandlerPressedChanged(const ClickHandlerPtr &p, bool pressed) {
-	Ui::repaintHistoryItem(_parent);
+	Auth().data().requestItemRepaint(_parent);
 }
 
 void HistoryFileMedia::setLinks(ClickHandlerPtr &&openl, ClickHandlerPtr &&savel, ClickHandlerPtr &&cancell) {
@@ -204,7 +206,7 @@ void HistoryFileMedia::setStatusSize(int32 newSize, int32 fullSize, int32 durati
 
 void HistoryFileMedia::step_radial(TimeMs ms, bool timer) {
 	if (timer) {
-		Ui::repaintHistoryItem(_parent);
+		Auth().data().requestItemRepaint(_parent);
 	} else {
 		_animation->radial.update(dataProgress(), dataFinished(), ms);
 		if (!_animation->radial.animating()) {
@@ -653,6 +655,13 @@ void HistoryPhoto::eraseFromOverview() {
 	}
 }
 
+Storage::SharedMediaTypesMask HistoryPhoto::sharedMediaTypes() const {
+	if (_parent->toHistoryMessage()) {
+		return Storage::SharedMediaType::Photo;
+	}
+	return Storage::SharedMediaType::ChatPhoto;
+}
+
 ImagePtr HistoryPhoto::replyPreview() {
 	return _data->makeReplyPreview();
 }
@@ -959,6 +968,10 @@ void HistoryVideo::eraseFromOverview() {
 	eraseFromOneOverview(OverviewVideos);
 }
 
+Storage::SharedMediaTypesMask HistoryVideo::sharedMediaTypes() const {
+	return Storage::SharedMediaType::Video;
+}
+
 void HistoryVideo::updateStatusText() const {
 	bool showPause = false;
 	int32 statusSize = 0, realDuration = 0;
@@ -1094,7 +1107,7 @@ void HistoryDocument::createComponents(bool caption) {
 	} else {
 		mask |= HistoryDocumentNamed::Bit();
 		if (!_data->song()
-			&& !documentIsExecutableName(_data->name)
+			&& !documentIsExecutableName(_data->filename())
 			&& !_data->thumb->isNull()
 			&& _data->thumb->width()
 			&& _data->thumb->height()) {
@@ -1115,8 +1128,8 @@ void HistoryDocument::createComponents(bool caption) {
 }
 
 void HistoryDocument::fillNamedFromData(HistoryDocumentNamed *named) {
-	auto name = named->_name = _data->composeNameString();
-	named->_namew = st::semiboldFont->width(name);
+	auto nameString = named->_name = _data->composeNameString();
+	named->_namew = st::semiboldFont->width(nameString);
 }
 
 void HistoryDocument::initDimensions() {
@@ -1540,7 +1553,7 @@ void HistoryDocument::updatePressed(QPoint point) {
 				nameright = st::msgFilePadding.left();
 			}
 			voice->setSeekingCurrent(snap((point.x() - nameleft) / float64(_width - nameleft - nameright), 0., 1.));
-			Ui::repaintHistoryItem(_parent);
+			Auth().data().requestItemRepaint(_parent);
 		}
 	}
 }
@@ -1599,6 +1612,21 @@ void HistoryDocument::eraseFromOverview() {
 	} else {
 		eraseFromOneOverview(OverviewFiles);
 	}
+}
+
+Storage::SharedMediaTypesMask HistoryDocument::sharedMediaTypes() const {
+	using Type = Storage::SharedMediaType;
+	if (_data->voice()) {
+		return Storage::SharedMediaTypesMask{}
+			.added(Type::VoiceFile)
+			.added(Type::RoundVoiceFile);
+	} else if (_data->song()) {
+		if (_data->isMusic()) {
+			return Type::MusicFile;
+		}
+		return {};
+	}
+	return Type::File;
 }
 
 template <typename Callback>
@@ -1720,7 +1748,7 @@ void HistoryDocument::step_voiceProgress(float64 ms, bool timer) {
 			} else {
 				voice->_playback->a_progress.update(qMin(dt, 1.), anim::linear);
 			}
-			if (timer) Ui::repaintHistoryItem(_parent);
+			if (timer) Auth().data().requestItemRepaint(_parent);
 		}
 	}
 }
@@ -2427,6 +2455,18 @@ int32 HistoryGif::addToOverview(AddToOverviewMethod method) {
 	return result;
 }
 
+Storage::SharedMediaTypesMask HistoryGif::sharedMediaTypes() const {
+	using Type = Storage::SharedMediaType;
+	if (_data->isRoundVideo()) {
+		return Storage::SharedMediaTypesMask{}
+			.added(Type::RoundFile)
+			.added(Type::RoundVoiceFile);
+	} else if (_data->isGifv()) {
+		return Type::GIF;
+	}
+	return Type::File;
+}
+
 void HistoryGif::eraseFromOverview() {
 	if (_data->isRoundVideo()) {
 		eraseFromOneOverview(OverviewRoundVoiceFiles);
@@ -2573,7 +2613,7 @@ bool HistoryGif::playInline(bool autoplay) {
 		if (mode == Mode::Video) {
 			_roundPlayback = std::make_unique<Media::Clip::Playback>();
 			_roundPlayback->setValueChangedCallback([this](float64 value) {
-				Ui::repaintHistoryItem(_parent);
+				Auth().data().requestItemRepaint(_parent);
 			});
 			if (App::main()) {
 				App::main()->mediaMarkRead(_data);
@@ -2598,7 +2638,7 @@ void HistoryGif::stopInline() {
 	clearClipReader();
 
 	_parent->setPendingInitDimensions();
-	Notify::historyItemLayoutChanged(_parent);
+	Auth().data().markItemLayoutChanged(_parent);
 }
 
 void HistoryGif::setClipReader(Media::Clip::ReaderPointer gif) {
@@ -2901,7 +2941,9 @@ namespace {
 
 ClickHandlerPtr sendMessageClickHandler(PeerData *peer) {
 	return MakeShared<LambdaClickHandler>([peer] {
-		Ui::showPeerHistory(peer->id, ShowAtUnreadMsgId, Ui::ShowWay::Forward);
+		App::wnd()->controller()->showPeerHistory(
+			peer->id,
+			Window::SectionShow::Way::Forward);
 	});
 }
 
@@ -4183,14 +4225,20 @@ int HistoryGame::bottomInfoPadding() const {
 	return result;
 }
 
-HistoryInvoice::HistoryInvoice(not_null<HistoryItem*> parent, const MTPDmessageMediaInvoice &data) : HistoryMedia(parent)
+HistoryInvoice::HistoryInvoice(
+	not_null<HistoryItem*> parent,
+	const MTPDmessageMediaInvoice &data)
+: HistoryMedia(parent)
 , _title(st::msgMinWidth)
 , _description(st::msgMinWidth)
 , _status(st::msgMinWidth) {
 	fillFromData(data);
 }
 
-HistoryInvoice::HistoryInvoice(not_null<HistoryItem*> parent, const HistoryInvoice &other) : HistoryMedia(parent)
+HistoryInvoice::HistoryInvoice(
+	not_null<HistoryItem*> parent,
+	const HistoryInvoice &other)
+: HistoryMedia(parent)
 , _attach(other._attach ? other._attach->clone(parent) : nullptr)
 , _titleHeight(other._titleHeight)
 , _descriptionHeight(other._descriptionHeight)
@@ -4199,7 +4247,7 @@ HistoryInvoice::HistoryInvoice(not_null<HistoryItem*> parent, const HistoryInvoi
 , _status(other._status) {
 }
 
-QString HistoryInvoice::fillAmountAndCurrency(int amount, const QString &currency) {
+QString HistoryInvoice::fillAmountAndCurrency(uint64 amount, const QString &currency) {
 	static auto shortCurrencyNames = QMap<QString, QString> {
 		{ qsl("USD"), QString::fromUtf8("\x24") },
 		{ qsl("GBP"), QString::fromUtf8("\xC2\xA3") },
@@ -4243,7 +4291,6 @@ void HistoryInvoice::fillFromData(const MTPDmessageMediaInvoice &data) {
 			_attach = std::make_unique<HistoryPhoto>(_parent, photo, QString());
 		}
 	}
-
 	auto labelText = [&data] {
 		if (data.has_receipt_msg_id()) {
 			if (data.is_test()) {
@@ -4255,7 +4302,10 @@ void HistoryInvoice::fillFromData(const MTPDmessageMediaInvoice &data) {
 		}
 		return lang(lng_payments_invoice_label);
 	};
-	auto statusText = TextWithEntities { fillAmountAndCurrency(data.vtotal_amount.v, qs(data.vcurrency)), EntitiesInText() };
+	auto statusText = TextWithEntities {
+		fillAmountAndCurrency(data.vtotal_amount.v, qs(data.vcurrency)),
+		EntitiesInText()
+	};
 	statusText.entities.push_back(EntityInText(EntityInTextBold, 0, statusText.text.size()));
 	statusText.text += ' ' + labelText().toUpper();
 	_status.setMarkedText(st::defaultTextStyle, statusText, itemTextOptions(_parent));

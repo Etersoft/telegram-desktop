@@ -22,19 +22,19 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 namespace base {
 
-template <typename Range, typename Method>
-decltype(auto) for_each(Range &&range, Method &&method) {
-	return std::for_each(
-		std::begin(std::forward<Range>(range)),
-		std::end(std::forward<Range>(range)),
-		std::forward<Method>(method));
+template <typename Type>
+inline Type take(Type &value) {
+	return std::exchange(value, Type {});
 }
 
-template <typename Method>
-decltype(auto) for_each_apply(Method &&method) {
-	return [&method](auto &&range) {
-		return for_each(std::forward<decltype(range)>(range), std::forward<Method>(method));
-	};
+template <typename Type>
+inline Type duplicate(const Type &value) {
+	return value;
+}
+
+template <typename Type, size_t Size>
+inline constexpr size_t array_size(const Type(&)[Size]) {
+	return Size;
 }
 
 } // namespace base

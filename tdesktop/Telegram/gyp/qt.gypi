@@ -144,7 +144,7 @@
     'linux_path_xkbcommon%': '/usr/local',
     'linux_lib_ssl%': '/usr/local/ssl/lib/libssl.a',
     'linux_lib_crypto%': '/usr/local/ssl/lib/libcrypto.a',
-    'linux_lib_icu%': '/usr/lib/libicutu.a /usr/lib/libicui18n.a /usr/lib/libicuuc.a /usr/lib/libicudata.a',
+    'linux_lib_icu%': 'libicutu.a libicui18n.a libicuuc.a libicudata.a',
   },
 
   'configurations': {
@@ -196,6 +196,7 @@
     '<(qt_loc)/include',
     '<(qt_loc)/include/QtCore',
     '<(qt_loc)/include/QtGui',
+    '<(qt_loc)/include/QtDBus',
     '<(qt_loc)/include/QtCore/<(qt_version)',
     '<(qt_loc)/include/QtGui/<(qt_version)',
     '<(qt_loc)/include/QtCore/<(qt_version)/QtCore',
@@ -216,10 +217,14 @@
   ],
   'conditions': [
     [ 'build_linux', {
+      'dependencies': [
+        '<(DEPTH)/linux_glibc_wraps.gyp:linux_glibc_wraps',
+      ],
       'library_dirs': [
         '<(qt_loc)/plugins/platforminputcontexts',
       ],
       'libraries': [
+        '<(PRODUCT_DIR)/obj.target/liblinux_glibc_wraps.a',
         '<(linux_path_xkbcommon)/lib/libxkbcommon.a',
         '<@(qt_libs_release)',
         '<(linux_lib_ssl)',
@@ -240,7 +245,6 @@
       'ldflags': [
         '-static-libstdc++',
         '-pthread',
-        '-g',
         '-rdynamic',
       ],
     }],
@@ -252,24 +256,4 @@
       },
     }],
   ],
-
-  'rules': [{
-    'rule_name': 'qt_moc',
-    'extension': 'h',
-    'outputs': [
-      '<(SHARED_INTERMEDIATE_DIR)/<(_target_name)/moc/moc_<(RULE_INPUT_ROOT).cpp',
-    ],
-    'action': [
-      '<(qt_loc)/bin/moc<(exe_ext)',
-
-      # Silence "Note: No relevant classes found. No output generated."
-      '--no-notes',
-
-      '<!@(python -c "for s in \'<@(_defines)\'.split(\' \'): print(\'-D\' + s)")',
-      # '<!@(python -c "for s in \'<@(_include_dirs)\'.split(\' \'): print(\'-I\' + s)")',
-      '<(RULE_INPUT_PATH)',
-      '-o', '<(SHARED_INTERMEDIATE_DIR)/<(_target_name)/moc/moc_<(RULE_INPUT_ROOT).cpp',
-    ],
-    'message': 'Moc-ing <(RULE_INPUT_ROOT).h..',
-  }],
 }

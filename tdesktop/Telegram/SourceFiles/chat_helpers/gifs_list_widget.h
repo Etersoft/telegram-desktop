@@ -40,7 +40,11 @@ class Controller;
 
 namespace ChatHelpers {
 
-class GifsListWidget : public TabbedSelector::Inner, public InlineBots::Layout::Context, private base::Subscriber, private MTP::Sender {
+class GifsListWidget
+	: public TabbedSelector::Inner
+	, public InlineBots::Layout::Context
+	, private base::Subscriber
+	, private MTP::Sender {
 	Q_OBJECT
 
 public:
@@ -50,8 +54,6 @@ public:
 	void preloadImages() override;
 	void clearSelection() override;
 	object_ptr<TabbedSelector::InnerFooter> createFooter() override;
-
-	void setVisibleTopBottom(int visibleTop, int visibleBottom) override;
 
 	void inlineItemLayoutChanged(const InlineBots::Layout::ItemBase *layout) override;
 	void inlineItemRepaint(const InlineBots::Layout::ItemBase *layout) override;
@@ -69,6 +71,10 @@ public:
 	~GifsListWidget();
 
 protected:
+	void visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) override;
+
 	void mousePressEvent(QMouseEvent *e) override;
 	void mouseReleaseEvent(QMouseEvent *e) override;
 	void mouseMoveEvent(QMouseEvent *e) override;
@@ -80,7 +86,7 @@ protected:
 	TabbedSelector::InnerFooter *getFooter() const override;
 	void processHideFinished() override;
 	void processPanelHideFinished() override;
-	int countHeight() override;
+	int countDesiredHeight(int newWidth) override;
 
 private slots:
 	void onPreview();
@@ -130,6 +136,7 @@ private:
 	bool _inlineWithThumb = false;
 
 	struct Row {
+		int maxWidth = 0;
 		int height = 0;
 		QVector<LayoutItem*> items;
 	};
@@ -145,7 +152,7 @@ private:
 	bool inlineRowsAddItem(DocumentData *savedGif, InlineResult *result, Row &row, int32 &sumWidth);
 	bool inlineRowFinalize(Row &row, int32 &sumWidth, bool force = false);
 
-	Row &layoutInlineRow(Row &row, int32 sumWidth = 0);
+	void layoutInlineRow(Row &row, int fullWidth);
 	void deleteUnusedGifLayouts();
 
 	void deleteUnusedInlineLayouts();

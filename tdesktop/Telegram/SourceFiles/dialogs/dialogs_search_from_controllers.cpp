@@ -27,13 +27,17 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 namespace Dialogs {
 
-void ShowSearchFromBox(PeerData *peer, base::lambda<void(not_null<UserData*>)> callback, base::lambda<void()> closedCallback) {
-	auto createController = [peer, callback = std::move(callback)]() -> std::unique_ptr<PeerListController> {
+void ShowSearchFromBox(
+		not_null<Window::Controller*> window,
+		not_null<PeerData*> peer,
+		base::lambda<void(not_null<UserData*>)> callback,
+		base::lambda<void()> closedCallback) {
+	auto createController = [window, peer, callback = std::move(callback)]() -> std::unique_ptr<PeerListController> {
 		if (peer) {
 			if (auto chat = peer->asChat()) {
-				return std::make_unique<Dialogs::ChatSearchFromController>(chat, std::move(callback));
+				return std::make_unique<Dialogs::ChatSearchFromController>(window, chat, std::move(callback));
 			} else if (auto group = peer->asMegagroup()) {
-				return std::make_unique<Dialogs::ChannelSearchFromController>(group, std::move(callback));
+				return std::make_unique<Dialogs::ChannelSearchFromController>(window, group, std::move(callback));
 			}
 		}
 		return nullptr;
@@ -42,12 +46,16 @@ void ShowSearchFromBox(PeerData *peer, base::lambda<void(not_null<UserData*>)> c
 		auto subscription = std::make_shared<base::Subscription>();
 		auto box = Ui::show(Box<PeerListBox>(std::move(controller), [subscription](not_null<PeerListBox*> box) {
 			box->addButton(langFactory(lng_cancel), [box, subscription] { box->closeBox(); });
-		}), KeepOtherLayers);
+		}), LayerOption::KeepOther);
 		*subscription = box->boxClosing.add_subscription(std::move(closedCallback));
 	}
 }
 
-ChatSearchFromController::ChatSearchFromController(not_null<ChatData*> chat, base::lambda<void(not_null<UserData*>)> callback) : PeerListController()
+ChatSearchFromController::ChatSearchFromController(
+	not_null<Window::Controller*> window,
+	not_null<ChatData*> chat,
+	base::lambda<void(not_null<UserData*>)> callback)
+: PeerListController()
 , _chat(chat)
 , _callback(std::move(callback)) {
 }
@@ -115,7 +123,14 @@ void ChatSearchFromController::appendRow(not_null<UserData*> user) {
 	}
 }
 
-ChannelSearchFromController::ChannelSearchFromController(not_null<ChannelData*> channel, base::lambda<void(not_null<UserData*>)> callback) : ParticipantsBoxController(channel, ParticipantsBoxController::Role::Members)
+ChannelSearchFromController::ChannelSearchFromController(
+	not_null<Window::Controller*> window,
+	not_null<ChannelData*> channel,
+	base::lambda<void(not_null<UserData*>)> callback)
+: ParticipantsBoxController(
+	window,
+	channel,
+	ParticipantsBoxController::Role::Members)
 , _callback(std::move(callback)) {
 }
 

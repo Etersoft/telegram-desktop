@@ -20,6 +20,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "media/player/media_player_widget.h"
 
+#include "data/data_document.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/continuous_sliders.h"
 #include "ui/widgets/shadow.h"
@@ -84,14 +85,14 @@ QPoint Widget::PlayButton::prepareRippleStartPosition() const {
 	return QPoint(mapFromGlobal(QCursor::pos()) - st::mediaPlayerButton.rippleAreaPosition);
 }
 
-Widget::Widget(QWidget *parent) : TWidget(parent)
+Widget::Widget(QWidget *parent) : RpWidget(parent)
 , _nameLabel(this, st::mediaPlayerName)
 , _timeLabel(this, st::mediaPlayerTime)
 , _playPause(this)
 , _volumeToggle(this, st::mediaPlayerVolumeToggle)
 , _repeatTrack(this, st::mediaPlayerRepeatButton)
 , _close(this, st::mediaPlayerClose)
-, _shadow(this, st::shadowFg)
+, _shadow(this)
 , _playbackSlider(this, st::mediaPlayerPlayback)
 , _playback(std::make_unique<Clip::Playback>()) {
 	setAttribute(Qt::WA_OpaquePaintEvent);
@@ -498,10 +499,17 @@ void Widget::handleSongChange() {
 	} else {
 		auto song = current.audio()->song();
 		if (!song || song->performer.isEmpty()) {
-			textWithEntities.text = (!song || song->title.isEmpty()) ? (current.audio()->name.isEmpty() ? qsl("Unknown Track") : current.audio()->name) : song->title;
+			textWithEntities.text = (!song || song->title.isEmpty())
+				? (current.audio()->filename().isEmpty()
+					? qsl("Unknown Track")
+					: current.audio()->filename())
+				: song->title;
 		} else {
-			auto title = song->title.isEmpty() ? qsl("Unknown Track") : TextUtilities::Clean(song->title);
-			textWithEntities.text = song->performer + QString::fromUtf8(" \xe2\x80\x93 ") + title;
+			auto title = song->title.isEmpty()
+				? qsl("Unknown Track")
+				: TextUtilities::Clean(song->title);
+			auto dash = QString::fromUtf8(" \xe2\x80\x93 ");
+			textWithEntities.text = song->performer + dash + title;
 			textWithEntities.entities.append({ EntityInTextBold, 0, song->performer.size(), QString() });
 		}
 	}

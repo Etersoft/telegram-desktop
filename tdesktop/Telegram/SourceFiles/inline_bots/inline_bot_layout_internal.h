@@ -73,10 +73,17 @@ public:
 	}
 
 	void paint(Painter &p, const QRect &clip, const PaintContext *context) const override;
-	void getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const override;
+	HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const override;
 
 	// ClickHandlerHost interface
 	void clickHandlerActiveChanged(const ClickHandlerPtr &p, bool active) override;
+
+	int resizeGetHeight(int width) override {
+		_width = width;
+		return _minh;
+	}
 
 private:
 	QSize countFrameSize() const;
@@ -130,7 +137,9 @@ public:
 	}
 
 	void paint(Painter &p, const QRect &clip, const PaintContext *context) const override;
-	void getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const override;
+	HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const override;
 
 private:
 	PhotoData *getShownPhoto() const;
@@ -160,7 +169,9 @@ public:
 	void preload() const override;
 
 	void paint(Painter &p, const QRect &clip, const PaintContext *context) const override;
-	void getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const override;
+	HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const override;
 
 	// ClickHandlerHost interface
 	void clickHandlerActiveChanged(const ClickHandlerPtr &p, bool active) override;
@@ -184,7 +195,9 @@ public:
 	void initDimensions() override;
 
 	void paint(Painter &p, const QRect &clip, const PaintContext *context) const override;
-	void getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const override;
+	HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const override;
 
 private:
 	ClickHandlerPtr _link;
@@ -231,7 +244,9 @@ public:
 	void initDimensions() override;
 
 	void paint(Painter &p, const QRect &clip, const PaintContext *context) const override;
-	void getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const override;
+	HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const override;
 
 	// ClickHandlerHost interface
 	void clickHandlerActiveChanged(const ClickHandlerPtr &p, bool active) override;
@@ -294,7 +309,9 @@ public:
 	int resizeGetHeight(int width) override;
 
 	void paint(Painter &p, const QRect &clip, const PaintContext *context) const override;
-	void getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const override;
+	HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const override;
 
 private:
 	mutable QPixmap _thumb;
@@ -312,7 +329,9 @@ public:
 	int resizeGetHeight(int width) override;
 
 	void paint(Painter &p, const QRect &clip, const PaintContext *context) const override;
-	void getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const override;
+	HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const override;
 
 private:
 	ClickHandlerPtr _url, _link;
@@ -335,7 +354,9 @@ public:
 	void initDimensions() override;
 
 	void paint(Painter &p, const QRect &clip, const PaintContext *context) const override;
-	void getState(ClickHandlerPtr &link, HistoryCursorState &cursor, QPoint point) const override;
+	HistoryTextState getState(
+		QPoint point,
+		HistoryStateRequest request) const override;
 
 private:
 	void countFrameSize();

@@ -22,6 +22,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "ui/effects/ripple_animation.h"
 #include "ui/effects/cross_animation.h"
+#include "ui/effects/numbers_animation.h"
 #include "lang/lang_instance.h"
 
 namespace Ui {
@@ -66,7 +67,9 @@ RippleButton::RippleButton(QWidget *parent, const style::RippleAnimation &st) : 
 , _st(st) {
 }
 
-void RippleButton::setForceRippled(bool rippled, SetForceRippledWay way) {
+void RippleButton::setForceRippled(
+		bool rippled,
+		anim::type animated) {
 	if (_forceRippled != rippled) {
 		_forceRippled = rippled;
 		if (_forceRippled) {
@@ -80,7 +83,7 @@ void RippleButton::setForceRippled(bool rippled, SetForceRippledWay way) {
 			_ripple->lastStop();
 		}
 	}
-	if (way == SetForceRippledWay::SkipAnimation && _ripple) {
+	if (animated == anim::type::instant && _ripple) {
 		_ripple->lastFinish();
 	}
 	update();
@@ -190,168 +193,6 @@ void FlatButton::paintEvent(QPaintEvent *e) {
 	p.drawText(r, _text, style::al_top);
 }
 
-class RoundButton::Numbers {
-public:
-	Numbers(const style::RoundButton &st, base::lambda<void()> animationCallback);
-
-	void setWidthChangedCallback(base::lambda<void()> callback) {
-		_widthChangedCallback = std::move(callback);
-	}
-	void setText(const QString &text, int value);
-	void stepAnimation(TimeMs ms);
-	void finishAnimation();
-
-	void paint(Painter &p, int x, int y, int outerWidth);
-	int countWidth() const;
-
-private:
-	struct Digit {
-		QChar from = 0;
-		QChar to = 0;
-		int fromWidth = 0;
-		int toWidth = 0;
-	};
-
-	void animationCallback();
-	void realSetText(QString text, int value);
-
-	const style::RoundButton &_st;
-
-	QList<Digit> _digits;
-	int _digitWidth = 0;
-
-	int _fromWidth = 0;
-	int _toWidth = 0;
-
-	Animation _a_ready;
-	QString _delayedText;
-	int _delayedValue = 0;
-
-	int _value = 0;
-	bool _growing = false;
-
-	base::lambda<void()> _animationCallback;
-	base::lambda<void()> _widthChangedCallback;
-
-};
-
-RoundButton::Numbers::Numbers(const style::RoundButton &st, base::lambda<void()> animationCallback)
-: _st(st)
-, _animationCallback(std::move(animationCallback)) {
-	for (auto ch = '0'; ch != '9'; ++ch) {
-		accumulate_max(_digitWidth, _st.font->m.width(ch));
-	}
-}
-
-void RoundButton::Numbers::setText(const QString &text, int value) {
-	if (_a_ready.animating(getms())) {
-		_delayedText = text;
-		_delayedValue = value;
-	} else {
-		realSetText(text, value);
-	}
-}
-
-void RoundButton::Numbers::animationCallback() {
-	if (_animationCallback) {
-		_animationCallback();
-	}
-	if (_widthChangedCallback) {
-		_widthChangedCallback();
-	}
-	if (!_a_ready.animating()) {
-		if (!_delayedText.isEmpty()) {
-			setText(_delayedText, _delayedValue);
-		}
-	}
-}
-
-void RoundButton::Numbers::realSetText(QString text, int value) {
-	_delayedText = QString();
-	_delayedValue = 0;
-
-	_growing = (value > _value);
-	_value = value;
-
-	auto newSize = text.size();
-	while (_digits.size() < newSize) {
-		_digits.push_front(Digit());
-	}
-	while (_digits.size() > newSize && !_digits.front().to.unicode()) {
-		_digits.pop_front();
-	}
-	auto oldSize = _digits.size();
-	auto animating = false;
-	for (auto i = 0, size = _digits.size(); i != size; ++i) {
-		auto &digit = _digits[i];
-		digit.from = digit.to;
-		digit.fromWidth = digit.toWidth;
-		digit.to = (newSize + i < size) ? QChar(0) : text[newSize + i - size];
-		digit.toWidth = digit.to.unicode() ? _st.font->m.width(digit.to) : 0;
-		if (digit.from != digit.to) {
-			animating = true;
-		}
-		if (!digit.from.unicode()) {
-			--oldSize;
-		}
-	}
-	_fromWidth = oldSize * _digitWidth;
-	_toWidth = newSize * _digitWidth;
-	if (animating) {
-		_a_ready.start([this] { animationCallback(); }, 0., 1., _st.numbersDuration);
-	}
-}
-
-int RoundButton::Numbers::countWidth() const {
-	return anim::interpolate(_fromWidth, _toWidth, anim::easeOutCirc(1., _a_ready.current(1.)));
-}
-
-void RoundButton::Numbers::stepAnimation(TimeMs ms) {
-	_a_ready.step(ms);
-}
-
-void RoundButton::Numbers::finishAnimation() {
-	auto width = countWidth();
-	_a_ready.finish();
-	if (_widthChangedCallback && countWidth() != width) {
-		_widthChangedCallback();
-	}
-	if (!_delayedText.isEmpty()) {
-		setText(_delayedText, _delayedValue);
-	}
-}
-
-void RoundButton::Numbers::paint(Painter &p, int x, int y, int outerWidth) {
-	auto digitsCount = _digits.size();
-	if (!digitsCount) return;
-
-	auto progress = anim::easeOutCirc(1., _a_ready.current(1.));
-	auto width = anim::interpolate(_fromWidth, _toWidth, progress);
-
-	QString singleChar('0');
-	if (rtl()) x = outerWidth - x - width;
-	x += width - _digits.size() * _digitWidth;
-	auto fromTop = anim::interpolate(0, _st.font->height, progress) * (_growing ? 1 : -1);
-	auto toTop = anim::interpolate(_st.font->height, 0, progress) * (_growing ? -1 : 1);
-	for (auto i = 0; i != digitsCount; ++i) {
-		auto &digit = _digits[i];
-		auto from = digit.from;
-		auto to = digit.to;
-		if (from.unicode()) {
-			p.setOpacity(1. - progress);
-			singleChar[0] = from;
-			p.drawText(x + (_digitWidth - digit.fromWidth) / 2, y + fromTop + _st.font->ascent, singleChar);
-		}
-		if (to.unicode()) {
-			p.setOpacity(progress);
-			singleChar[0] = to;
-			p.drawText(x + (_digitWidth - digit.toWidth) / 2, y + toTop + _st.font->ascent, singleChar);
-		}
-		x += _digitWidth;
-	}
-	p.setOpacity(1.);
-}
-
 RoundButton::RoundButton(QWidget *parent, base::lambda<QString()> textFactory, const style::RoundButton &st) : RippleButton(parent, st.ripple)
 , _textFactory(std::move(textFactory))
 , _st(st) {
@@ -374,7 +215,9 @@ void RoundButton::setNumbersText(const QString &numbersText, int numbers) {
 		_numbers.reset();
 	} else {
 		if (!_numbers) {
-			_numbers = std::make_unique<Numbers>(_st, [this] { numbersAnimationCallback(); });
+			_numbers = std::make_unique<NumbersAnimation>(_st.font, [this] {
+				numbersAnimationCallback();
+			});
 		}
 		_numbers->setText(numbersText, numbers);
 	}
@@ -383,7 +226,9 @@ void RoundButton::setNumbersText(const QString &numbersText, int numbers) {
 
 void RoundButton::setWidthChangedCallback(base::lambda<void()> callback) {
 	if (!_numbers) {
-		_numbers = std::make_unique<Numbers>(_st, [this] { numbersAnimationCallback(); });
+		_numbers = std::make_unique<NumbersAnimation>(_st.font, [this] {
+			numbersAnimationCallback();
+		});
 	}
 	_numbers->setWidthChangedCallback(std::move(callback));
 }
@@ -396,7 +241,7 @@ void RoundButton::stepNumbersAnimation(TimeMs ms) {
 
 void RoundButton::finishNumbersAnimation() {
 	if (_numbers) {
-		_numbers->finishAnimation();
+		_numbers->finishAnimating();
 	}
 }
 
@@ -573,7 +418,12 @@ void IconButton::onStateChanged(State was, StateChangeSource source) {
 }
 
 QPoint IconButton::prepareRippleStartPosition() const {
-	return mapFromGlobal(QCursor::pos()) - _st.rippleAreaPosition;
+	auto result = mapFromGlobal(QCursor::pos())
+		- _st.rippleAreaPosition;
+	auto rect = QRect(0, 0, _st.rippleAreaSize, _st.rippleAreaSize);
+	return rect.contains(result)
+		? result
+		: DisabledRippleStartPosition();
 }
 
 QImage IconButton::prepareRippleMask() const {
@@ -628,7 +478,7 @@ CrossButton::CrossButton(QWidget *parent, const style::CrossButton &st) : Ripple
 , _a_loading(animation(this, &CrossButton::step_loading)) {
 	resize(_st.width, _st.height);
 	setCursor(style::cur_pointer);
-	hide();
+	setVisible(false);
 }
 
 void CrossButton::step_loading(TimeMs ms, bool timer) {
@@ -640,21 +490,29 @@ void CrossButton::step_loading(TimeMs ms, bool timer) {
 	}
 }
 
-void CrossButton::toggleAnimated(bool visible) {
-	if (_shown == visible) {
-		return;
+void CrossButton::toggle(bool visible, anim::type animated) {
+	if (_shown != visible) {
+		_shown = visible;
+		if (animated == anim::type::normal) {
+			if (isHidden()) {
+				setVisible(true);
+			}
+			_a_show.start(
+				[this] { animationCallback(); },
+				_shown ? 0. : 1.,
+				_shown ? 1. : 0.,
+				_st.duration);
+		}
 	}
-	_shown = visible;
-	if (isHidden()) {
-		show();
+	if (animated == anim::type::instant) {
+		finishAnimating();
 	}
-	_a_show.start([this] { animationCallback(); }, _shown ? 0. : 1., _shown ? 1. : 0., _st.duration);
 }
 
 void CrossButton::animationCallback() {
 	update();
-	if (!_shown && !_a_show.animating()) {
-		hide();
+	if (!_a_show.animating()) {
+		setVisible(_shown);
 	}
 }
 

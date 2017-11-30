@@ -79,7 +79,12 @@ DeclareReadSetting(LaunchMode, LaunchMode);
 DeclareSetting(QString, WorkingDir);
 inline void cForceWorkingDir(const QString &newDir) {
 	cSetWorkingDir(newDir);
-	if (!gWorkingDir.isEmpty()) QDir().mkpath(gWorkingDir);
+	if (!gWorkingDir.isEmpty()) {
+		QDir().mkpath(gWorkingDir);
+		QFile::setPermissions(gWorkingDir,
+			QFileDevice::ReadUser | QFileDevice::WriteUser | QFileDevice::ExeUser);
+	}
+
 }
 DeclareReadSetting(QString, ExeName);
 DeclareReadSetting(QString, ExeDir);
@@ -163,7 +168,6 @@ DeclareSetting(RecentEmojiPreload, RecentEmojiPreload);
 DeclareRefSetting(EmojiColorVariants, EmojiVariants);
 
 class DocumentData;
-typedef QVector<DocumentData*> StickerPack;
 
 typedef QList<QPair<DocumentData*, int16> > RecentStickerPackOld;
 typedef QVector<QPair<uint64, ushort> > RecentStickerPreload;
@@ -172,12 +176,6 @@ DeclareSetting(RecentStickerPreload, RecentStickersPreload);
 DeclareRefSetting(RecentStickerPack, RecentStickers);
 
 RecentStickerPack &cGetRecentStickers();
-
-typedef QMap<EmojiPtr, StickerPack> StickersByEmojiMap;
-
-typedef QVector<DocumentData*> SavedGifs;
-DeclareRefSetting(SavedGifs, SavedGifs);
-DeclareSetting(TimeMs, LastSavedGifsUpdate);
 
 typedef QList<QPair<QString, ushort> > RecentHashtagPack;
 DeclareRefSetting(RecentHashtagPack, RecentWriteHashtags);

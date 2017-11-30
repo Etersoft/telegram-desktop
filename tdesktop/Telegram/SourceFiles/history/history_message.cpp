@@ -36,8 +36,10 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "styles/style_dialogs.h"
 #include "styles/style_widgets.h"
 #include "styles/style_history.h"
+#include "styles/style_window.h"
 #include "window/notifications_manager.h"
 #include "observer_peer.h"
+#include "storage/storage_shared_media.h"
 
 namespace {
 
@@ -45,7 +47,7 @@ constexpr auto kPinnedMessageTextLimit = 16;
 
 inline void initTextOptions() {
 	_historySrvOptions.dir = _textNameOptions.dir = _textDlgOptions.dir = cLangDir();
-	_textDlgOptions.maxw = st::dialogsWidthMax * 2;
+	_textDlgOptions.maxw = st::columnMaximalWidthLeft * 2;
 }
 
 style::color fromNameFg(int index) {
@@ -90,7 +92,8 @@ MTPDmessage::Flags NewForwardedFlags(not_null<PeerData*> peer, UserId from, not_
 		if (auto media = fwd->getMedia()) {
 			if (media->type() == MediaTypeWebPage) {
 				// Drop web page if we're not allowed to send it.
-				if (channel->restrictedRights().is_embed_links()) {
+				if (channel->restricted(
+						ChannelRestriction::f_embed_links)) {
 					result &= MTPDmessage::Flag::f_media;
 				}
 			}
@@ -235,7 +238,9 @@ void FastShareMessage(not_null<HistoryItem*> item) {
 			restrictedEverywhere = false;
 		}
 		if (restrictedEverywhere) {
-			Ui::show(Box<InformBox>(firstError), KeepOtherLayers);
+			Ui::show(
+				Box<InformBox>(firstError),
+				LayerOption::KeepOther);
 			return;
 		}
 
@@ -308,15 +313,15 @@ QString GetErrorTextForForward(not_null<PeerData*> peer, const SelectedItemSet &
 	}
 
 	if (auto megagroup = peer->asMegagroup()) {
-		if (megagroup->restrictedRights().is_send_media() && HasMediaItems(items)) {
+		if (megagroup->restricted(ChannelRestriction::f_send_media) && HasMediaItems(items)) {
 			return lang(lng_restricted_send_media);
-		} else if (megagroup->restrictedRights().is_send_stickers() && HasStickerItems(items)) {
+		} else if (megagroup->restricted(ChannelRestriction::f_send_stickers) && HasStickerItems(items)) {
 			return lang(lng_restricted_send_stickers);
-		} else if (megagroup->restrictedRights().is_send_gifs() && HasGifItems(items)) {
+		} else if (megagroup->restricted(ChannelRestriction::f_send_gifs) && HasGifItems(items)) {
 			return lang(lng_restricted_send_gifs);
-		} else if (megagroup->restrictedRights().is_send_games() && HasGameItems(items)) {
+		} else if (megagroup->restricted(ChannelRestriction::f_send_games) && HasGameItems(items)) {
 			return lang(lng_restricted_send_inline);
-		} else if (megagroup->restrictedRights().is_send_inline() && HasInlineItems(items)) {
+		} else if (megagroup->restricted(ChannelRestriction::f_send_inline) && HasInlineItems(items)) {
 			return lang(lng_restricted_send_inline);
 		}
 	}
@@ -409,7 +414,13 @@ bool HistoryMessageReply::updateData(HistoryMessage *holder, bool force) {
 	if (!replyToMsg) {
 		replyToMsg = App::histItemById(holder->channelId(), replyToMsgId);
 		if (replyToMsg) {
-			App::historyRegDependency(holder, replyToMsg);
+			if (replyToMsg->isEmpty()) {
+				// Really it is deleted.
+				replyToMsg = nullptr;
+				force = true;
+			} else {
+				App::historyRegDependency(holder, replyToMsg);
+			}
 		}
 	}
 
@@ -552,7 +563,7 @@ const style::TextStyle &HistoryMessage::KeyboardStyle::textStyle() const {
 }
 
 void HistoryMessage::KeyboardStyle::repaint(not_null<const HistoryItem*> item) const {
-	Ui::repaintHistoryItem(item);
+	Auth().data().requestItemRepaint(item);
 }
 
 int HistoryMessage::KeyboardStyle::buttonRadius() const {
@@ -691,7 +702,7 @@ HistoryMessage::HistoryMessage(not_null<History*> history, MsgId id, MTPDmessage
 	auto cloneMedia = [this, history, mediaType] {
 		if (mediaType == MediaTypeWebPage) {
 			if (auto channel = history->peer->asChannel()) {
-				if (channel->restrictedRights().is_embed_links()) {
+				if (channel->restricted(ChannelRestriction::f_embed_links)) {
 					return false;
 				}
 			}
@@ -864,7 +875,10 @@ void HistoryMessage::createComponents(const CreateConfig &config) {
 	if (auto reply = Get<HistoryMessageReply>()) {
 		reply->replyToMsgId = config.replyTo;
 		if (!reply->updateData(this)) {
-			Auth().api().requestMessageData(history()->peer->asChannel(), reply->replyToMsgId, HistoryDependentItemCallback(fullId()));
+			Auth().api().requestMessageData(
+				history()->peer->asChannel(),
+				reply->replyToMsgId,
+				HistoryDependentItemCallback(fullId()));
 		}
 	}
 	if (auto via = Get<HistoryMessageVia>()) {
@@ -942,6 +956,12 @@ void HistoryMessage::initMedia(const MTPMessageMedia *media) {
 	} break;
 	case mtpc_messageMediaGeo: {
 		auto &point = media->c_messageMediaGeo().vgeo;
+		if (point.type() == mtpc_geoPoint) {
+			_media = std::make_unique<HistoryLocation>(this, LocationCoords(point.c_geoPoint()));
+		}
+	} break;
+	case mtpc_messageMediaGeoLive: {
+		auto &point = media->c_messageMediaGeoLive().vgeo;
 		if (point.type() == mtpc_geoPoint) {
 			_media = std::make_unique<HistoryLocation>(this, LocationCoords(point.c_geoPoint()));
 		}
@@ -1297,6 +1317,17 @@ void HistoryMessage::eraseFromOverview() {
 	}
 }
 
+Storage::SharedMediaTypesMask HistoryMessage::sharedMediaTypes() const {
+	auto result = Storage::SharedMediaTypesMask {};
+	if (auto media = getMedia()) {
+		result.set(media->sharedMediaTypes());
+	}
+	if (hasTextLinks()) {
+		result.set(Storage::SharedMediaType::Link);
+	}
+	return result;
+}
+
 TextWithEntities HistoryMessage::selectedText(TextSelection selection) const {
 	TextWithEntities logEntryOriginalResult;
 	auto textResult = _text.originalTextWithEntities((selection == FullSelection) ? AllTextSelection : selection, ExpandLinksAll);
@@ -1566,7 +1597,7 @@ void HistoryMessage::setViewsCount(int32 count) {
 	views->_viewsText = (views->_views >= 0) ? formatViewsCount(views->_views) : QString();
 	views->_viewsWidth = views->_viewsText.isEmpty() ? 0 : st::msgDateFont->width(views->_viewsText);
 	if (was == views->_viewsWidth) {
-		Ui::repaintHistoryItem(this);
+		Auth().data().requestItemRepaint(this);
 	} else {
 		if (_text.hasSkipBlock()) {
 			_text.setSkipBlock(HistoryMessage::skipBlockWidth(), HistoryMessage::skipBlockHeight());
@@ -1581,7 +1612,7 @@ void HistoryMessage::setId(MsgId newId) {
 	bool wasPositive = (id > 0), positive = (newId > 0);
 	HistoryItem::setId(newId);
 	if (wasPositive == positive) {
-		Ui::repaintHistoryItem(this);
+		Auth().data().requestItemRepaint(this);
 	} else {
 		if (_text.hasSkipBlock()) {
 			_text.setSkipBlock(HistoryMessage::skipBlockWidth(), HistoryMessage::skipBlockHeight());

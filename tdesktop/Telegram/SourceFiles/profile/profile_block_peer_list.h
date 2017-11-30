@@ -36,9 +36,7 @@ namespace Profile {
 
 class PeerListWidget : public BlockWidget {
 public:
-	PeerListWidget(QWidget *parent, PeerData *peer, const QString &title, const style::ProfilePeerListItem &st = st::profileMemberItem, const QString &removeText = QString());
-
-	void setVisibleTopBottom(int visibleTop, int visibleBottom) override;
+	PeerListWidget(QWidget *parent, PeerData *peer, const QString &title, const style::PeerListItem &st = st::profileMemberItem, const QString &removeText = QString());
 
 	struct Item {
 		explicit Item(PeerData *peer);
@@ -100,11 +98,13 @@ public:
 	}
 
 protected:
+	int resizeGetHeight(int newWidth) override;
+	void visibleTopBottomUpdated(
+		int visibleTop,
+		int visibleBottom) override;
+
 	void paintOutlinedRect(Painter &p, int x, int y, int w, int h) const;
 	void refreshVisibility();
-
-	// Resizes content and counts natural widget height for the desired width.
-	int resizeGetHeight(int newWidth) override;
 
 	void paintContents(Painter &p) override;
 
@@ -136,7 +136,7 @@ private:
 
 	void paintItem(Painter &p, int x, int y, Item *item, bool selected, bool selectedRemove, TimeMs ms);
 
-	const style::ProfilePeerListItem &_st;
+	const style::PeerListItem &_st;
 
 	base::lambda<void()> _preloadMoreCallback;
 	base::lambda<void(PeerData*)> _selectedCallback;

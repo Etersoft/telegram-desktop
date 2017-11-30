@@ -85,7 +85,7 @@ public:
 	Widget(QWidget *parent, not_null<Window::Controller*> controller, not_null<ChannelData*> channel);
 
 	not_null<ChannelData*> channel() const;
-	PeerData *peerForDialogs() const override {
+	PeerData *activePeer() const override {
 		return channel();
 	}
 
@@ -95,14 +95,16 @@ public:
 
 	QPixmap grabForShowAnimation(const Window::SectionSlideParams &params) override;
 
-	bool showInternal(not_null<Window::SectionMemento*> memento) override;
+	bool showInternal(
+		not_null<Window::SectionMemento*> memento,
+		const Window::SectionShow &params) override;
 	std::unique_ptr<Window::SectionMemento> createMemento() override;
 
 	void setInternalState(const QRect &geometry, not_null<SectionMemento*> memento);
 
 	// Float player interface.
-	bool wheelEventFromFloatPlayer(QEvent *e, Window::Column myColumn, Window::Column playerColumn) override;
-	QRect rectForFloatPlayer(Window::Column myColumn, Window::Column playerColumn) override;
+	bool wheelEventFromFloatPlayer(QEvent *e) override;
+	QRect rectForFloatPlayer() const override;
 
 	void applyFilter(FilterValue &&value);
 
@@ -112,7 +114,8 @@ protected:
 	void resizeEvent(QResizeEvent *e) override;
 	void paintEvent(QPaintEvent *e) override;
 
-	void showAnimatedHook() override;
+	void showAnimatedHook(
+		const Window::SectionSlideParams &params) override;
 	void showFinishedHook() override;
 	void doSetInnerFocus() override;
 
@@ -136,7 +139,11 @@ public:
 	SectionMemento(not_null<ChannelData*> channel) : _channel(channel) {
 	}
 
-	object_ptr<Window::SectionWidget> createWidget(QWidget *parent, not_null<Window::Controller*> controller, const QRect &geometry) override;
+	object_ptr<Window::SectionWidget> createWidget(
+		QWidget *parent,
+		not_null<Window::Controller*> controller,
+		Window::Column column,
+		const QRect &geometry) override;
 
 	not_null<ChannelData*> getChannel() const {
 		return _channel;

@@ -26,6 +26,10 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 class PeerData;
 
+namespace Window {
+class Controller;
+} // namespace Window
+
 namespace Ui {
 
 class HistoryDownButton : public RippleButton {
@@ -98,7 +102,7 @@ public:
 	}
 	void setType(Type state);
 	void setRecordActive(bool recordActive);
-	void finishAnimation();
+	void finishAnimating();
 
 	void setRecordStartCallback(base::lambda<void()> callback) {
 		_recordStartCallback = std::move(callback);
@@ -144,38 +148,82 @@ private:
 
 };
 
-class PeerAvatarButton : public AbstractButton {
+class UserpicButton : public RippleButton {
 public:
-	PeerAvatarButton(QWidget *parent,PeerData *peer, const style::PeerAvatarButton &st);
+	enum class Role {
+		ChangePhoto,
+		OpenPhoto,
+		OpenProfile,
+		Custom,
+	};
 
-	void setPeer(PeerData *peer) {
-		_peer = peer;
-		update();
+	UserpicButton(
+		QWidget *parent,
+		PeerId peerForCrop,
+		Role role,
+		const style::UserpicButton &st);
+	UserpicButton(
+		QWidget *parent,
+		not_null<Window::Controller*> controller,
+		not_null<PeerData*> peer,
+		Role role,
+		const style::UserpicButton &st);
+
+	void switchChangePhotoOverlay(bool enabled);
+
+	QImage takeResultImage() {
+		return std::move(_result);
 	}
 
 protected:
 	void paintEvent(QPaintEvent *e) override;
+	void mouseMoveEvent(QMouseEvent *e) override;
+	void leaveEventHook(QEvent *e) override;
 
-private:
-	PeerData *_peer = nullptr;
-	const style::PeerAvatarButton &_st;
-
-};
-
-class NewAvatarButton : public RippleButton {
-public:
-	NewAvatarButton(QWidget *parent, int size, QPoint position);
-
-	void setImage(const QImage &image);
-
-protected:
-	void paintEvent(QPaintEvent *e) override;
+	void onStateChanged(State was, StateChangeSource source) override;
 
 	QImage prepareRippleMask() const override;
+	QPoint prepareRippleStartPosition() const override;
 
 private:
-	QPixmap _image;
-	QPoint _position;
+	void prepare();
+	void setImage(QImage &&image);
+	void setupPeerViewers();
+	void startAnimation();
+	void processPeerPhoto();
+	void processNewPeerPhoto();
+	void startNewPhotoShowing();
+	void prepareUserpicPixmap();
+	QPoint countPhotoPosition() const;
+	void startChangeOverlayAnimation();
+	void updateCursorInChangeOverlay(QPoint localPos);
+	void setCursorInChangeOverlay(bool inOverlay);
+	void updateCursor();
+
+	void grabOldUserpic();
+	void setClickHandlerByRole();
+	void openPeerPhoto();
+	void changePhotoLazy();
+	void uploadNewPeerPhoto();
+
+	const style::UserpicButton &_st;
+	Window::Controller *_controller = nullptr;
+	PeerData *_peer = nullptr;
+	PeerId _peerForCrop = 0;
+	Role _role = Role::ChangePhoto;
+	bool _notShownYet = true;
+	bool _waiting = false;
+	QPixmap _userpic, _oldUserpic;
+	bool _userpicHasImage = false;
+	bool _userpicCustom = false;
+	StorageKey _userpicUniqueKey;
+	Animation _a_appearance;
+	QImage _result;
+
+	bool _canOpenPhoto = false;
+	bool _cursorInChangeOverlay = false;
+	bool _changeOverlayEnabled = false;
+	Animation _changeOverlayShown;
 
 };
 

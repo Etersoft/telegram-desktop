@@ -78,6 +78,9 @@ slideDuration: 240;
 slideShift: 100px;
 slideShadow: icon {{ "slide_shadow", slideFadeOutShadowFg }};
 
+slideWrapDuration: 150;
+fadeWrapDuration: 200;
+
 linkCropLimit: 360px;
 linkFont: normalFont;
 linkOverFont: font(fsize underline);
@@ -288,7 +291,7 @@ inlineRowBorder: 1px;
 inlineRowBorderFg: shadowFg;
 inlineRowFileNameTop: 2px;
 inlineRowFileDescriptionTop: 23px;
-inlineResultsMinWidth: 64px;
+inlineResultsMinWidth: 48px;
 inlineDurationMargin: 3px;
 
 toastTextStyle: defaultTextStyle;

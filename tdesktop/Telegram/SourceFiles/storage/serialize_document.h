@@ -20,13 +20,12 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "structs.h"
+#include "data/data_document.h"
 
 namespace Serialize {
 
 class Document {
 public:
-
 	struct StickerSetInfo {
 		StickerSetInfo(uint64 setId, uint64 accessHash, QString shortName)
 			: setId(setId)

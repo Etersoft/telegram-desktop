@@ -20,23 +20,25 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "layerwidget.h"
-#include "ui/widgets/shadow.h"
+#include "window/layer_widget.h"
+#include "ui/rp_widget.h"
+
+namespace style {
+struct RoundButton;
+struct ScrollArea;
+} // namespace style
 
 namespace Ui {
 class RoundButton;
 class IconButton;
 class ScrollArea;
 class FlatLabel;
-template <typename Widget>
-class WidgetFadeWrap;
+class FadeShadow;
 } // namespace Ui
 
 namespace Window {
 class Controller;
 } // namespace Window
-
-class BoxLayerTitleShadow;
 
 class BoxContentDelegate {
 public:
@@ -58,7 +60,7 @@ public:
 
 };
 
-class BoxContent : public TWidget, protected base::Subscriber {
+class BoxContent : public Ui::RpWidget, protected base::Subscriber {
 	Q_OBJECT
 
 public:
@@ -87,6 +89,8 @@ public:
 		getDelegate()->setAdditionalTitle(std::move(additional));
 	}
 
+	void scrollToWidget(not_null<QWidget*> widget);
+
 	void clearButtons() {
 		getDelegate()->clearButtons();
 	}
@@ -112,6 +116,10 @@ public:
 		finishPrepare();
 	}
 
+	Window::Controller *controller() {
+		return getDelegate()->controller();
+	}
+
 public slots:
 	void onScrollToY(int top, int bottom = -1);
 
@@ -119,10 +127,6 @@ public slots:
 
 protected:
 	virtual void prepare() = 0;
-
-	Window::Controller *controller() {
-		return getDelegate()->controller();
-	}
 
 	void setLayerType(bool layerType) {
 		getDelegate()->setLayerType(layerType);
@@ -193,15 +197,18 @@ private:
 	bool _noContentMargin = false;
 	int _innerTopSkip = 0;
 	object_ptr<Ui::ScrollArea> _scroll = { nullptr };
-	object_ptr<Ui::WidgetFadeWrap<BoxLayerTitleShadow>> _topShadow = { nullptr };
-	object_ptr<Ui::WidgetFadeWrap<BoxLayerTitleShadow>> _bottomShadow = { nullptr };
+	object_ptr<Ui::FadeShadow> _topShadow = { nullptr };
+	object_ptr<Ui::FadeShadow> _bottomShadow = { nullptr };
 
 	object_ptr<QTimer> _draggingScrollTimer = { nullptr };
 	int _draggingScrollDelta = 0;
 
 };
 
-class AbstractBox : public LayerWidget, public BoxContentDelegate, protected base::Subscriber {
+class AbstractBox
+	: public Window::LayerWidget
+	, public BoxContentDelegate
+	, protected base::Subscriber {
 public:
 	AbstractBox(QWidget *parent, Window::Controller *controller, object_ptr<BoxContent> content);
 
@@ -283,13 +290,7 @@ private:
 
 };
 
-class BoxLayerTitleShadow : public Ui::PlainShadow {
-public:
-	BoxLayerTitleShadow(QWidget *parent);
-
-};
-
-class BoxContentDivider : public TWidget {
+class BoxContentDivider : public Ui::RpWidget {
 public:
 	BoxContentDivider(QWidget *parent);
 

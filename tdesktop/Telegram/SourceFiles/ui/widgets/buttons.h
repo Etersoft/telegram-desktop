@@ -28,6 +28,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 namespace Ui {
 
 class RippleAnimation;
+class NumbersAnimation;
 
 class LinkButton : public AbstractButton {
 public:
@@ -53,12 +54,9 @@ class RippleButton : public AbstractButton {
 public:
 	RippleButton(QWidget *parent, const style::RippleAnimation &st);
 
-	// Displays full ripple circle constantly.
-	enum class SetForceRippledWay {
-		Default,
-		SkipAnimation,
-	};
-	void setForceRippled(bool rippled, SetForceRippledWay way = SetForceRippledWay::Default);
+	void setForceRippled(
+		bool rippled,
+		anim::type animated = anim::type::normal);
 	bool forceRippled() const {
 		return _forceRippled;
 	}
@@ -155,8 +153,7 @@ private:
 	base::lambda<QString()> _textFactory;
 	int _textWidth;
 
-	class Numbers;
-	std::unique_ptr<Numbers> _numbers;
+	std::unique_ptr<NumbersAnimation> _numbers;
 
 	int _fullWidthOverride = 0;
 
@@ -215,25 +212,19 @@ class CrossButton : public RippleButton {
 public:
 	CrossButton(QWidget *parent, const style::CrossButton &st);
 
-	void showAnimated() {
-		toggleAnimated(true);
+	void toggle(bool shown, anim::type animated);
+	void show(anim::type animated) {
+		return toggle(true, animated);
 	}
-	void hideAnimated() {
-		toggleAnimated(false);
+	void hide(anim::type animated) {
+		return toggle(false, animated);
 	}
-	void toggleAnimated(bool visible);
-	void showFast() {
-		toggleFast(true);
-	}
-	void hideFast() {
-		toggleFast(false);
-	}
-	void toggleFast(bool visible) {
-		toggleAnimated(visible);
+	void finishAnimating() {
 		_a_show.finish();
+		animationCallback();
 	}
 
-	bool isShown() const {
+	bool toggled() const {
 		return _shown;
 	}
 	void setLoadingAnimation(bool enabled);
