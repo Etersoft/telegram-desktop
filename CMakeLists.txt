@@ -53,6 +53,7 @@ find_package(X11 REQUIRED)
 
 set(GSL_INCLUDE_DIR /usr/include/libmicrosoft-gsl)
 set(VARIANT_INCLUDE_DIR /usr/include/libvariant)
+set(RANGEV3_INCLUDE_DIR /usr/include/range-v3)
 
 set(EMOJI_SUGGESTIONS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/ThirdParty/emoji_suggestions)
 
@@ -154,6 +155,7 @@ target_include_directories(Telegram PUBLIC
     ${GSL_INCLUDE_DIR}
     ${EMOJI_SUGGESTIONS_INCLUDE_DIR}
     ${VARIANT_INCLUDE_DIR}
+    ${RANGEV3_INCLUDE_DIR}
     ${MINIZIP_INCLUDE_DIRS}
     ${OPENAL_INCLUDE_DIR}
     ${APPINDICATOR_INCLUDE_DIRS}
@@ -174,6 +176,7 @@ target_compile_definitions(Telegram PUBLIC
     TDESKTOP_DISABLE_REGISTER_CUSTOM_SCHEME
     TDESKTOP_DISABLE_CRASH_REPORTS
     TDESKTOP_DISABLE_AUTOUPDATE
+    TDESKTOP_DISABLE_GTK_INTEGRATION
     __STDC_FORMAT_MACROS)
 
 # TODO: does not work yet

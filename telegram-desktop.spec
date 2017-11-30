@@ -11,8 +11,8 @@ BuildRequires(pre): rpm-build-ubt
 
 
 Name: telegram-desktop
-Version: 1.1.23
-Release: alt3
+Version: 1.1.24
+Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
 
@@ -31,7 +31,6 @@ Patch3: 0003_qt-plugins.patch
 Patch4: 0004_API-ID.patch
 Patch5: 0005_Downgrade-Qt-version.patch
 Patch6: 0006_fix-static-qt-functions.patch
-Patch7: 0007_cvefix.patch
 Patch8: 0008_add_locales.patch
 #Patch9: 0001-use-correct-executable-path.patch
 Patch14: 0014-get-language-name-and-country-name-from-QLocale.patch
@@ -77,7 +76,7 @@ BuildRequires: libva-devel libdrm-devel
 
 BuildRequires: libtgvoip-devel >= 0.4.1.2
 # C++ sugar
-BuildRequires: libmicrosoft-gsl-devel libvariant-devel
+BuildRequires: libmicrosoft-gsl-devel libvariant-devel librange-v3-devel
 
 # FIXME: libva need only for linking, extra deps?
 
@@ -119,7 +118,6 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 %patch3 -p1
 %patch5 -p1
 %patch6 -p1
-%patch7 -p1
 %patch8 -p1
 #patch9 -p1
 %patch14 -p1
@@ -178,6 +176,11 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Thu Nov 30 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.24-alt1
+- new version 1.1.24 (with rpmrb script)
+- build with librange-v3-include
+- disable GTK integration (ALT bug 34182)
+
 * Sat Oct 21 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.23-alt3
 - fix old lang code in settings
 - fix CVE-2016-10351: Insecure cWorkingDir permissions
