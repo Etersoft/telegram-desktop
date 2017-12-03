@@ -44,6 +44,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "storage/storage_user_photos.h"
 #include "data/data_sparse_ids.h"
 #include "data/data_search_controller.h"
+#include "data/data_channel_admins.h"
 
 namespace {
 
@@ -116,6 +117,7 @@ void ApiWrap::addLocalChangelogs(int oldAppVersion) {
 			}
 		};
 		addLocalAlphaChangelog(1001024, "\xE2\x80\x94 Radically improved navigation. New side panel on the right with quick access to shared media and group members.\n\xE2\x80\x94 Pinned Messages. If you are a channel admin, pin messages to focus your subscribers\xE2\x80\x99 attention on important announcements.\n\xE2\x80\x94 Also supported clearing history in supergroups and added a host of minor improvements.");
+		addLocalAlphaChangelog(1001026, "\xE2\x80\x94 Admin badges in supergroup messages.\n\xE2\x80\x94 Fix crashing on launch in OS X 10.6.\n\xE2\x80\x94 Bug fixes and other minor improvements.");
 	}
 	if (!addedSome) {
 		auto text = lng_new_version_wrap(lt_version, str_const_toString(AppVersionStr), lt_changes, lang(lng_new_version_minor), lt_link, qsl("https://desktop.telegram.org/changelog")).trimmed();
@@ -639,7 +641,7 @@ void ApiWrap::lastParticipantsDone(
 
 	if (!peer->mgInfo) return;
 
-	parseChannelParticipants(result, [&](
+	parseChannelParticipants(peer, result, [&](
 			int availableCount,
 			const QVector<MTPChannelParticipant> &list) {
 		applyLastParticipantsList(
@@ -713,12 +715,12 @@ void ApiWrap::applyLastParticipantsList(
 				keyboardBotFound = true;
 			}
 		} else {
-			if (peer->mgInfo->lastParticipants.indexOf(u) < 0) {
+			if (!base::contains(peer->mgInfo->lastParticipants, u)) {
 				peer->mgInfo->lastParticipants.push_back(u);
 				if (adminRights.c_channelAdminRights().vflags.v) {
-					peer->mgInfo->lastAdmins.insert(u, MegagroupInfo::Admin { adminRights, adminCanEdit });
+					peer->mgInfo->lastAdmins.emplace(u, MegagroupInfo::Admin { adminRights, adminCanEdit });
 				} else if (restrictedRights.c_channelBannedRights().vflags.v != 0) {
-					peer->mgInfo->lastRestricted.insert(u, MegagroupInfo::Restricted { restrictedRights });
+					peer->mgInfo->lastRestricted.emplace(u, MegagroupInfo::Restricted { restrictedRights });
 				}
 				if (u->botInfo) {
 					peer->mgInfo->bots.insert(u);
@@ -1765,6 +1767,7 @@ void ApiWrap::readFeaturedSets() {
 }
 
 void ApiWrap::parseChannelParticipants(
+		not_null<ChannelData*> channel,
 		const MTPchannels_ChannelParticipants &result,
 		base::lambda<void(
 			int availableCount,
@@ -1773,6 +1776,9 @@ void ApiWrap::parseChannelParticipants(
 	TLHelp::VisitChannelParticipants(result, base::overload([&](
 			const MTPDchannels_channelParticipants &data) {
 		App::feedUsers(data.vusers);
+		if (channel->mgInfo) {
+			refreshChannelAdmins(channel, data.vparticipants.v);
+		}
 		if (callbackList) {
 			callbackList(data.vcount.v, data.vparticipants.v);
 		}
@@ -1783,7 +1789,19 @@ void ApiWrap::parseChannelParticipants(
 			LOG(("API Error: channels.channelParticipantsNotModified received!"));
 		}
 	}));
-};
+}
+
+void ApiWrap::refreshChannelAdmins(
+		not_null<ChannelData*> channel,
+		const QVector<MTPChannelParticipant> &participants) {
+	Data::ChannelAdminChanges changes(channel);
+	for (auto &p : participants) {
+		const auto userId = TLHelp::ReadChannelParticipantUserId(p);
+		const auto isAdmin = (p.type() == mtpc_channelParticipantAdmin)
+			|| (p.type() == mtpc_channelParticipantCreator);
+		changes.feed(userId, isAdmin);
+	}
+}
 
 void ApiWrap::parseRecentChannelParticipants(
 		not_null<ChannelData*> channel,
@@ -1792,7 +1810,7 @@ void ApiWrap::parseRecentChannelParticipants(
 			int availableCount,
 			const QVector<MTPChannelParticipant> &list)> callbackList,
 		base::lambda<void()> callbackNotModified) {
-	parseChannelParticipants(result, [&](
+	parseChannelParticipants(channel, result, [&](
 			int availableCount,
 			const QVector<MTPChannelParticipant> &list) {
 		auto applyLast = channel->isMegagroup()
@@ -1960,7 +1978,11 @@ void ApiWrap::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 	}
 }
 
-void ApiWrap::jumpToDate(not_null<PeerData*> peer, const QDate &date) {
+template <typename Callback>
+void ApiWrap::requestMessageAfterDate(
+		not_null<PeerData*> peer,
+		const QDate &date,
+		Callback &&callback) {
 	// API returns a message with date <= offset_date.
 	// So we request a message with offset_date = desired_date - 1 and add_offset = -1.
 	// This should give us the first message with date >= desired_date.
@@ -1980,7 +2002,11 @@ void ApiWrap::jumpToDate(not_null<PeerData*> peer, const QDate &date) {
 		MTP_int(maxId),
 		MTP_int(minId),
 		MTP_int(historyHash)
-	)).done([peer](const MTPmessages_Messages &result) {
+	)).done([
+		peer,
+		offsetDate,
+		callback = std::forward<Callback>(callback)
+	](const MTPmessages_Messages &result) {
 		auto getMessagesList = [&result, peer]() -> const QVector<MTPMessage>* {
 			auto handleMessages = [](auto &messages) {
 				App::feedUsers(messages.vusers);
@@ -2011,13 +2037,37 @@ void ApiWrap::jumpToDate(not_null<PeerData*> peer, const QDate &date) {
 		if (auto list = getMessagesList()) {
 			App::feedMsgs(*list, NewMessageExisting);
 			for (auto &message : *list) {
-				auto id = idFromMessage(message);
-				Ui::showPeerHistory(peer, id);
-				return;
+				if (dateFromMessage(message) >= offsetDate) {
+					callback(idFromMessage(message));
+					return;
+				}
 			}
 		}
-		Ui::showPeerHistory(peer, ShowAtUnreadMsgId);
+		callback(ShowAtUnreadMsgId);
 	}).send();
+}
+
+void ApiWrap::jumpToDate(not_null<PeerData*> peer, const QDate &date) {
+	if (auto channel = peer->migrateTo()) {
+		jumpToDate(channel, date);
+		return;
+	}
+	auto jumpToDateInPeer = [peer, date, this] {
+		requestMessageAfterDate(peer, date, [peer](MsgId resultId) {
+			Ui::showPeerHistory(peer, resultId);
+		});
+	};
+	if (auto chat = peer->migrateFrom()) {
+		requestMessageAfterDate(chat, date, [=](MsgId resultId) {
+			if (resultId) {
+				Ui::showPeerHistory(chat, resultId);
+			} else {
+				jumpToDateInPeer();
+			}
+		});
+	} else {
+		jumpToDateInPeer();
+	}
 }
 
 void ApiWrap::preloadEnoughUnreadMentions(not_null<History*> history) {

@@ -547,7 +547,7 @@ void Messenger::chatPhotoDone(PeerId peer, const MTPUpdates &updates) {
 	emit peerPhotoDone(peer);
 }
 
-bool Messenger::peerPhotoFail(PeerId peer, const RPCError &error) {
+bool Messenger::peerPhotoFailed(PeerId peer, const RPCError &error) {
 	if (MTP::isDefaultHandledError(error)) return false;
 
 	LOG(("Application Error: update photo failed %1: %2").arg(error.type()).arg(error.description()));
@@ -560,12 +560,12 @@ void Messenger::peerClearPhoto(PeerId id) {
 	if (!AuthSession::Exists()) return;
 
 	if (id == Auth().userPeerId()) {
-		MTP::send(MTPphotos_UpdateProfilePhoto(MTP_inputPhotoEmpty()), rpcDone(&Messenger::selfPhotoCleared), rpcFail(&Messenger::peerPhotoFail, id));
+		MTP::send(MTPphotos_UpdateProfilePhoto(MTP_inputPhotoEmpty()), rpcDone(&Messenger::selfPhotoCleared), rpcFail(&Messenger::peerPhotoFailed, id));
 	} else if (peerIsChat(id)) {
-		MTP::send(MTPmessages_EditChatPhoto(peerToBareMTPInt(id), MTP_inputChatPhotoEmpty()), rpcDone(&Messenger::chatPhotoCleared, id), rpcFail(&Messenger::peerPhotoFail, id));
+		MTP::send(MTPmessages_EditChatPhoto(peerToBareMTPInt(id), MTP_inputChatPhotoEmpty()), rpcDone(&Messenger::chatPhotoCleared, id), rpcFail(&Messenger::peerPhotoFailed, id));
 	} else if (peerIsChannel(id)) {
 		if (auto channel = App::channelLoaded(id)) {
-			MTP::send(MTPchannels_EditPhoto(channel->inputChannel, MTP_inputChatPhotoEmpty()), rpcDone(&Messenger::chatPhotoCleared, id), rpcFail(&Messenger::peerPhotoFail, id));
+			MTP::send(MTPchannels_EditPhoto(channel->inputChannel, MTP_inputChatPhotoEmpty()), rpcDone(&Messenger::chatPhotoCleared, id), rpcFail(&Messenger::peerPhotoFailed, id));
 		}
 	}
 }
@@ -655,13 +655,13 @@ void Messenger::photoUpdated(const FullMsgId &msgId, bool silent, const MTPInput
 	if (i != photoUpdates.end()) {
 		auto id = i.value();
 		if (id == Auth().userPeerId()) {
-			MTP::send(MTPphotos_UploadProfilePhoto(file), rpcDone(&Messenger::selfPhotoDone), rpcFail(&Messenger::peerPhotoFail, id));
+			MTP::send(MTPphotos_UploadProfilePhoto(file), rpcDone(&Messenger::selfPhotoDone), rpcFail(&Messenger::peerPhotoFailed, id));
 		} else if (peerIsChat(id)) {
 			auto history = App::history(id);
-			history->sendRequestId = MTP::send(MTPmessages_EditChatPhoto(history->peer->asChat()->inputChat, MTP_inputChatUploadedPhoto(file)), rpcDone(&Messenger::chatPhotoDone, id), rpcFail(&Messenger::peerPhotoFail, id), 0, 0, history->sendRequestId);
+			history->sendRequestId = MTP::send(MTPmessages_EditChatPhoto(history->peer->asChat()->inputChat, MTP_inputChatUploadedPhoto(file)), rpcDone(&Messenger::chatPhotoDone, id), rpcFail(&Messenger::peerPhotoFailed, id), 0, 0, history->sendRequestId);
 		} else if (peerIsChannel(id)) {
 			auto history = App::history(id);
-			history->sendRequestId = MTP::send(MTPchannels_EditPhoto(history->peer->asChannel()->inputChannel, MTP_inputChatUploadedPhoto(file)), rpcDone(&Messenger::chatPhotoDone, id), rpcFail(&Messenger::peerPhotoFail, id), 0, 0, history->sendRequestId);
+			history->sendRequestId = MTP::send(MTPchannels_EditPhoto(history->peer->asChannel()->inputChannel, MTP_inputChatUploadedPhoto(file)), rpcDone(&Messenger::chatPhotoDone, id), rpcFail(&Messenger::peerPhotoFailed, id), 0, 0, history->sendRequestId);
 		}
 	}
 }
@@ -1001,15 +1001,15 @@ void Messenger::registerLeaveSubscription(QWidget *widget) {
 #ifdef Q_OS_MAC
 	if (auto topLevel = widget->window()) {
 		if (topLevel == _window.get()) {
-			auto guarded = weak(widget);
+			auto weak = make_weak(widget);
 			auto subscription = _window->leaveEvents()
-				| rpl::start_with_next([guarded] {
-					if (auto w = guarded.data()) {
+				| rpl::start_with_next([weak] {
+					if (const auto window = weak.data()) {
 						QEvent ev(QEvent::Leave);
-						QGuiApplication::sendEvent(w, &ev);
+						QGuiApplication::sendEvent(window, &ev);
 					}
 				});
-			_leaveSubscriptions.emplace_back(guarded, std::move(subscription));
+			_leaveSubscriptions.emplace_back(weak, std::move(subscription));
 		}
 	}
 #endif // Q_OS_MAC

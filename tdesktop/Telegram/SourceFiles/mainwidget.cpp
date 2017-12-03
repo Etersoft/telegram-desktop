@@ -657,24 +657,33 @@ bool MainWidget::setForwardDraft(PeerId peerId, const SelectedItemSet &items) {
 	if (_history->peer() == peer) {
 		_history->cancelReply();
 	}
-	Ui::showPeerHistory(peer, ShowAtUnreadMsgId);
 	_history->onClearSelected();
+	Ui::showPeerHistory(peer, ShowAtUnreadMsgId);
 	return true;
 }
 
-bool MainWidget::onShareUrl(const PeerId &peer, const QString &url, const QString &text) {
-	PeerData *p = App::peer(peer);
-	if (!peer || p->canWrite()) {
+bool MainWidget::shareUrl(
+		not_null<PeerData*> peer,
+		const QString &url,
+		const QString &text) {
+	if (!peer->canWrite()) {
 		Ui::show(Box<InformBox>(lang(lng_share_cant)));
 		return false;
 	}
-	History *h = App::history(peer);
-	TextWithTags textWithTags = { url + '\n' + text, TextWithTags::Tags() };
-	MessageCursor cursor = { url.size() + 1, url.size() + 1 + text.size(), QFIXED_MAX };
-	h->setLocalDraft(std::make_unique<Data::Draft>(textWithTags, 0, cursor, false));
-	h->clearEditDraft();
-	bool opened = _history->peer() && (_history->peer()->id == peer);
-	if (opened) {
+	TextWithTags textWithTags = {
+		url + '\n' + text,
+		TextWithTags::Tags()
+	};
+	MessageCursor cursor = {
+		url.size() + 1,
+		url.size() + 1 + text.size(),
+		QFIXED_MAX
+	};
+	auto history = App::history(peer->id);
+	history->setLocalDraft(
+		std::make_unique<Data::Draft>(textWithTags, 0, cursor, false));
+	history->clearEditDraft();
+	if (_history->peer() == peer) {
 		_history->applyDraft();
 	} else {
 		Ui::showPeerHistory(peer, ShowAtUnreadMsgId);
@@ -5036,7 +5045,7 @@ void MainWidget::feedUpdate(const MTPUpdate &update) {
 			// Request last active supergroup participants if the 'from' user was not loaded yet.
 			// This will optimize similar getDifference() calls for almost all next messages.
 			if (isDataLoaded == DataIsLoadedResult::FromNotLoaded && channel && channel->isMegagroup()) {
-				if (channel->mgInfo->lastParticipants.size() < Global::ChatSizeMax() && (channel->mgInfo->lastParticipants.isEmpty() || channel->mgInfo->lastParticipants.size() < channel->membersCount())) {
+				if (channel->mgInfo->lastParticipants.size() < Global::ChatSizeMax() && (channel->mgInfo->lastParticipants.empty() || channel->mgInfo->lastParticipants.size() < channel->membersCount())) {
 					Auth().api().requestLastParticipants(channel);
 				}
 			}

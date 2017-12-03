@@ -949,6 +949,12 @@ bool HistoryItem::canDeleteForEveryone(const QDateTime &cur) const {
 	}
 	if (history()->peer->isChannel()) {
 		return false;
+	} else if (auto user = history()->peer->asUser()) {
+		// Bots receive all messages and there is no sense in revoking them.
+		// See https://github.com/telegramdesktop/tdesktop/issues/3818
+		if (user->botInfo) {
+			return false;
+		}
 	}
 	if (!toHistoryMessage()) {
 		return false;
@@ -1170,7 +1176,7 @@ void HistoryItem::audioTrackUpdated() {
 
 void HistoryItem::recountDisplayDate() {
 	Expects(!isLogEntry());
-	setDisplayDate(([this]() {
+	setDisplayDate([&] {
 		if (isEmpty()) {
 			return false;
 		}
@@ -1179,7 +1185,7 @@ void HistoryItem::recountDisplayDate() {
 			return previous->isEmpty() || (previous->date.date() != date.date());
 		}
 		return true;
-	})());
+	}());
 }
 
 void HistoryItem::setDisplayDate(bool displayDate) {

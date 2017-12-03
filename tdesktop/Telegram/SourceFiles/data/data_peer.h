@@ -67,16 +67,16 @@ inline bool isNotifyMuted(
 	return false;
 }
 
-static constexpr int kUserColorsCount = 8;
-static constexpr int kChatColorsCount = 4;
-static constexpr int kChannelColorsCount = 4;
+int PeerColorIndex(PeerId peerId);
+int PeerColorIndex(int32 bareId);
 
 class EmptyUserpic {
 public:
 	EmptyUserpic();
-	EmptyUserpic(int index, const QString &name);
+	EmptyUserpic(PeerId peerId, const QString &name);
+	EmptyUserpic(const QString &nonce, const QString &name);
 
-	void set(int index, const QString &name);
+	void set(PeerId peerId, const QString &name);
 	void clear();
 
 	explicit operator bool() const {
@@ -114,11 +114,6 @@ private:
 };
 
 static const PhotoId UnknownPeerPhotoId = 0xFFFFFFFFFFFFFFFFULL;
-
-inline const QString &emptyUsername() {
-	static QString empty;
-	return empty;
-}
 
 class PeerData;
 
@@ -195,7 +190,7 @@ public:
 
 	const Text &dialogName() const;
 	const QString &shortName() const;
-	const QString &userName() const;
+	QString userName() const;
 
 	const PeerId id;
 	int32 bareId() const {
@@ -222,9 +217,6 @@ public:
 	LoadedStatus loadedStatus = NotLoaded;
 	MTPinputPeer input;
 
-	int colorIndex() const {
-		return _colorIndex;
-	}
 	void setUserpic(ImagePtr userpic, StorageImageLocation location);
 	void paintUserpic(
 		Painter &p,
@@ -308,7 +300,6 @@ private:
 	NameWords _nameWords; // for filtering
 	NameFirstChars _nameFirstChars;
 
-	int _colorIndex = 0;
 	TimeMs _lastFullUpdate = 0;
 
 };
@@ -563,7 +554,7 @@ public:
 
 	void invalidateParticipants();
 	bool noParticipantInfo() const {
-		return (count > 0 || amIn()) && participants.isEmpty();
+		return (count > 0 || amIn()) && participants.empty();
 	}
 
 	MTPint inputChat;
@@ -627,11 +618,11 @@ public:
 	bool isMigrated() const {
 		return flags() & MTPDchat::Flag::f_migrated_to;
 	}
-	QMap<not_null<UserData*>, int> participants;
-	OrderedSet<not_null<UserData*>> invitedByMe;
-	OrderedSet<not_null<UserData*>> admins;
-	QList<not_null<UserData*>> lastAuthors;
-	OrderedSet<not_null<PeerData*>> markupSenders;
+	base::flat_map<not_null<UserData*>, int> participants;
+	base::flat_set<not_null<UserData*>> invitedByMe;
+	base::flat_set<not_null<UserData*>> admins;
+	std::deque<not_null<UserData*>> lastAuthors;
+	base::flat_set<not_null<PeerData*>> markupSenders;
 	int botStatus = 0; // -1 - no bots, 0 - unknown, 1 - one bot, that sees all history, 2 - other
 //	ImagePtr photoFull;
 
@@ -748,11 +739,14 @@ struct MegagroupInfo {
 		}
 		MTPChannelBannedRights rights;
 	};
-	QList<not_null<UserData*>> lastParticipants;
-	QMap<not_null<UserData*>, Admin> lastAdmins;
-	QMap<not_null<UserData*>, Restricted> lastRestricted;
-	OrderedSet<not_null<PeerData*>> markupSenders;
-	OrderedSet<not_null<UserData*>> bots;
+	std::deque<not_null<UserData*>> lastParticipants;
+	base::flat_map<not_null<UserData*>, Admin> lastAdmins;
+	base::flat_map<not_null<UserData*>, Restricted> lastRestricted;
+	base::flat_set<not_null<PeerData*>> markupSenders;
+	base::flat_set<not_null<UserData*>> bots;
+
+	// For admin badges, full admins list.
+	base::flat_set<UserId> admins;
 
 	UserData *creator = nullptr; // nullptr means unknown
 	int botStatus = 0; // -1 - no bots, 0 - unknown, 1 - one bot, that sees all history, 2 - other
@@ -901,6 +895,8 @@ public:
 		not_null<UserData*> user,
 		const MTPChannelBannedRights &oldRights,
 		const MTPChannelBannedRights &newRights);
+
+	bool isGroupAdmin(not_null<UserData*> user) const;
 
 	int32 date = 0;
 	int version = 0;
@@ -1180,12 +1176,12 @@ inline const Text &PeerData::dialogName() const {
 inline const QString &PeerData::shortName() const {
 	return isUser() ? asUser()->firstName : name;
 }
-inline const QString &PeerData::userName() const {
+inline QString PeerData::userName() const {
 	return isUser()
 		? asUser()->username
 		: isChannel()
 			? asChannel()->username
-			: emptyUsername();
+			: QString();
 }
 inline bool PeerData::isVerified() const {
 	return isUser()

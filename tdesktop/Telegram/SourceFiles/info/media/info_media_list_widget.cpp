@@ -930,11 +930,13 @@ void ListWidget::markLayoutsStale() {
 
 void ListWidget::saveState(not_null<Memento*> memento) {
 	if (_universalAroundId != kDefaultAroundId) {
-		memento->setAroundId(computeFullId(_universalAroundId));
-		memento->setIdsLimit(_idsLimit);
 		auto state = countScrollState();
-		memento->setScrollTopItem(computeFullId(state.item));
-		memento->setScrollTopShift(state.shift);
+		if (state.item) {
+			memento->setAroundId(computeFullId(_universalAroundId));
+			memento->setIdsLimit(_idsLimit);
+			memento->setScrollTopItem(computeFullId(state.item));
+			memento->setScrollTopShift(state.shift);
+		}
 	}
 }
 
@@ -1377,12 +1379,12 @@ void ListWidget::forwardItems(SelectedItemSet items) {
 	if (items.empty()) {
 		return;
 	}
-	auto that = weak(this);
+	auto weak = make_weak(this);
 	auto controller = std::make_unique<ChooseRecipientBoxController>(
-		[that, items = std::move(items)](not_null<PeerData*> peer) {
+		[weak, items = std::move(items)](not_null<PeerData*> peer) {
 			App::main()->setForwardDraft(peer->id, items);
-			if (that) {
-				that->clearSelected();
+			if (weak) {
+				weak->clearSelected();
 			}
 		});
 	Ui::show(Box<PeerListBox>(

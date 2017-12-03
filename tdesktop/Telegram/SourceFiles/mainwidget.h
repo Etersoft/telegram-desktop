@@ -23,7 +23,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "storage/localimageloader.h"
 #include "history/history_common.h"
 #include "core/single_timer.h"
-#include "base/weak_unique_ptr.h"
+#include "base/weak_ptr.h"
 #include "ui/rp_widget.h"
 
 namespace Notify {
@@ -190,7 +190,10 @@ public:
 	void noHider(HistoryHider *destroyed);
 	bool setForwardDraft(PeerId peer, ForwardWhatMessages what);
 	bool setForwardDraft(PeerId peer, const SelectedItemSet &items);
-	bool onShareUrl(const PeerId &peer, const QString &url, const QString &text);
+	bool shareUrl(
+		not_null<PeerData*> peer,
+		const QString &url,
+		const QString &text);
 	bool onInlineSwitchChosen(const PeerId &peer, const QString &botAndQuery);
 	void onShareContact(const PeerId &peer, UserData *contact);
 	bool onSendPaths(const PeerId &peer);
@@ -583,7 +586,7 @@ private:
 	object_ptr<Window::SectionWidget> _thirdSection = { nullptr };
 	std::unique_ptr<Window::SectionMemento> _thirdSectionFromStack;
 
-	base::weak_unique_ptr<Calls::Call> _currentCall;
+	base::weak_ptr<Calls::Call> _currentCall;
 	object_ptr<Ui::SlideWrap<Calls::TopBar>> _callTopBar = { nullptr };
 
 	object_ptr<Window::PlayerWrapWidget> _player = { nullptr };

@@ -331,7 +331,7 @@ void HistoryHider::forward() {
 		} else if (_sendPath) {
 			parent()->onSendPaths(_offered->id);
 		} else if (!_shareUrl.isEmpty()) {
-			parent()->onShareUrl(_offered->id, _shareUrl, _shareText);
+			parent()->shareUrl(_offered, _shareUrl, _shareText);
 		} else if (!_botAndQuery.isEmpty()) {
 			parent()->onInlineSwitchChosen(_offered->id, _botAndQuery);
 		} else {
@@ -402,9 +402,8 @@ bool HistoryHider::offerPeer(PeerId peer) {
 		}
 		return false;
 	} else if (!_shareUrl.isEmpty()) {
-		auto toId = _offered->id;
-		_offered = nullptr;
-		if (parent()->onShareUrl(toId, _shareUrl, _shareText)) {
+		auto offered = base::take(_offered);
+		if (parent()->shareUrl(offered, _shareUrl, _shareText)) {
 			startHide();
 		}
 		return false;
@@ -1740,11 +1739,11 @@ void HistoryWidget::showHistory(const PeerId &peerId, MsgId showAtMsgId, bool re
 
 	if (peerId) {
 		_peer = App::peer(peerId);
-		_topBar->setHistoryPeer(_peer);
 		_channel = peerToChannel(_peer->id);
 		_canSendMessages = canSendMessages(_peer);
 		_tabbedSelector->setCurrentPeer(_peer);
 	}
+	_topBar->setHistoryPeer(_peer);
 	updateTopBarSelection();
 
 	if (_peer && _peer->isChannel()) {
@@ -3119,7 +3118,7 @@ void HistoryWidget::showAnimated(
 
 	_cacheUnder = params.oldContentCache;
 	show();
-	_topBar->updateControlsVisibility();
+	_topBar->finishAnimating();
 	historyDownAnimationFinish();
 	unreadMentionsAnimationFinish();
 	_topShadow->setVisible(params.withTopBarShadow ? false : true);

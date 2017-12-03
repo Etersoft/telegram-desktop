@@ -21,7 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "info/profile/info_profile_members_controllers.h"
 
 #include <rpl/variable.h>
-#include "base/weak_unique_ptr.h"
+#include "base/weak_ptr.h"
 #include "profile/profile_channel_controllers.h"
 #include "ui/widgets/popup_menu.h"
 #include "lang/lang_keys.h"
@@ -42,7 +42,7 @@ constexpr auto kSortByOnlineDelay = TimeMs(1000);
 class ChatMembersController
 	: public PeerListController
 	, private base::Subscriber
-	, public base::enable_weak_from_this {
+	, public base::has_weak_ptr {
 public:
 	ChatMembersController(
 		not_null<Window::Controller*> window,
@@ -188,10 +188,8 @@ void ChatMembersController::rebuildRows() {
 			--count;
 		}
 	}
-	for (auto i = participants.cbegin(), e = participants.cend();
-		i != e;
-		++i) {
-		if (auto row = createRow(i.key())) {
+	for (const auto [user, v] : participants) {
+		if (auto row = createRow(user)) {
 			delegate()->peerListAppendRow(std::move(row));
 		}
 	}
@@ -286,7 +284,7 @@ Ui::PopupMenu *ChatMembersController::rowContextMenu(
 	auto result = new Ui::PopupMenu(nullptr);
 	result->addAction(
 		lang(lng_context_view_profile),
-		[weak = base::make_weak_unique(this), user] {
+		[weak = base::make_weak(this), user] {
 			if (weak) {
 				weak->_window->showPeerInfo(user);
 			}
@@ -294,7 +292,7 @@ Ui::PopupMenu *ChatMembersController::rowContextMenu(
 	if (canRemoveMember) {
 		result->addAction(
 			lang(lng_context_remove_from_group),
-			[weak = base::make_weak_unique(this), user] {
+			[weak = base::make_weak(this), user] {
 				if (weak) {
 					weak->removeMember(user);
 				}

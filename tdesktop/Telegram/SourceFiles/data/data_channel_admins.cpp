@@ -18,13 +18,31 @@ to link the code of portions of this program with the OpenSSL library.
 Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
-#pragma once
+#include "data/data_channel_admins.h"
 
-#include "core/utils.h"
+namespace Data {
 
-#define BETA_VERSION_MACRO (0ULL)
+ChannelAdminChanges::ChannelAdminChanges(not_null<ChannelData*> channel)
+: _channel(channel)
+, _admins(_channel->mgInfo->admins) {
+}
 
-constexpr int AppVersion = 1001026;
-constexpr str_const AppVersionStr = "1.1.26";
-constexpr bool AppAlphaVersion = true;
-constexpr uint64 AppBetaVersion = BETA_VERSION_MACRO;
+void ChannelAdminChanges::feed(UserId userId, bool isAdmin) {
+	if (isAdmin && !_admins.contains(userId)) {
+		_admins.insert(userId);
+		_changes.emplace(userId, true);
+	} else if (!isAdmin && _admins.contains(userId)) {
+		_admins.remove(userId);
+		_changes.emplace(userId, false);
+	}
+}
+
+ChannelAdminChanges::~ChannelAdminChanges() {
+	if (!_changes.empty()) {
+		if (auto history = App::historyLoaded(_channel)) {
+			history->applyGroupAdminChanges(_changes);
+		}
+	}
+}
+
+} // namespace Data

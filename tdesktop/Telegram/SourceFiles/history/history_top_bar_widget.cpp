@@ -203,11 +203,11 @@ void HistoryTopBarWidget::showMenu() {
 		return;
 	}
 	_menu.create(parentWidget());
-	_menu->setHiddenCallback([that = weak(this), menu = _menu.data()] {
+	_menu->setHiddenCallback([weak = make_weak(this), menu = _menu.data()] {
 		menu->deleteLater();
-		if (that && that->_menu == menu) {
-			that->_menu = nullptr;
-			that->_menuToggle->setForceRippled(false);
+		if (weak && weak->_menu == menu) {
+			weak->_menu = nullptr;
+			weak->_menuToggle->setForceRippled(false);
 		}
 	});
 	_menu->setShowStartCallback(base::lambda_guarded(this, [this, menu = _menu.data()] {
@@ -352,8 +352,7 @@ void HistoryTopBarWidget::backClicked() {
 	_controller->showBackFromStack();
 }
 
-void HistoryTopBarWidget::setHistoryPeer(
-		not_null<PeerData*> historyPeer) {
+void HistoryTopBarWidget::setHistoryPeer(PeerData *historyPeer) {
 	if (_historyPeer != historyPeer) {
 		_historyPeer = historyPeer;
 		update();
@@ -367,8 +366,10 @@ void HistoryTopBarWidget::setHistoryPeer(
 				Ui::UserpicButton::Role::Custom,
 				st::topBarInfoButton);
 			_info->setAttribute(Qt::WA_TransparentForMouseEvents);
-		} else {
-			_info.destroy();
+		}
+		if (_menu) {
+			_menuToggle->removeEventFilter(_menu);
+			_menu->hideFast();
 		}
 		updateOnlineDisplay();
 		updateControlsVisibility();
@@ -439,11 +440,16 @@ void HistoryTopBarWidget::updateControlsGeometry() {
 	updateMembersShowArea();
 }
 
+void HistoryTopBarWidget::finishAnimating() {
+	_selectedShown.finish();
+	updateControlsVisibility();
+}
+
 void HistoryTopBarWidget::setAnimationMode(bool enabled) {
 	if (_animationMode != enabled) {
 		_animationMode = enabled;
 		setAttribute(Qt::WA_OpaquePaintEvent, !_animationMode);
-		_selectedShown.finish();
+		finishAnimating();
 		updateControlsVisibility();
 	}
 }
@@ -639,7 +645,7 @@ void HistoryTopBarWidget::updateOnlineDisplay() {
 	} else if (auto chat = _historyPeer->asChat()) {
 		if (!chat->amIn()) {
 			text = lang(lng_chat_status_unaccessible);
-		} else if (chat->participants.isEmpty()) {
+		} else if (chat->participants.empty()) {
 			if (!_titlePeerText.isEmpty()) {
 				text = _titlePeerText;
 			} else if (chat->count <= 0) {
@@ -650,10 +656,10 @@ void HistoryTopBarWidget::updateOnlineDisplay() {
 		} else {
 			auto online = 0;
 			auto onlyMe = true;
-			for (auto i = chat->participants.cbegin(), e = chat->participants.cend(); i != e; ++i) {
-				if (i.key()->onlineTill > t) {
+			for (auto [user, v] : chat->participants) {
+				if (user->onlineTill > t) {
 					++online;
-					if (onlyMe && i.key() != App::self()) onlyMe = false;
+					if (onlyMe && user != App::self()) onlyMe = false;
 				}
 			}
 			if (online > 0 && !onlyMe) {
@@ -668,7 +674,7 @@ void HistoryTopBarWidget::updateOnlineDisplay() {
 		}
 	} else if (auto channel = _historyPeer->asChannel()) {
 		if (channel->isMegagroup() && channel->membersCount() > 0 && channel->membersCount() <= Global::ChatSizeMax()) {
-			if (channel->mgInfo->lastParticipants.isEmpty() || channel->lastParticipantsCountOutdated()) {
+			if (channel->mgInfo->lastParticipants.empty() || channel->lastParticipantsCountOutdated()) {
 				Auth().api().requestLastParticipants(channel);
 			}
 			auto online = 0;
@@ -713,10 +719,10 @@ void HistoryTopBarWidget::updateOnlineDisplayTimer() {
 	if (auto user = _historyPeer->asUser()) {
 		minIn = App::onlineWillChangeIn(user, t);
 	} else if (auto chat = _historyPeer->asChat()) {
-		if (chat->participants.isEmpty()) return;
+		if (chat->participants.empty()) return;
 
-		for (auto i = chat->participants.cbegin(), e = chat->participants.cend(); i != e; ++i) {
-			int32 onlineWillChangeIn = App::onlineWillChangeIn(i.key(), t);
+		for (auto [user, v] : chat->participants) {
+			auto onlineWillChangeIn = App::onlineWillChangeIn(user, t);
 			if (onlineWillChangeIn < minIn) {
 				minIn = onlineWillChangeIn;
 			}

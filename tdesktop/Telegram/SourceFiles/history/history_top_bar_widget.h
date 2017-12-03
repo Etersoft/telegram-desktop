@@ -48,13 +48,14 @@ public:
 	};
 
 	void updateControlsVisibility();
+	void finishAnimating();
 	void showSelected(SelectedState state);
 	rpl::producer<bool> membersShowAreaActive() const {
 		return _membersShowAreaActive.events();
 	}
 	void setAnimationMode(bool enabled);
 
-	void setHistoryPeer(not_null<PeerData*> historyPeer);
+	void setHistoryPeer(PeerData *historyPeer);
 
 	static void paintUnreadCounter(
 		Painter &p,

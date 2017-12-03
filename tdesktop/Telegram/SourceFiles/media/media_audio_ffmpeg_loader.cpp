@@ -208,11 +208,13 @@ bool FFMpegLoader::open(qint64 &position) {
 
 	auto layout = codecParams->channel_layout;
 	if (!layout) {
-		auto channelsCount = codecParams->channels;
-		switch (channelsCount) {
+		switch (codecParams->channels) {
 		case 1: layout = AV_CH_LAYOUT_MONO; break;
 		case 2: layout = AV_CH_LAYOUT_STEREO; break;
-		default: LOG(("Audio Error: Unknown channel layout for %1 channels.").arg(channelsCount)); break;
+		default:
+			LOG(("Audio Error: Unknown channel layout for %1 channels.").arg(codecParams->channels));
+			return false;
+		break;
 		}
 	}
 	inputFormat = codecContext->sample_fmt;
@@ -241,7 +243,16 @@ bool FFMpegLoader::open(qint64 &position) {
 		sampleSize = -1; // convert needed
 	break;
 	}
-	if (_samplesFrequency != 44100 && _samplesFrequency != 48000) {
+
+	if (av_popcount64(layout) != codecParams->channels) {
+		LOG(("Audio Error: Bad channel layout %1 for %2 channels."
+			).arg(codecParams->channel_layout
+			).arg(codecParams->channels
+			));
+		return false;
+	}
+
+	if (_samplesFrequency != Media::Player::kDefaultFrequency) {
 		sampleSize = -1; // convert needed
 	}
 
@@ -254,7 +265,7 @@ bool FFMpegLoader::open(qint64 &position) {
 		int64_t src_ch_layout = layout, dst_ch_layout = AudioToChannelLayout;
 		srcRate = _samplesFrequency;
 		AVSampleFormat src_sample_fmt = inputFormat, dst_sample_fmt = AudioToFormat;
-		dstRate = (_samplesFrequency != 44100 && _samplesFrequency != 48000) ? Media::Player::kDefaultFrequency : _samplesFrequency;
+		dstRate = Media::Player::kDefaultFrequency;
 
 		av_opt_set_int(swrContext, "in_channel_layout", src_ch_layout, 0);
 		av_opt_set_int(swrContext, "in_sample_rate", srcRate, 0);
@@ -351,6 +362,40 @@ AudioPlayerLoader::ReadResult FFMpegLoader::readFromReadyFrame(QByteArray &resul
 				return ReadResult::Error;
 			}
 		}
+
+		// There are crash reports of some files with swrContext->in.ch_count
+		// equal to 2 and frame with only one channel data provided.
+		// I'm not sure what to do with those files, could not get one for testing.
+		// Currently just abort the reading because it crashes in swr_convert.
+		//
+		// Samples included:
+		//
+		// codecpar->channel_layout = 3
+		// codecpar->channels = 1 (but it is 2 by the channel_layout!)
+		// frame->channel_layout = 4
+		// frame->channels = 1
+		//
+		// So it looks like codecpar->channel_layout was wrong and frame
+		// really had only one channel, but swresample expected data for two channels.
+		//
+		// codecpar->channel_layout = 3
+		// codecpar->channels = 2
+		// frame->channel_layout = 4
+		// frame->channels = 1
+		//
+		// So the frame just wasn't consistent with the codec params.
+		if (fmtContext->streams[streamId]->codecpar->channels > 1
+			&& frame->extended_data[1] == nullptr) {
+			auto params = fmtContext->streams[streamId]->codecpar;
+			LOG(("Audio Error: Inconsistent frame layout/channels in file, codec: (%1;%2), frame: (%3, %4)"
+				).arg(params->channel_layout
+				).arg(params->channels
+				).arg(frame->channel_layout
+				).arg(frame->channels
+				));
+			return ReadResult::Error;
+		}
+
 		if ((res = swr_convert(swrContext, dstSamplesData, dstSamples, (const uint8_t**)frame->extended_data, frame->nb_samples)) < 0) {
 			char err[AV_ERROR_MAX_STRING_SIZE] = { 0 };
 			LOG(("Audio Error: Unable to swr_convert for file '%1', data size '%2', error %3, %4").arg(_file.name()).arg(_data.size()).arg(res).arg(av_make_error_string(err, sizeof(err), res)));

@@ -20,11 +20,21 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "core/utils.h"
+namespace Data {
 
-#define BETA_VERSION_MACRO (0ULL)
+class ChannelAdminChanges {
+public:
+	ChannelAdminChanges(not_null<ChannelData*> channel);
 
-constexpr int AppVersion = 1001026;
-constexpr str_const AppVersionStr = "1.1.26";
-constexpr bool AppAlphaVersion = true;
-constexpr uint64 AppBetaVersion = BETA_VERSION_MACRO;
+	void feed(UserId userId, bool isAdmin);
+
+	~ChannelAdminChanges();
+
+private:
+	not_null<ChannelData*> _channel;
+	base::flat_set<UserId> &_admins;
+	base::flat_map<UserId, bool> _changes;
+
+};
+
+} // namespace Data
