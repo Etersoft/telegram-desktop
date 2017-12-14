@@ -43,7 +43,8 @@ class Section;
 
 rpl::producer<QString> TitleValue(
 	const Section &section,
-	not_null<PeerData*> peer);
+	not_null<PeerData*> peer,
+	bool isStackBottom);
 
 class TopBar : public Ui::RpWidget {
 public:
@@ -69,7 +70,9 @@ public:
 
 	void createSearchView(
 		not_null<Ui::SearchFieldController*> controller,
-		rpl::producer<bool> &&shown);
+		rpl::producer<bool> &&shown,
+		bool startsFocused);
+	bool focusSearchField();
 
 	void setSelectedItems(SelectedItems &&items);
 	SelectedItems takeSelectedItems();
@@ -97,21 +100,23 @@ private:
 	bool searchMode() const;
 	Ui::StringWithNumbers generateSelectedText() const;
 	[[nodiscard]] bool computeCanDelete() const;
-	[[nodiscard]] SelectedItemSet collectSelectedItems() const;
 	void updateSelectionState();
 	void createSelectionControls();
 	void clearSelectionControls();
 
-	SelectedItemSet collectItems() const;
+	MessageIdsList collectItems() const;
 	void performForward();
 	void performDelete();
 
 	void setSearchField(
 		base::unique_qptr<Ui::InputField> field,
-		rpl::producer<bool> &&shown);
+		rpl::producer<bool> &&shown,
+		bool startsFocused);
+	void clearSearchField();
 	void createSearchView(
 		not_null<Ui::InputField*> field,
-		rpl::producer<bool> &&shown);
+		rpl::producer<bool> &&shown,
+		bool startsFocused);
 
 	template <typename Callback>
 	void registerUpdateControlCallback(QObject *guard, Callback &&callback);
@@ -129,6 +134,7 @@ private:
 	bool _searchModeEnabled = false;
 	bool _searchModeAvailable = false;
 	base::unique_qptr<Ui::RpWidget> _searchView;
+	QPointer<Ui::InputField> _searchField;
 
 	rpl::event_stream<> _backClicks;
 

@@ -38,6 +38,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/wrap/fade_wrap.h"
 #include "ui/wrap/padding_wrap.h"
 #include "ui/search_field_controller.h"
+#include "window/window_peer_menu.h"
 
 namespace Info {
 
@@ -125,10 +126,20 @@ void TopBar::enableBackButton() {
 
 void TopBar::createSearchView(
 		not_null<Ui::SearchFieldController*> controller,
-		rpl::producer<bool> &&shown) {
+		rpl::producer<bool> &&shown,
+		bool startsFocused) {
 	setSearchField(
 		controller->createField(this, _st.searchRow.field),
-		std::move(shown));
+		std::move(shown),
+		startsFocused);
+}
+
+bool TopBar::focusSearchField() {
+	if (_searchField && _searchField->isVisible()) {
+		_searchField->setFocus();
+		return true;
+	}
+	return false;
 }
 
 Ui::FadeWrap<Ui::RpWidget> *TopBar::pushButton(
@@ -144,6 +155,9 @@ Ui::FadeWrap<Ui::RpWidget> *TopBar::pushButton(
 		return !selectionMode()
 			&& !_searchModeEnabled;
 	});
+	weak->toggle(
+		!selectionMode() && !_searchModeEnabled,
+		anim::type::instant);
 	weak->widthValue()
 		| rpl::start_with_next([this] {
 			updateControlsGeometry(width());
@@ -153,17 +167,20 @@ Ui::FadeWrap<Ui::RpWidget> *TopBar::pushButton(
 
 void TopBar::setSearchField(
 		base::unique_qptr<Ui::InputField> field,
-		rpl::producer<bool> &&shown) {
-	if (auto value = field.release()) {
-		createSearchView(value, std::move(shown));
-	} else {
-		_searchView = nullptr;
-	}
+		rpl::producer<bool> &&shown,
+		bool startsFocused) {
+	Expects(field != nullptr);
+	createSearchView(field.release(), std::move(shown), startsFocused);
+}
+
+void TopBar::clearSearchField() {
+	_searchView = nullptr;
 }
 
 void TopBar::createSearchView(
 		not_null<Ui::InputField*> field,
-		rpl::producer<bool> &&shown) {
+		rpl::producer<bool> &&shown,
+		bool startsFocused) {
 	_searchView = base::make_unique_q<Ui::FixedHeightWidget>(
 		this,
 		_st.searchRow.height);
@@ -172,6 +189,7 @@ void TopBar::createSearchView(
 		wrap->setVisible(!selectionMode() && _searchModeAvailable);
 	});
 
+	_searchField = field;
 	auto fieldWrap = Ui::CreateChild<Ui::FadeWrap<Ui::InputField>>(
 		wrap,
 		object_ptr<Ui::InputField>::fromRaw(field),
@@ -257,10 +275,10 @@ void TopBar::createSearchView(
 		| rpl::start_with_done([=] {
 			field->setParent(nullptr);
 			removeButton(search);
-			setSearchField(nullptr, rpl::never<bool>());
+			clearSearchField();
 		}, _searchView->lifetime());
 
-	_searchModeEnabled = !field->getLastText().isEmpty();
+	_searchModeEnabled = !field->getLastText().isEmpty() || startsFocused;
 	updateControlsVisibility(anim::type::instant);
 
 	std::move(shown)
@@ -489,14 +507,14 @@ bool TopBar::searchMode() const {
 	return _searchModeAvailable && _searchModeEnabled;
 }
 
-SelectedItemSet TopBar::collectItems() const {
-	auto result = SelectedItemSet();
-	for (auto value : _selectedItems.list) {
-		if (auto item = App::histItemById(value.msgId)) {
-			result.insert(result.size(), item);
-		}
-	}
-	return result;
+MessageIdsList TopBar::collectItems() const {
+	return ranges::view::all(
+		_selectedItems.list
+	) | ranges::view::transform([](auto &&item) {
+		return item.msgId;
+	}) | ranges::view::filter([](const FullMsgId &msgId) {
+		return App::histItemById(msgId) != nullptr;
+	}) | ranges::to_vector;
 }
 
 void TopBar::performForward() {
@@ -505,20 +523,11 @@ void TopBar::performForward() {
 		_cancelSelectionClicks.fire({});
 		return;
 	}
-	auto callback = [items = std::move(items), weak = make_weak(this)](
-			not_null<PeerData*> peer) {
-		App::main()->setForwardDraft(peer->id, items);
+	Window::ShowForwardMessagesBox(std::move(items), [weak = make_weak(this)]{
 		if (weak) {
 			weak->_cancelSelectionClicks.fire({});
 		}
-	};
-	Ui::show(Box<PeerListBox>(
-		std::make_unique<ChooseRecipientBoxController>(std::move(callback)),
-		[](not_null<PeerListBox*> box) {
-			box->addButton(langFactory(lng_cancel), [box] {
-				box->closeBox();
-			});
-		}));
+	});
 }
 
 void TopBar::performDelete() {
@@ -526,13 +535,14 @@ void TopBar::performDelete() {
 	if (items.empty()) {
 		_cancelSelectionClicks.fire({});
 	} else {
-		Ui::show(Box<DeleteMessagesBox>(items));
+		Ui::show(Box<DeleteMessagesBox>(std::move(items)));
 	}
 }
 
 rpl::producer<QString> TitleValue(
 		const Section &section,
-		not_null<PeerData*> peer) {
+		not_null<PeerData*> peer,
+		bool isStackBottom) {
 	return Lang::Viewer([&] {
 		switch (section.type()) {
 		case Section::Type::Profile:
@@ -550,6 +560,9 @@ rpl::producer<QString> TitleValue(
 			Unexpected("Bad peer type in Info::TitleValue()");
 
 		case Section::Type::Media:
+			if (peer->isSelf() && isStackBottom) {
+				return lng_profile_shared_media;
+			}
 			switch (section.mediaType()) {
 			case Section::MediaType::Photo:
 				return lng_media_type_photos;

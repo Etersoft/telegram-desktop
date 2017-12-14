@@ -17,19 +17,18 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "platform/mac/specific_mac.h"
 
-#include <cstdlib>
-
 #include "lang/lang_keys.h"
 #include "application.h"
 #include "mainwidget.h"
 #include "history/history_widget.h"
-
+#include "core/crash_reports.h"
 #include "storage/localstorage.h"
 #include "passcodewidget.h"
 #include "mainwindow.h"
 #include "history/history_location_manager.h"
 #include "platform/mac/mac_utilities.h"
 
+#include <cstdlib>
 #include <execinfo.h>
 
 #include <Cocoa/Cocoa.h>
@@ -91,8 +90,10 @@ QAbstractNativeEventFilter *psNativeEventFilter() {
 }
 
 void psWriteDump() {
+#ifndef TDESKTOP_DISABLE_CRASH_REPORTS
 	double v = objc_appkitVersion();
-	SignalHandlers::dump() << "OS-Version: " << v;
+	CrashReports::dump() << "OS-Version: " << v;
+#endif // TDESKTOP_DISABLE_CRASH_REPORTS
 }
 
 QString demanglestr(const QString &mangled) {
@@ -411,16 +412,6 @@ QString CurrentExecutablePath(int argc, char *argv[]) {
 
 void psNewVersion() {
 	objc_registerCustomScheme();
-}
-
-void psExecUpdater() {
-	if (!objc_execUpdater()) {
-		psDeleteDir(cWorkingDir() + qsl("tupdates/temp"));
-	}
-}
-
-void psExecTelegram(const QString &crashreport) {
-	objc_execTelegram(crashreport);
 }
 
 void psAutoStart(bool start, bool silent) {

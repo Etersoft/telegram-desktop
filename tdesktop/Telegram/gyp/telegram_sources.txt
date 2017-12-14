@@ -141,8 +141,14 @@
 <(src_loc)/core/click_handler.h
 <(src_loc)/core/click_handler_types.cpp
 <(src_loc)/core/click_handler_types.h
+<(src_loc)/core/crash_report_window.cpp
+<(src_loc)/core/crash_report_window.h
+<(src_loc)/core/crash_reports.cpp
+<(src_loc)/core/crash_reports.h
 <(src_loc)/core/file_utilities.cpp
 <(src_loc)/core/file_utilities.h
+<(src_loc)/core/launcher.cpp
+<(src_loc)/core/launcher.h
 <(src_loc)/core/single_timer.cpp
 <(src_loc)/core/single_timer.h
 <(src_loc)/core/tl_help.h
@@ -159,6 +165,8 @@
 <(src_loc)/data/data_drafts.h
 <(src_loc)/data/data_flags.h
 <(src_loc)/data/data_game.h
+<(src_loc)/data/data_notify_settings.cpp
+<(src_loc)/data/data_notify_settings.h
 <(src_loc)/data/data_peer.cpp
 <(src_loc)/data/data_peer.h
 <(src_loc)/data/data_peer_values.cpp
@@ -201,7 +209,6 @@
 <(src_loc)/history/history_admin_log_item.h
 <(src_loc)/history/history_admin_log_section.cpp
 <(src_loc)/history/history_admin_log_section.h
-<(src_loc)/history/history_common.h
 <(src_loc)/history/history_drag_area.cpp
 <(src_loc)/history/history_drag_area.h
 <(src_loc)/history/history_item.cpp
@@ -316,8 +323,6 @@
 <(src_loc)/media/player/media_player_float.h
 <(src_loc)/media/player/media_player_instance.cpp
 <(src_loc)/media/player/media_player_instance.h
-<(src_loc)/media/player/media_player_list.cpp
-<(src_loc)/media/player/media_player_list.h
 <(src_loc)/media/player/media_player_panel.cpp
 <(src_loc)/media/player/media_player_panel.h
 <(src_loc)/media/player/media_player_volume_controller.cpp
@@ -399,6 +404,8 @@
 <(src_loc)/platform/linux/linux_libs.h
 <(src_loc)/platform/linux/file_utilities_linux.cpp
 <(src_loc)/platform/linux/file_utilities_linux.h
+<(src_loc)/platform/linux/launcher_linux.cpp
+<(src_loc)/platform/linux/launcher_linux.h
 <(src_loc)/platform/linux/main_window_linux.cpp
 <(src_loc)/platform/linux/main_window_linux.h
 <(src_loc)/platform/linux/notifications_manager_linux.cpp
@@ -407,6 +414,8 @@
 <(src_loc)/platform/linux/specific_linux.h
 <(src_loc)/platform/mac/file_utilities_mac.mm
 <(src_loc)/platform/mac/file_utilities_mac.h
+<(src_loc)/platform/mac/launcher_mac.mm
+<(src_loc)/platform/mac/launcher_mac.h
 <(src_loc)/platform/mac/mac_iconv_helper.c
 <(src_loc)/platform/mac/mac_utilities.mm
 <(src_loc)/platform/mac/mac_utilities.h
@@ -424,6 +433,8 @@
 <(src_loc)/platform/win/audio_win.h
 <(src_loc)/platform/win/file_utilities_win.cpp
 <(src_loc)/platform/win/file_utilities_win.h
+<(src_loc)/platform/win/launcher_win.cpp
+<(src_loc)/platform/win/launcher_win.h
 <(src_loc)/platform/win/main_window_win.cpp
 <(src_loc)/platform/win/main_window_win.h
 <(src_loc)/platform/win/notifications_manager_win.cpp
@@ -441,6 +452,7 @@
 <(src_loc)/platform/win/windows_range_v3_helpers.h
 <(src_loc)/platform/platform_audio.h
 <(src_loc)/platform/platform_file_utilities.h
+<(src_loc)/platform/platform_launcher.h
 <(src_loc)/platform/platform_main_window.h
 <(src_loc)/platform/platform_notifications_manager.h
 <(src_loc)/platform/platform_specific.h
@@ -592,6 +604,8 @@
 <(src_loc)/ui/countryinput.h
 <(src_loc)/ui/emoji_config.cpp
 <(src_loc)/ui/emoji_config.h
+<(src_loc)/ui/empty_userpic.cpp
+<(src_loc)/ui/empty_userpic.h
 <(src_loc)/ui/focus_persister.h
 <(src_loc)/ui/images.cpp
 <(src_loc)/ui/images.h

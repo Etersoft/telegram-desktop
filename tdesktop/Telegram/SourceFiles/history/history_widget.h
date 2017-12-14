@@ -22,13 +22,14 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "storage/localimageloader.h"
 #include "ui/widgets/tooltip.h"
-#include "history/history_common.h"
+#include "mainwidget.h"
 #include "chat_helpers/field_autocomplete.h"
 #include "window/section_widget.h"
 #include "core/single_timer.h"
 #include "ui/widgets/input_fields.h"
 #include "ui/rp_widget.h"
 #include "base/flags.h"
+#include "base/timer.h"
 
 namespace InlineBots {
 namespace Layout {
@@ -48,6 +49,7 @@ class IconButton;
 class HistoryDownButton;
 class EmojiButton;
 class SendButton;
+class SilentToggle;
 class FlatButton;
 class LinkButton;
 class RoundButton;
@@ -67,7 +69,6 @@ class TabbedSelector;
 } // namespace ChatHelpers
 
 class DragArea;
-class SilentToggle;
 class SendFilesBox;
 class BotKeyboard;
 class MessageField;
@@ -102,8 +103,7 @@ class HistoryHider : public Ui::RpWidget, private base::Subscriber {
 	Q_OBJECT
 
 public:
-	HistoryHider(MainWidget *parent, const SelectedItemSet &items); // forward messages
-	HistoryHider(MainWidget *parent, UserData *sharedContact); // share contact
+	HistoryHider(MainWidget *parent, MessageIdsList &&items); // forward messages
 	HistoryHider(MainWidget *parent); // send path from command line argument
 	HistoryHider(MainWidget *parent, const QString &url, const QString &text); // share url
 	HistoryHider(MainWidget *parent, const QString &botAndQuery); // inline switch button handler
@@ -142,8 +142,7 @@ private:
 	void init();
 	MainWidget *parent();
 
-	UserData *_sharedContact = nullptr;
-	SelectedItemSet _forwardItems;
+	MessageIdsList _forwardItems;
 	bool _sendPath = false;
 
 	QString _shareUrl, _shareText;
@@ -200,7 +199,6 @@ public:
 
 	void newUnreadMsg(History *history, HistoryItem *item);
 	void historyToDown(History *history);
-	void historyWasRead(ReadServerHistoryChecks checks);
 	void unreadCountChanged(History *history);
 
 	QRect historyRect() const;
@@ -209,11 +207,7 @@ public:
 	void pushInfoToThirdSection(
 		const Window::SectionShow &params);
 
-	void updateSendAction(History *history, SendAction::Type type, int32 progress = 0);
-	void cancelSendAction(History *history, SendAction::Type type);
-
 	void updateRecentStickers();
-	void sendActionDone(const MTPBool &result, mtpRequestId req);
 
 	void destroyData();
 
@@ -233,10 +227,6 @@ public:
 
 	void updateControlsVisibility();
 	void updateControlsGeometry();
-
-	void onShareContact(const PeerId &peer, UserData *contact);
-
-	void shareContact(const PeerId &peer, const QString &phone, const QString &fname, const QString &lname, MsgId replyTo, int32 userId = 0);
 
 	History *history() const;
 	PeerData *peer() const;
@@ -261,14 +251,15 @@ public:
 	void enqueueMessageHighlight(not_null<HistoryItem*> item);
 	TimeMs highlightStartTime(not_null<const HistoryItem*> item) const;
 
-	SelectedItemSet getSelectedItems() const;
+	MessageIdsList getSelectedItems() const;
 	void itemEdited(HistoryItem *item);
 
 	void updateScrollColors();
 
 	MsgId replyToId() const;
 	void messageDataReceived(ChannelData *channel, MsgId msgId);
-	bool lastForceReplyReplied(const FullMsgId &replyTo = FullMsgId(NoChannel, -1)) const;
+	bool lastForceReplyReplied(const FullMsgId &replyTo) const;
+	bool lastForceReplyReplied() const;
 	bool cancelReply(bool lastKeyboardUsed = false);
 	void cancelEdit();
 	void updateForwarding();
@@ -301,7 +292,7 @@ public:
 
 	DragState getDragState(const QMimeData *d);
 
-	void fastShowAtEnd(History *h);
+	void fastShowAtEnd(not_null<History*> history);
 	void applyDraft(bool parseLinks = true, Ui::FlatTextarea::UndoHistoryAction undoHistoryAction = Ui::FlatTextarea::ClearUndoHistory);
 	void showHistory(const PeerId &peer, MsgId showAtMsgId, bool reload = false);
 	void clearDelayedShowAt();
@@ -318,7 +309,6 @@ public:
 	void updateFieldSubmitSettings();
 
 	void setInnerFocus();
-	bool canSendMessages(PeerData *peer) const;
 
 	void updateNotifySettings();
 
@@ -385,8 +375,6 @@ public slots:
 	void onCopyPostLink();
 	void onFieldBarCancel();
 
-	void onCancelSendAction();
-
 	void onPreviewParse();
 	void onPreviewCheck();
 	void onPreviewTimeout();
@@ -406,7 +394,6 @@ public slots:
 	void onReportSpamClear();
 
 	void onScroll();
-	void onSend(bool ctrlShiftEnter = false, MsgId replyTo = -1);
 
 	void onUnblock();
 	void onBotStart();
@@ -453,6 +440,8 @@ public slots:
 	void preloadHistoryIfNeeded();
 
 private slots:
+	void onSend(bool ctrlShiftEnter = false);
+
 	void onHashtagOrBotCommandInsert(QString str, FieldAutocomplete::ChooseMethod method);
 	void onMentionInsert(UserData *user);
 	void onInlineBotCancel();
@@ -485,6 +474,7 @@ private:
 	void showNextUnreadMention();
 	void handlePeerUpdate();
 	void setMembersShowAreaActive(bool active);
+	void forwardItems(MessageIdsList &&items);
 
 	void highlightMessage(MsgId universalMessageId);
 	void adjustHighlightedMessageToMigrated();
@@ -492,6 +482,16 @@ private:
 	void updateHighlightedMessage();
 	void clearHighlightMessages();
 	void stopMessageHighlight();
+
+	void updateSendAction(
+		not_null<History*> history,
+		SendAction::Type type,
+		int32 progress = 0);
+	void cancelSendAction(
+		not_null<History*> history,
+		SendAction::Type type);
+	void cancelTypingAction();
+	void sendActionDone(const MTPBool &result, mtpRequestId req);
 
 	void animationCallback();
 	void updateOverStates(QPoint pos);
@@ -552,7 +552,7 @@ private:
 	Text _replyToName;
 	int _replyToNameVersion = 0;
 
-	SelectedItemSet _toForward;
+	HistoryItemsList _toForward;
 	Text _toForwardFrom, _toForwardText;
 	int _toForwardNameVersion = 0;
 
@@ -779,6 +779,7 @@ private:
 	void updateSendButtonType();
 	bool showRecordButton() const;
 	bool showInlineBotCancel() const;
+	void refreshSilentToggle();
 
 	object_ptr<ReportSpamPanel> _reportSpamPanel = { nullptr };
 
@@ -796,7 +797,7 @@ private:
 	object_ptr<Ui::IconButton> _botKeyboardShow;
 	object_ptr<Ui::IconButton> _botKeyboardHide;
 	object_ptr<Ui::IconButton> _botCommandStart;
-	object_ptr<SilentToggle> _silent;
+	object_ptr<Ui::SilentToggle> _silent = { nullptr };
 	bool _cmdStartShown = false;
 	object_ptr<MessageField> _field;
 	bool _recording = false;
@@ -825,7 +826,7 @@ private:
 	object_ptr<InlineBots::Layout::Widget> _inlineResults = { nullptr };
 	object_ptr<TabbedPanel> _tabbedPanel;
 	QPointer<TabbedSelector> _tabbedSelector;
-	DragState _attachDrag = DragStateNone;
+	DragState _attachDrag = DragState::None;
 	object_ptr<DragArea> _attachDragDocument, _attachDragPhoto;
 
 	object_ptr<Ui::Emoji::SuggestionsController> _emojiSuggestions = { nullptr };
@@ -850,8 +851,8 @@ private:
 	base::Timer _highlightTimer;
 	TimeMs _highlightStart = 0;
 
-	QMap<QPair<History*, SendAction::Type>, mtpRequestId> _sendActionRequests;
-	QTimer _sendActionStopTimer;
+	QMap<QPair<not_null<History*>, SendAction::Type>, mtpRequestId> _sendActionRequests;
+	base::Timer _sendActionStopTimer;
 
 	TimeMs _saveDraftStart = 0;
 	bool _saveDraftText = false;

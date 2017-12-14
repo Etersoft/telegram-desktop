@@ -36,25 +36,17 @@ namespace {
 
 using Type = Storage::SharedMediaType;
 
-inline MediaOverviewType SharedMediaTypeToOverview(Type type) {
-	switch (type) {
-	case Type::Photo: return OverviewPhotos;
-	case Type::Video: return OverviewVideos;
-	case Type::MusicFile: return OverviewMusicFiles;
-	case Type::File: return OverviewFiles;
-	case Type::VoiceFile: return OverviewVoiceFiles;
-	case Type::Link: return OverviewLinks;
-	default: break;
-	}
-	return OverviewCount;
-}
-
 } // namespace
 
 base::optional<Storage::SharedMediaType> SharedMediaOverviewType(
 		Storage::SharedMediaType type) {
-	if (SharedMediaTypeToOverview(type) != OverviewCount) {
-		return type;
+	switch (type) {
+	case Type::Photo:
+	case Type::Video:
+	case Type::MusicFile:
+	case Type::File:
+	case Type::VoiceFile:
+	case Type::Link: return type;
 	}
 	return base::none;
 }
@@ -231,7 +223,8 @@ base::optional<int> SharedMediaWithLastSlice::indexOfImpl(Value value) const {
 	return base::get_if<FullMsgId>(&value)
 		? _slice.indexOf(*base::get_if<FullMsgId>(&value))
 		: (isolatedInSlice()
-			|| (*base::get_if<not_null<PhotoData*>>(&value))->id != _lastPhotoId)
+			|| !_lastPhotoId
+			|| (*base::get_if<not_null<PhotoData*>>(&value))->id != *_lastPhotoId)
 			? base::none
 			: Add(_slice.size() - 1, lastPhotoSkip());
 }
@@ -256,7 +249,7 @@ SharedMediaWithLastSlice::Value SharedMediaWithLastSlice::operator[](int index) 
 	}
 	return (index < _slice.size())
 		? Value(_slice[index])
-		: Value(App::photo(_lastPhotoId));
+		: Value(App::photo(*_lastPhotoId));
 }
 
 base::optional<int> SharedMediaWithLastSlice::distance(
@@ -274,20 +267,23 @@ void SharedMediaWithLastSlice::reverse() {
 	_reversed = !_reversed;
 }
 
-PhotoId SharedMediaWithLastSlice::LastPeerPhotoId(PeerId peerId) {
+base::optional<PhotoId> SharedMediaWithLastSlice::LastPeerPhotoId(
+		PeerId peerId) {
 	if (auto peer = App::peerLoaded(peerId)) {
-		return peer->photoId;
+		return peer->userpicPhotoUnknown()
+			? base::none
+			: base::make_optional(peer->userpicPhotoId());
 	}
-	return UnknownPeerPhotoId;
+	return base::none;
 }
 
 base::optional<bool> SharedMediaWithLastSlice::IsLastIsolated(
 		const SparseIdsMergedSlice &slice,
 		const base::optional<SparseIdsMergedSlice> &ending,
-		PhotoId lastPeerPhotoId) {
-	if (lastPeerPhotoId == UnknownPeerPhotoId) {
+		base::optional<PhotoId> lastPeerPhotoId) {
+	if (!lastPeerPhotoId) {
 		return base::none;
-	} else if (!lastPeerPhotoId) {
+	} else if (!*lastPeerPhotoId) {
 		return false;
 	}
 	return LastFullMsgId(ending ? *ending : slice)
@@ -299,7 +295,7 @@ base::optional<bool> SharedMediaWithLastSlice::IsLastIsolated(
 				: nullptr;
 		}
 		| [](PhotoData *photo) { return photo ? photo->id : 0; }
-		| [&](PhotoId photoId) { return lastPeerPhotoId != photoId; };
+		| [&](PhotoId photoId) { return *lastPeerPhotoId != photoId; };
 }
 
 base::optional<FullMsgId> SharedMediaWithLastSlice::LastFullMsgId(

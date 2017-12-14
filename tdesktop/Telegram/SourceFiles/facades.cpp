@@ -27,6 +27,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "observer_peer.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
+#include "apiwrap.h"
 #include "messenger.h"
 #include "auth_session.h"
 #include "boxes/confirm_box.h"
@@ -35,6 +36,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "base/observer.h"
 #include "base/task_queue.h"
 #include "history/history_media.h"
+#include "styles/style_history.h"
 
 Q_DECLARE_METATYPE(ClickHandlerPtr);
 Q_DECLARE_METATYPE(Qt::MouseButton);
@@ -121,10 +123,13 @@ void activateBotCommand(const HistoryItem *msg, int row, int col) {
 
 	case ButtonType::RequestPhone: {
 		hideSingleUseKeyboard(msg);
-		Ui::show(Box<ConfirmBox>(lang(lng_bot_share_phone), lang(lng_bot_share_phone_confirm), [peerId = msg->history()->peer->id] {
-			if (auto m = App::main()) {
-				m->onShareContact(peerId, App::self());
-			}
+		const auto msgId = msg->id;
+		const auto history = msg->history();
+		Ui::show(Box<ConfirmBox>(lang(lng_bot_share_phone), lang(lng_bot_share_phone_confirm), [=] {
+			Ui::showPeerHistory(history, ShowAtTheEndMsgId);
+			auto options = ApiWrap::SendOptions(history);
+			options.replyTo = msgId;
+			Auth().api().shareContact(App::self(), options);
 		}));
 	} break;
 
@@ -355,15 +360,25 @@ void handlePendingHistoryUpdate() {
 	}
 	Auth().data().pendingHistoryResize().notify(true);
 
-	for (auto item : base::take(Global::RefPendingRepaintItems())) {
+	for (const auto item : base::take(Global::RefPendingRepaintItems())) {
 		Auth().data().requestItemRepaint(item);
 
 		// Start the video if it is waiting for that.
 		if (item->pendingInitDimensions()) {
-			if (auto media = item->getMedia()) {
-				if (auto reader = media->getClipReader()) {
-					if (!reader->started() && reader->mode() == Media::Clip::Reader::Mode::Video) {
-						item->resizeGetHeight(item->width());
+			if (const auto media = item->getMedia()) {
+				if (const auto reader = media->getClipReader()) {
+					const auto startRequired = [&] {
+						if (reader->started()) {
+							return false;
+						}
+						using Mode = Media::Clip::Reader::Mode;
+						return (reader->mode() == Mode::Video);
+					};
+					if (startRequired()) {
+						const auto width = std::max(
+							item->width(),
+							st::historyMinimalWidth);
+						item->resizeGetHeight(width);
 					}
 				}
 			}

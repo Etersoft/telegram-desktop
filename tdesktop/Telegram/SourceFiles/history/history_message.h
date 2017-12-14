@@ -23,7 +23,9 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 void HistoryInitMessages();
 base::lambda<void(ChannelData*, MsgId)> HistoryDependentItemCallback(const FullMsgId &msgId);
 MTPDmessage::Flags NewMessageFlags(not_null<PeerData*> peer);
-QString GetErrorTextForForward(not_null<PeerData*> peer, const SelectedItemSet &items);
+QString GetErrorTextForForward(
+	not_null<PeerData*> peer,
+	const HistoryItemsList &items);
 void FastShareMessage(not_null<HistoryItem*> item);
 
 class HistoryMessage : public HistoryItem, private HistoryItemInstantiated<HistoryMessage> {
@@ -62,9 +64,7 @@ public:
 	bool hasBubble() const override {
 		return drawBubble();
 	}
-	bool hasFromName() const {
-		return (!out() || isPost()) && !history()->peer->isUser();
-	}
+	bool hasFromName() const;
 	bool displayFromName() const {
 		if (!hasFromName()) return false;
 		if (isAttachedToPrevious()) return false;
@@ -72,17 +72,17 @@ public:
 	}
 	bool displayEditedBadge(bool hasViaBotOrInlineMarkup) const;
 	bool uploading() const;
-	bool displayFastShare() const override;
+	bool displayRightAction() const override;
 
 	void applyGroupAdminChanges(
 		const base::flat_map<UserId, bool> &changes) override;
 
 	void drawInfo(Painter &p, int32 right, int32 bottom, int32 width, bool selected, InfoDisplayType type) const override;
-	void drawFastShare(Painter &p, int left, int top, int outerWidth) const override;
+	void drawRightAction(Painter &p, int left, int top, int outerWidth) const override;
 	void setViewsCount(int32 count) override;
 	void setId(MsgId newId) override;
 	void draw(Painter &p, QRect clip, TextSelection selection, TimeMs ms) const override;
-	ClickHandlerPtr fastShareLink() const override;
+	ClickHandlerPtr rightActionLink() const override;
 
 	void dependencyItemRemoved(HistoryItem *dependency) override;
 
@@ -107,8 +107,8 @@ public:
 		setReplyMarkup(markup);
 	}
 
-	int32 addToOverview(AddToOverviewMethod method) override;
-	void eraseFromOverview() override;
+	void addToUnreadMentions(AddToUnreadMentionsMethod method) override;
+	void eraseFromUnreadMentions() override;
 	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	TextWithEntities selectedText(TextSelection selection) const override;
@@ -128,6 +128,8 @@ public:
 		}
 		return HistoryItem::viewsCount();
 	}
+
+	not_null<PeerData*> displayFrom() const;
 
 	bool updateDependencyItem() override {
 		if (auto reply = Get<HistoryMessageReply>()) {
@@ -191,10 +193,14 @@ private:
 	void setMedia(const MTPMessageMedia *media);
 	void setReplyMarkup(const MTPReplyMarkup *markup);
 
+	bool displayFastShare() const;
+	bool displayGoToOriginal() const;
+
 	QString _timeText;
 	int _timeWidth = 0;
 
-	mutable ClickHandlerPtr _fastShareLink;
+	mutable ClickHandlerPtr _rightActionLink;
+	mutable int32 _fromNameVersion = 0;
 
 	struct CreateConfig {
 		MsgId replyTo = 0;
@@ -203,6 +209,8 @@ private:
 		QString author;
 		PeerId senderOriginal = 0;
 		MsgId originalId = 0;
+		PeerId savedFromPeer = 0;
+		MsgId savedFromMsgId = 0;
 		QString authorOriginal;
 		QDateTime originalDate;
 		QDateTime editDate;

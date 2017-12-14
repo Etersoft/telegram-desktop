@@ -86,10 +86,10 @@ int BinarySearchBlocksOrItems(const T &list, int edge) {
 // flick scroll taken from http://qt-project.org/doc/qt-4.8/demos-embedded-anomaly-src-flickcharm-cpp.html
 
 HistoryInner::HistoryInner(
-	HistoryWidget *historyWidget,
+	not_null<HistoryWidget*> historyWidget,
 	not_null<Window::Controller*> controller,
 	Ui::ScrollArea *scroll,
-	History *history)
+	not_null<History*> history)
 : RpWidget(nullptr)
 , _controller(controller)
 , _peer(history->peer)
@@ -395,7 +395,7 @@ void HistoryInner::paintEvent(QPaintEvent *e) {
 		HistoryLayout::paintEmpty(p, width(), height());
 	}
 	if (!noHistoryDisplayed) {
-		auto readMentions = HistoryItemsMap();
+		auto readMentions = base::flat_set<not_null<HistoryItem*>>();
 
 		adjustCurrent(clip.top());
 
@@ -527,7 +527,7 @@ void HistoryInner::paintEvent(QPaintEvent *e) {
 
 				// paint the userpic if it intersects the painted rect
 				if (userpicTop + st::msgPhotoSize > clip.top()) {
-					message->from()->paintUserpicLeft(p, st::historyPhotoLeft, userpicTop, message->history()->width, st::msgPhotoSize);
+					message->displayFrom()->paintUserpicLeft(p, st::historyPhotoLeft, userpicTop, message->history()->width, st::msgPhotoSize);
 				}
 				return true;
 			});
@@ -1171,7 +1171,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	}
 
 	auto selectedState = getSelectionState();
-	auto canSendMessages = _widget->canSendMessages(_peer);
+	auto canSendMessages = _peer->canWrite();
 
 	// -2 - has full selected items, but not over, -1 - has selection, but no over, 0 - no selection, 1 - over text, 2 - over full selected items
 	auto isUponSelected = 0;
@@ -1209,9 +1209,9 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	HistoryItem *item = App::hoveredItem() ? App::hoveredItem() : App::hoveredLinkItem();
 	PhotoClickHandler *lnkPhoto = dynamic_cast<PhotoClickHandler*>(_contextMenuLink.data());
 	DocumentClickHandler *lnkDocument = dynamic_cast<DocumentClickHandler*>(_contextMenuLink.data());
-	bool lnkIsVideo = lnkDocument ? lnkDocument->document()->isVideo() : false;
-	bool lnkIsAudio = lnkDocument ? (lnkDocument->document()->voice() != nullptr) : false;
-	bool lnkIsSong = lnkDocument ? (lnkDocument->document()->song() != nullptr) : false;
+	auto lnkIsVideo = lnkDocument ? lnkDocument->document()->isVideoFile() : false;
+	auto lnkIsVoice = lnkDocument ? lnkDocument->document()->isVoiceMessage() : false;
+	auto lnkIsAudio = lnkDocument ? lnkDocument->document()->isAudioFile() : false;
 	if (lnkPhoto || lnkDocument) {
 		if (isUponSelected > 0) {
 			_menu->addAction(lang((isUponSelected > 1) ? lng_context_copy_selected_items : lng_context_copy_selected), this, SLOT(copySelectedText()))->setEnabled(true);
@@ -1249,7 +1249,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				if (!document->filepath(DocumentData::FilePathResolveChecked).isEmpty()) {
 					_menu->addAction(lang((cPlatform() == dbipMac || cPlatform() == dbipMacOld) ? lng_context_show_in_finder : lng_context_show_in_folder), this, SLOT(showContextInFolder()))->setEnabled(true);
 				}
-				_menu->addAction(lang(lnkIsVideo ? lng_context_save_video : (lnkIsAudio ? lng_context_save_audio : (lnkIsSong ? lng_context_save_audio_file : lng_context_save_file))), App::LambdaDelayed(st::defaultDropdownMenu.menu.ripple.hideDuration, this, [this, document] {
+				_menu->addAction(lang(lnkIsVideo ? lng_context_save_video : (lnkIsVoice ? lng_context_save_audio : (lnkIsAudio ? lng_context_save_audio_file : lng_context_save_file))), App::LambdaDelayed(st::defaultDropdownMenu.menu.ripple.hideDuration, this, [this, document] {
 					saveDocumentToFile(document);
 				}))->setEnabled(true);
 			}
@@ -1984,22 +1984,26 @@ void HistoryInner::clearSelectedItems(bool onlyTextSelection) {
 	}
 }
 
-SelectedItemSet HistoryInner::getSelectedItems() const {
-	auto result = SelectedItemSet();
+MessageIdsList HistoryInner::getSelectedItems() const {
+	using namespace ranges;
+
 	if (_selected.empty() || _selected.cbegin()->second != FullSelection) {
-		return result;
+		return {};
 	}
 
-	for (auto &selected : _selected) {
-		auto item = selected.first;
-		if (item && item->toHistoryMessage() && item->id > 0) {
-			if (item->history() == _migrated) {
-				result.insert(item->id - ServerMaxMsgId, item);
-			} else {
-				result.insert(item->id, item);
-			}
-		}
-	}
+	auto result = make_iterator_range(
+		_selected.begin(),
+		_selected.end()
+	) | view::filter([](const auto &selected) {
+		const auto item = selected.first;
+		return item && item->toHistoryMessage() && (item->id > 0);
+	}) | view::transform([](const auto &selected) {
+		return selected.first->fullId();
+	}) | to_vector;
+
+	result |= action::sort(ordered_less{}, [](const FullMsgId &msgId) {
+		return msgId.channel ? msgId.msg : (msgId.msg - ServerMaxMsgId);
+	});
 	return result;
 }
 
@@ -2140,7 +2144,7 @@ void HistoryInner::onUpdateSelected() {
 
 							// stop enumeration if we've found a userpic under the cursor
 							if (point.y() >= userpicTop && point.y() < userpicTop + st::msgPhotoSize) {
-								dragState.link = message->from()->openLink();
+								dragState.link = message->displayFrom()->openLink();
 								lnkhost = message;
 								return false;
 							}

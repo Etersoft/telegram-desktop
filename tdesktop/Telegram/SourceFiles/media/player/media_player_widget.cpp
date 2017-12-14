@@ -144,11 +144,6 @@ Widget::Widget(QWidget *parent) : RpWidget(parent)
 			updateRepeatTrackIcon();
 		}
 	});
-	subscribe(instance()->playlistChangedNotifier(), [this](AudioMsgId::Type type) {
-		if (type == _type) {
-			handlePlaylistUpdate();
-		}
-	});
 	subscribe(instance()->updatedNotifier(), [this](const TrackState &state) {
 		handleSongUpdate(state);
 	});
@@ -253,8 +248,8 @@ void Widget::handleSeekFinished(float64 progress) {
 	_seekPositionMs = -1;
 
 	auto state = mixer()->currentState(_type);
-	if (state.id && state.length) {
-		mixer()->seek(_type, qRound(progress * state.length));
+	if (state.id && state.length && state.frequency) {
+		mixer()->seek(_type, qRound(progress * state.length * 1000. / state.frequency));
 	}
 
 	instance()->stopSeeking(_type);
@@ -395,6 +390,11 @@ void Widget::setType(AudioMsgId::Type type) {
 		handleSongChange();
 		handleSongUpdate(mixer()->currentState(_type));
 		updateOverLabelsState(_labelsOver);
+		_playlistChangesLifetime = instance()->playlistChanges(
+			_type
+		) | rpl::start_with_next([=] {
+			handlePlaylistUpdate();
+		});
 	}
 }
 
@@ -431,20 +431,21 @@ void Widget::handleSongUpdate(const TrackState &state) {
 void Widget::updateTimeText(const TrackState &state) {
 	QString time;
 	qint64 position = 0, length = 0, display = 0;
-	auto frequency = state.frequency;
+	const auto frequency = state.frequency;
+	const auto document = state.id.audio();
 	if (!IsStoppedOrStopping(state.state)) {
 		display = position = state.position;
 		length = state.length;
 	} else if (state.length) {
 		display = state.length;
-	} else if (state.id.audio()->song()) {
-		display = (state.id.audio()->song()->duration * frequency);
+	} else if (const auto song = document->song()) {
+		display = (song->duration * frequency);
 	}
 
 	_lastDurationMs = (state.length * 1000LL) / frequency;
 
-	if (state.id.audio()->loading()) {
-		_time = QString::number(qRound(state.id.audio()->progress() * 100)) + '%';
+	if (document->loading()) {
+		_time = QString::number(qRound(document->progress() * 100)) + '%';
 		_playbackSlider->setDisabled(true);
 	} else {
 		display = display / frequency;
@@ -470,13 +471,14 @@ void Widget::updateTimeLabel() {
 }
 
 void Widget::handleSongChange() {
-	auto current = instance()->current(_type);
-	if (!current || !current.audio()) {
+	const auto current = instance()->current(_type);
+	const auto document = current.audio();
+	if (!current || !document) {
 		return;
 	}
 
 	TextWithEntities textWithEntities;
-	if (current.audio()->voice() || current.audio()->isRoundVideo()) {
+	if (document->isVoiceMessage() || document->isVideoMessage()) {
 		if (auto item = App::histItemById(current.contextId())) {
 			auto name = App::peerName(item->fromOriginal());
 			auto date = [item] {
@@ -497,12 +499,12 @@ void Widget::handleSongChange() {
 			textWithEntities.text = lang(lng_media_audio);
 		}
 	} else {
-		auto song = current.audio()->song();
+		const auto song = document->song();
 		if (!song || song->performer.isEmpty()) {
 			textWithEntities.text = (!song || song->title.isEmpty())
-				? (current.audio()->filename().isEmpty()
+				? (document->filename().isEmpty()
 					? qsl("Unknown Track")
-					: current.audio()->filename())
+					: document->filename())
 				: song->title;
 		} else {
 			auto title = song->title.isEmpty()
@@ -519,15 +521,12 @@ void Widget::handleSongChange() {
 }
 
 void Widget::handlePlaylistUpdate() {
-	auto current = instance()->current(_type);
-	auto playlist = instance()->playlist(_type);
-	auto index = playlist.indexOf(current.contextId());
-	if (!current || index < 0) {
+	const auto previousEnabled = instance()->previousAvailable(_type);
+	const auto nextEnabled = instance()->nextAvailable(_type);
+	if (!previousEnabled && !nextEnabled) {
 		destroyPrevNextButtons();
 	} else {
 		createPrevNextButtons();
-		auto previousEnabled = (index > 0);
-		auto nextEnabled = (index + 1 < playlist.size());
 		_previousTrack->setIconOverride(previousEnabled ? nullptr : &st::mediaPlayerPreviousDisabledIcon);
 		_previousTrack->setRippleColorOverride(previousEnabled ? nullptr : &st::mediaPlayerBg);
 		_previousTrack->setCursor(previousEnabled ? style::cur_pointer : style::cur_default);

@@ -22,100 +22,24 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include "data/data_types.h"
 #include "data/data_flags.h"
+#include "data/data_notify_settings.h"
 
-struct NotifySettings {
-	NotifySettings() = default;
+namespace Ui {
+class EmptyUserpic;
+} // namespace Ui
 
-	bool previews() const {
-		return flags & MTPDpeerNotifySettings::Flag::f_show_previews;
-	}
-	bool silent() const {
-		return flags & MTPDpeerNotifySettings::Flag::f_silent;
-	}
+class PeerData;
+class UserData;
+class ChatData;
+class ChannelData;
 
-	MTPDpeerNotifySettings::Flags flags
-		= MTPDpeerNotifySettings::Flag::f_show_previews;
-	TimeId mute = 0;
-	QString sound = qsl("default");
-
-};
-typedef NotifySettings *NotifySettingsPtr;
-
-static const NotifySettingsPtr UnknownNotifySettings
-	= NotifySettingsPtr(0);
-static const NotifySettingsPtr EmptyNotifySettings
-	= NotifySettingsPtr(1);
-extern NotifySettings globalNotifyAll;
-extern NotifySettings globalNotifyUsers;
-extern NotifySettings globalNotifyChats;
-extern NotifySettingsPtr globalNotifyAllPtr;
-extern NotifySettingsPtr globalNotifyUsersPtr;
-extern NotifySettingsPtr globalNotifyChatsPtr;
-
-inline bool isNotifyMuted(
-		NotifySettingsPtr settings,
-		TimeId *changeIn = nullptr) {
-	if (settings != UnknownNotifySettings
-		&& settings != EmptyNotifySettings) {
-		auto t = unixtime();
-		if (settings->mute > t) {
-			if (changeIn) *changeIn = settings->mute - t + 1;
-			return true;
-		}
-	}
-	if (changeIn) *changeIn = 0;
-	return false;
-}
+namespace Data {
 
 int PeerColorIndex(PeerId peerId);
 int PeerColorIndex(int32 bareId);
+style::color PeerUserpicColor(PeerId peerId);
 
-class EmptyUserpic {
-public:
-	EmptyUserpic();
-	EmptyUserpic(PeerId peerId, const QString &name);
-	EmptyUserpic(const QString &nonce, const QString &name);
-
-	void set(PeerId peerId, const QString &name);
-	void clear();
-
-	explicit operator bool() const {
-		return (_impl != nullptr);
-	}
-
-	void paint(
-		Painter &p,
-		int x,
-		int y,
-		int outerWidth,
-		int size) const;
-	void paintRounded(
-		Painter &p,
-		int x,
-		int y,
-		int outerWidth,
-		int size) const;
-	void paintSquare(
-		Painter &p,
-		int x,
-		int y,
-		int outerWidth,
-		int size) const;
-	QPixmap generate(int size);
-	StorageKey uniqueKey() const;
-
-	~EmptyUserpic();
-
-private:
-	class Impl;
-	std::unique_ptr<Impl> _impl;
-	friend class Impl;
-
-};
-
-static const PhotoId UnknownPeerPhotoId = 0xFFFFFFFFFFFFFFFFULL;
-
-class PeerData;
+} // namespace Data
 
 class PeerClickHandler : public ClickHandler {
 public:
@@ -131,10 +55,6 @@ private:
 
 };
 
-class UserData;
-class ChatData;
-class ChannelData;
-
 class PeerData {
 protected:
 	PeerData(const PeerId &id);
@@ -142,12 +62,7 @@ protected:
 	PeerData &operator=(const PeerData &other) = delete;
 
 public:
-	virtual ~PeerData() {
-		if (notify != UnknownNotifySettings
-			&& notify != EmptyNotifySettings) {
-			delete base::take(notify);
-		}
-	}
+	virtual ~PeerData();
 
 	bool isUser() const {
 		return peerIsUser(id);
@@ -163,11 +78,32 @@ public:
 	}
 	bool isVerified() const;
 	bool isMegagroup() const;
-	bool isMuted() const {
-		return (notify != EmptyNotifySettings)
-			&& (notify != UnknownNotifySettings)
-			&& (notify->mute >= unixtime());
+
+	TimeMs notifyMuteFinishesIn() const {
+		return _notify.muteFinishesIn();
 	}
+	bool notifyChange(const MTPPeerNotifySettings &settings) {
+		return _notify.change(settings);
+	}
+	bool notifyChange(
+			Data::NotifySettings::MuteChange mute,
+			Data::NotifySettings::SilentPostsChange silent,
+			int muteForSeconds) {
+		return _notify.change(mute, silent, muteForSeconds);
+	}
+	bool notifySettingsUnknown() const {
+		return _notify.settingsUnknown();
+	}
+	bool notifySilentPosts() const {
+		return _notify.silentPosts();
+	}
+	MTPinputPeerNotifySettings notifySerialize() const {
+		return _notify.serialize();
+	}
+	bool isMuted() const {
+		return (notifyMuteFinishesIn() > 0);
+	}
+
 	bool canWrite() const;
 	UserData *asUser();
 	const UserData *asUser() const;
@@ -217,7 +153,11 @@ public:
 	LoadedStatus loadedStatus = NotLoaded;
 	MTPinputPeer input;
 
-	void setUserpic(ImagePtr userpic, StorageImageLocation location);
+	void setUserpic(
+		PhotoId photoId,
+		const StorageImageLocation &location,
+		ImagePtr userpic);
+	void setUserpicPhoto(const MTPPhoto &data);
 	void paintUserpic(
 		Painter &p,
 		int x,
@@ -260,12 +200,14 @@ public:
 	StorageImageLocation userpicLocation() const {
 		return _userpicLocation;
 	}
-
-	PhotoId photoId = UnknownPeerPhotoId;
+	bool userpicPhotoUnknown() const {
+		return (_userpicPhotoId == kUnknownPhotoId);
+	}
+	PhotoId userpicPhotoId() const {
+		return userpicPhotoUnknown() ? 0 : _userpicPhotoId;
+	}
 
 	int nameVersion = 1;
-
-	NotifySettingsPtr notify = UnknownNotifySettings;
 
 	// if this string is not empty we must not allow to open the
 	// conversation and we must show this string instead
@@ -288,13 +230,27 @@ protected:
 		const QString &newName,
 		const QString &newNameOrPhone,
 		const QString &newUsername);
-
-	ImagePtr _userpic;
-	mutable EmptyUserpic _userpicEmpty;
-	StorageImageLocation _userpicLocation;
+	void updateUserpic(PhotoId photoId, const MTPFileLocation &location);
+	void clearUserpic();
 
 private:
 	void fillNames();
+	std::unique_ptr<Ui::EmptyUserpic> createEmptyUserpic() const;
+	void refreshEmptyUserpic() const;
+
+	void setUserpicChecked(
+		PhotoId photoId,
+		const StorageImageLocation &location,
+		ImagePtr userpic);
+
+	static constexpr auto kUnknownPhotoId = PhotoId(0xFFFFFFFFFFFFFFFFULL);
+
+	ImagePtr _userpic;
+	PhotoId _userpicPhotoId = kUnknownPhotoId;
+	mutable std::unique_ptr<Ui::EmptyUserpic> _userpicEmpty;
+	StorageImageLocation _userpicLocation;
+
+	Data::NotifySettings _notify;
 
 	ClickHandlerPtr _openLink;
 	NameWords _nameWords; // for filtering
@@ -546,9 +502,8 @@ public:
 	: PeerData(id)
 	, inputChat(MTP_int(bareId())) {
 	}
-	void setPhoto(
-		const MTPChatPhoto &photo,
-		const PhotoId &phId = UnknownPeerPhotoId);
+	void setPhoto(const MTPChatPhoto &photo);
+	void setPhoto(PhotoId photoId, const MTPChatPhoto &photo);
 
 	void setName(const QString &newName);
 
@@ -755,7 +710,6 @@ struct MegagroupInfo {
 
 	enum LastParticipantsStatus {
 		LastParticipantsUpToDate       = 0x00,
-		LastParticipantsAdminsOutdated = 0x01,
 		LastParticipantsCountOutdated  = 0x02,
 	};
 	mutable int lastParticipantsStatus = LastParticipantsUpToDate;
@@ -796,9 +750,8 @@ public:
 
 	ChannelData(const PeerId &id);
 
-	void setPhoto(
-		const MTPChatPhoto &photo,
-		const PhotoId &phId = UnknownPeerPhotoId);
+	void setPhoto(const MTPChatPhoto &photo);
+	void setPhoto(PhotoId photoId, const MTPChatPhoto &photo);
 
 	void setName(const QString &name, const QString &username);
 

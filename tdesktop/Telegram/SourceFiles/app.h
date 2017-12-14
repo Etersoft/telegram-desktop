@@ -82,8 +82,6 @@ namespace App {
 	void feedUserLink(MTPint userId, const MTPContactLink &myLink, const MTPContactLink &foreignLink);
 
 	ImagePtr image(const MTPPhotoSize &size);
-	StorageImageLocation imageLocation(int32 w, int32 h, const MTPFileLocation &loc);
-	StorageImageLocation imageLocation(const MTPPhotoSize &size);
 
 	PhotoData *feedPhoto(const MTPPhoto &photo, const PreparedPhotoThumbs &thumbs);
 	PhotoData *feedPhoto(const MTPPhoto &photo, PhotoData *convert = nullptr);
@@ -262,8 +260,8 @@ namespace App {
 	void stopRoundVideoPlayback();
 	void stopGifItems();
 
-	void regMuted(PeerData *peer, int32 changeIn);
-	void unregMuted(PeerData *peer);
+	void regMuted(not_null<PeerData*> peer, TimeMs changeIn);
+	void unregMuted(not_null<PeerData*> peer);
 	void updateMuted();
 
 	void setProxySettings(QNetworkAccessManager &manager);

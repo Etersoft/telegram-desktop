@@ -30,6 +30,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/toast/toast.h"
+#include "ui/empty_userpic.h"
 #include "core/click_handler_types.h"
 #include "storage/localstorage.h"
 #include "auth_session.h"
@@ -449,19 +450,9 @@ DeleteMessagesBox::DeleteMessagesBox(
 
 DeleteMessagesBox::DeleteMessagesBox(
 	QWidget*,
-	const SelectedItemSet &selected)
-: _ids(CollectFrom(selected)) {
+	MessageIdsList &&selected)
+: _ids(std::move(selected)) {
 	Expects(!_ids.empty());
-}
-
-std::vector<FullMsgId> DeleteMessagesBox::CollectFrom(
-		const SelectedItemSet &items) {
-	return ranges::make_iterator_range(
-		items.begin(),
-		items.end()
-	) | ranges::view::transform([](not_null<HistoryItem*> item) {
-		return item->fullId();
-	}) | ranges::to_vector;
 }
 
 void DeleteMessagesBox::prepare() {
@@ -628,8 +619,12 @@ ConfirmInviteBox::ConfirmInviteBox(QWidget*, const QString &title, bool isChanne
 	}
 	_status->setText(status);
 	if (photo.type() == mtpc_chatPhoto) {
-		auto &d = photo.c_chatPhoto();
-		auto location = App::imageLocation(160, 160, d.vphoto_small);
+		const auto &data = photo.c_chatPhoto();
+		const auto size = 160;
+		const auto location = StorageImageLocation::FromMTP(
+			size,
+			size,
+			data.vphoto_small);
 		if (!location.isNull()) {
 			_photo = ImagePtr(location);
 			if (!_photo->loaded()) {
@@ -639,7 +634,9 @@ ConfirmInviteBox::ConfirmInviteBox(QWidget*, const QString &title, bool isChanne
 		}
 	}
 	if (!_photo) {
-		_photoEmpty.set(0, title);
+		_photoEmpty = std::make_unique<Ui::EmptyUserpic>(
+			Data::PeerUserpicColor(0),
+			title);
 	}
 }
 
@@ -689,7 +686,7 @@ void ConfirmInviteBox::paintEvent(QPaintEvent *e) {
 	if (_photo) {
 		p.drawPixmap((width() - st::confirmInvitePhotoSize) / 2, st::confirmInvitePhotoTop, _photo->pixCircled(st::confirmInvitePhotoSize, st::confirmInvitePhotoSize));
 	} else {
-		_photoEmpty.paint(p, (width() - st::confirmInvitePhotoSize) / 2, st::confirmInvitePhotoTop, width(), st::confirmInvitePhotoSize);
+		_photoEmpty->paint(p, (width() - st::confirmInvitePhotoSize) / 2, st::confirmInvitePhotoTop, width(), st::confirmInvitePhotoSize);
 	}
 
 	int sumWidth = _participants.size() * _userWidth;
@@ -699,3 +696,5 @@ void ConfirmInviteBox::paintEvent(QPaintEvent *e) {
 		left += _userWidth;
 	}
 }
+
+ConfirmInviteBox::~ConfirmInviteBox() = default;

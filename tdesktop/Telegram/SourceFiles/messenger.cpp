@@ -75,7 +75,9 @@ struct Messenger::Private {
 	base::Timer quitTimer;
 };
 
-Messenger::Messenger() : QObject()
+Messenger::Messenger(not_null<Core::Launcher*> launcher)
+: QObject()
+, _launcher(launcher)
 , _private(std::make_unique<Private>())
 , _langpack(std::make_unique<Lang::Instance>())
 , _audio(std::make_unique<Media::Audio::Instance>())
@@ -220,7 +222,7 @@ void Messenger::showPhoto(not_null<PhotoData*> photo, PeerData *peer) {
 }
 
 void Messenger::showDocument(not_null<DocumentData*> document, HistoryItem *item) {
-	if (cUseExternalVideoPlayer() && document->isVideo()) {
+	if (cUseExternalVideoPlayer() && document->isVideoFile()) {
 		QDesktopServices::openUrl(QUrl("file:///" + document->location(false).fname));
 	} else {
 		if (_mediaView->isHidden()) {

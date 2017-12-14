@@ -28,6 +28,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "boxes/peer_list_controllers.h"
 #include "boxes/peers/manage_peer_box.h"
 #include "boxes/peers/edit_peer_info_box.h"
+#include "ui/toast/toast.h"
 #include "core/tl_help.h"
 #include "auth_session.h"
 #include "apiwrap.h"
@@ -87,51 +88,6 @@ History *FindWastedPin() {
 	return nullptr;
 }
 
-auto ClearHistoryHandler(not_null<PeerData*> peer) {
-	return [peer] {
-		auto text = peer->isUser()
-			? lng_sure_delete_history(lt_contact, peer->name)
-			: lng_sure_delete_group_history(lt_group, peer->name);
-		Ui::show(Box<ConfirmBox>(text, lang(lng_box_delete), st::attentionBoxButton, [peer] {
-			if (!App::main()) return;
-
-			Ui::hideLayer();
-			Auth().api().clearHistory(peer);
-		}));
-	};
-}
-
-auto DeleteAndLeaveHandler(not_null<PeerData*> peer) {
-	return [peer] {
-		auto warningText = peer->isUser() ? lng_sure_delete_history(lt_contact, peer->name) :
-			peer->isChat() ? lng_sure_delete_and_exit(lt_group, peer->name) :
-			lang(peer->isMegagroup() ? lng_sure_leave_group : lng_sure_leave_channel);
-		auto confirmText = lang(peer->isUser() ? lng_box_delete : lng_box_leave);
-		auto &confirmStyle = peer->isChannel() ? st::defaultBoxButton : st::attentionBoxButton;
-		Ui::show(Box<ConfirmBox>(warningText, confirmText, confirmStyle, [peer] {
-			if (!App::main()) return;
-
-			Ui::hideLayer();
-			if (App::wnd()->controller()->activePeer.current() == peer) {
-				Ui::showChatsList();
-			}
-			if (peer->isUser()) {
-				App::main()->deleteConversation(peer);
-			} else if (auto chat = peer->asChat()) {
-				App::main()->deleteAndExit(chat);
-			} else if (auto channel = peer->asChannel()) {
-				// Don't delete old history by default,
-				// because Android app doesn't.
-				//
-				//if (auto migrateFrom = channel->migrateFrom()) {
-				//	App::main()->deleteConversation(migrateFrom);
-				//}
-				Auth().api().leaveChannel(channel);
-			}
-		}));
-	};
-}
-
 Filler::Filler(
 	not_null<Controller*> controller,
 	not_null<PeerData*> peer,
@@ -144,7 +100,7 @@ Filler::Filler(
 }
 
 bool Filler::showInfo() {
-	if (_source == PeerMenuSource::Profile) {
+	if (_source == PeerMenuSource::Profile || _peer->isSelf()) {
 		return false;
 	} else if (_controller->activePeer.current() != _peer) {
 		return true;
@@ -238,17 +194,19 @@ void Filler::addNotifications() {
 		if (!peer->isMuted()) {
 			Ui::show(Box<MuteSettingsBox>(peer));
 		} else {
-			App::main()->updateNotifySetting(
+			App::main()->updateNotifySettings(
 				peer,
-				NotifySettingSetNotify);
+				Data::NotifySettings::MuteChange::Unmute);
 		}
 	});
 
 	auto lifetime = Notify::PeerUpdateViewer(
 		_peer,
 		Notify::PeerUpdate::Flag::NotificationsEnabled)
-		| rpl::start_with_next([=] {
-			muteAction->setText(muteText(peer->isMuted()));
+		| rpl::map([=] { return peer->isMuted(); })
+		| rpl::distinct_until_changed()
+		| rpl::start_with_next([=](bool muted) {
+			muteAction->setText(muteText(muted));
 		});
 
 	Ui::AttachAsChild(muteAction, std::move(lifetime));
@@ -305,19 +263,23 @@ void Filler::addBlockUser(not_null<UserData*> user) {
 void Filler::addUserActions(not_null<UserData*> user) {
 	if (_source != PeerMenuSource::ChatsList) {
 		if (user->isContact()) {
-			_addAction(
-				lang(lng_info_share_contact),
-				[user] { PeerMenuShareContactBox(user); });
-			_addAction(
-				lang(lng_info_edit_contact),
-				[user] { Ui::show(Box<AddContactBox>(user)); });
-			_addAction(
-				lang(lng_info_delete_contact),
-				[user] { PeerMenuDeleteContact(user); });
+			if (!user->isSelf()) {
+				_addAction(
+					lang(lng_info_share_contact),
+					[user] { PeerMenuShareContactBox(user); });
+				_addAction(
+					lang(lng_info_edit_contact),
+					[user] { Ui::show(Box<AddContactBox>(user)); });
+				_addAction(
+					lang(lng_info_delete_contact),
+					[user] { PeerMenuDeleteContact(user); });
+			}
 		} else if (user->canShareThisContact()) {
-			_addAction(
-				lang(lng_info_add_as_contact),
-				[user] { PeerMenuAddContact(user); });
+			if (!user->isSelf()) {
+				_addAction(
+					lang(lng_info_add_as_contact),
+					[user] { PeerMenuAddContact(user); });
+			}
 			_addAction(
 				lang(lng_info_share_contact),
 				[user] { PeerMenuShareContactBox(user); });
@@ -410,7 +372,7 @@ void Filler::fill() {
 	if (showInfo()) {
 		addInfo();
 	}
-	if (_source != PeerMenuSource::Profile) {
+	if (_source != PeerMenuSource::Profile && !_peer->isSelf()) {
 		addNotifications();
 	}
 	if (_source == PeerMenuSource::ChatsList) {
@@ -457,11 +419,20 @@ void PeerMenuAddContact(not_null<UserData*> user) {
 }
 
 void PeerMenuShareContactBox(not_null<UserData*> user) {
-	auto callback = [user](not_null<PeerData*> peer) {
+	const auto weak = std::make_shared<QPointer<PeerListBox>>();
+	auto callback = [=](not_null<PeerData*> peer) {
 		if (!peer->canWrite()) {
 			Ui::show(Box<InformBox>(
 				lang(lng_forward_share_cant)),
 				LayerOption::KeepOther);
+			return;
+		} else if (peer->isSelf()) {
+			auto options = ApiWrap::SendOptions(App::history(peer));
+			Auth().api().shareContact(user, options);
+			Ui::Toast::Show(lang(lng_share_done));
+			if (auto strong = *weak) {
+				strong->closeBox();
+			}
 			return;
 		}
 		auto recipient = peer->isUser()
@@ -471,13 +442,13 @@ void PeerMenuShareContactBox(not_null<UserData*> user) {
 			lng_forward_share_contact(lt_recipient, recipient),
 			lang(lng_forward_send),
 			[peer, user] {
-				App::main()->onShareContact(
-					peer->id,
-					user);
-				Ui::hideLayer();
+				const auto history = App::history(peer);
+				Ui::showPeerHistory(history, ShowAtTheEndMsgId);
+				auto options = ApiWrap::SendOptions(history);
+				Auth().api().shareContact(user, options);
 			}), LayerOption::KeepOther);
 	};
-	Ui::show(Box<PeerListBox>(
+	*weak = Ui::show(Box<PeerListBox>(
 		std::make_unique<ChooseRecipientBoxController>(std::move(callback)),
 		[](not_null<PeerListBox*> box) {
 			box->addButton(langFactory(lng_cancel), [box] {
@@ -486,14 +457,48 @@ void PeerMenuShareContactBox(not_null<UserData*> user) {
 		}));
 }
 
+QPointer<Ui::RpWidget> ShowForwardMessagesBox(
+		MessageIdsList &&items,
+		base::lambda_once<void()> &&successCallback) {
+	const auto weak = std::make_shared<QPointer<PeerListBox>>();
+	auto callback = [
+		ids = std::move(items),
+		callback = std::move(successCallback),
+		weak
+	](not_null<PeerData*> peer) mutable {
+		if (peer->isSelf()) {
+			auto items = Auth().data().idsToItems(ids);
+			if (!items.empty()) {
+				auto options = ApiWrap::SendOptions(App::history(peer));
+				options.generateLocal = false;
+				Auth().api().forwardMessages(std::move(items), options, [] {
+					Ui::Toast::Show(lang(lng_share_done));
+				});
+			}
+		} else {
+			App::main()->setForwardDraft(peer->id, std::move(ids));
+		}
+		if (const auto strong = *weak) {
+			strong->closeBox();
+		}
+		if (callback) {
+			callback();
+		}
+	};
+	auto initBox = [](not_null<PeerListBox*> box) {
+		box->addButton(langFactory(lng_cancel), [box] {
+			box->closeBox();
+		});
+	};
+	*weak = Ui::show(Box<PeerListBox>(
+		std::make_unique<ChooseRecipientBoxController>(std::move(callback)),
+		std::move(initBox)), LayerOption::KeepOther);
+	return weak->data();
+}
+
 void PeerMenuAddChannelMembers(not_null<ChannelData*> channel) {
-	if (channel->isMegagroup()) {
-		auto &participants = channel->mgInfo->lastParticipants;
-		AddParticipantsBoxController::Start(
-			channel,
-			{ participants.cbegin(), participants.cend() });
-		return;
-	} else if (channel->membersCount() >= Global::ChatSizeMax()) {
+	if (!channel->isMegagroup()
+		&& channel->membersCount() >= Global::ChatSizeMax()) {
 		Ui::show(
 			Box<MaxInviteBox>(channel),
 			LayerOption::KeepOther);
@@ -519,6 +524,76 @@ void PeerMenuAddChannelMembers(not_null<ChannelData*> channel) {
 		});
 	};
 	Auth().api().requestChannelMembersForAdd(channel, callback);
+}
+
+base::lambda<void()> ClearHistoryHandler(not_null<PeerData*> peer) {
+	return [peer] {
+		const auto weak = std::make_shared<QPointer<ConfirmBox>>();
+		const auto text = peer->isSelf()
+			? lang(lng_sure_delete_saved_messages)
+			: peer->isUser()
+			? lng_sure_delete_history(lt_contact, peer->name)
+			: lng_sure_delete_group_history(lt_group, peer->name);
+		auto callback = [=] {
+			if (auto strong = *weak) {
+				strong->closeBox();
+			}
+			Auth().api().clearHistory(peer);
+		};
+		*weak = Ui::show(
+			Box<ConfirmBox>(
+				text,
+				lang(lng_box_delete),
+				st::attentionBoxButton,
+				std::move(callback)),
+			LayerOption::KeepOther);
+	};
+}
+
+base::lambda<void()> DeleteAndLeaveHandler(not_null<PeerData*> peer) {
+	return [peer] {
+		const auto warningText = peer->isSelf()
+			? lang(lng_sure_delete_saved_messages)
+			: peer->isUser()
+			? lng_sure_delete_history(lt_contact, peer->name)
+			: peer->isChat()
+			? lng_sure_delete_and_exit(lt_group, peer->name)
+			: lang(peer->isMegagroup()
+				? lng_sure_leave_group
+				: lng_sure_leave_channel);
+		const auto confirmText = lang(peer->isUser()
+			? lng_box_delete
+			: lng_box_leave);
+		const auto &confirmStyle = peer->isChannel()
+			? st::defaultBoxButton
+			: st::attentionBoxButton;
+		auto callback = [peer] {
+			Ui::hideLayer();
+			if (App::wnd()->controller()->activePeer.current() == peer) {
+				Ui::showChatsList();
+			}
+			if (peer->isUser()) {
+				App::main()->deleteConversation(peer);
+			} else if (auto chat = peer->asChat()) {
+				App::main()->deleteAndExit(chat);
+			} else if (auto channel = peer->asChannel()) {
+				// Don't delete old history by default,
+				// because Android app doesn't.
+				//
+				//if (auto migrateFrom = channel->migrateFrom()) {
+				//	App::main()->deleteConversation(migrateFrom);
+				//}
+				Auth().api().leaveChannel(channel);
+			}
+		};
+		Ui::show(
+			Box<ConfirmBox>(
+				warningText,
+				confirmText,
+				confirmStyle,
+				std::move(callback)),
+			LayerOption::KeepOther);
+	};
 }
 
 void FillPeerMenu(

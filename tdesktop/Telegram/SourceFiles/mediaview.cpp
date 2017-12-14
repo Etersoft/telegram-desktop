@@ -35,6 +35,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "history/history_message.h"
 #include "history/history_media_types.h"
 #include "window/themes/window_theme_preview.h"
+#include "window/window_peer_menu.h"
 #include "base/task_queue.h"
 #include "observer_peer.h"
 #include "auth_session.h"
@@ -210,11 +211,11 @@ bool MediaView::fileBubbleShown() const {
 bool MediaView::gifShown() const {
 	if (_gif && _gif->ready()) {
 		if (!_gif->started()) {
-			if (_doc && (_doc->isVideo() || _doc->isRoundVideo()) && _autoplayVideoDocument != _doc && !_gif->videoPaused()) {
+			if (_doc && (_doc->isVideoFile() || _doc->isVideoMessage()) && _autoplayVideoDocument != _doc && !_gif->videoPaused()) {
 				_gif->pauseResumeVideo();
 				const_cast<MediaView*>(this)->_videoPaused = _gif->videoPaused();
 			}
-			auto rounding = (_doc && _doc->isRoundVideo()) ? ImageRoundRadius::Ellipse : ImageRoundRadius::None;
+			auto rounding = (_doc && _doc->isVideoMessage()) ? ImageRoundRadius::Ellipse : ImageRoundRadius::None;
 			_gif->start(_gif->width() / cIntRetinaFactor(), _gif->height() / cIntRetinaFactor(), _gif->width() / cIntRetinaFactor(), _gif->height() / cIntRetinaFactor(), rounding, ImageRoundCorner::All);
 			const_cast<MediaView*>(this)->_current = QPixmap();
 			updateMixerVideoVolume();
@@ -398,7 +399,7 @@ void MediaView::updateActions() {
 			return true;
 		} else if (!_msgid && _photo && App::self() && _user == App::self()) {
 			return _userPhotosData && _fullIndex && _fullCount;
-		} else if (_photo && _photo->peer && _photo->peer->photoId == _photo->id) {
+		} else if (_photo && _photo->peer && _photo->peer->userpicPhotoId() == _photo->id) {
 			if (auto chat = _photo->peer->asChat()) {
 				return chat->canEdit();
 			} else if (auto channel = _photo->peer->asChannel()) {
@@ -516,16 +517,16 @@ void MediaView::step_radial(TimeMs ms, bool timer) {
 	if (timer && (wasAnimating || _radial.animating())) {
 		update(radialRect());
 	}
-	if (_doc && _doc->loaded() && _doc->size < App::kImageSizeLimit && (!_radial.animating() || _doc->isAnimation() || _doc->isVideo())) {
-		if (_doc->isVideo() || _doc->isRoundVideo()) {
+	if (_doc && _doc->loaded() && _doc->size < App::kImageSizeLimit && (!_radial.animating() || _doc->isAnimation() || _doc->isVideoFile())) {
+		if (_doc->isVideoFile() || _doc->isVideoMessage()) {
 			_autoplayVideoDocument = _doc;
 		}
-		if (!_doc->data().isEmpty() && (_doc->isAnimation() || _doc->isVideo())) {
+		if (!_doc->data().isEmpty() && (_doc->isAnimation() || _doc->isVideoFile())) {
 			displayDocument(_doc, App::histItemById(_msgid));
 		} else {
 			auto &location = _doc->location(true);
 			if (location.accessEnable()) {
-				if (_doc->isAnimation() || _doc->isVideo() || _doc->isTheme() || QImageReader(location.name()).canRead()) {
+				if (_doc->isAnimation() || _doc->isVideoFile() || _doc->isTheme() || QImageReader(location.name()).canRead()) {
 					displayDocument(_doc, App::histItemById(_msgid));
 				}
 				location.accessDisable();
@@ -641,7 +642,7 @@ void MediaView::showSaveMsgFile() {
 }
 
 void MediaView::updateMixerVideoVolume() const {
-	if (_doc && (_doc->isVideo() || _doc->isRoundVideo())) {
+	if (_doc && (_doc->isVideoFile() || _doc->isVideoMessage())) {
 		Media::Player::mixer()->setVideoVolume(Global::VideoVolume());
 	}
 }
@@ -824,7 +825,7 @@ void MediaView::clipCallback(Media::Clip::Notification notification) {
 				_videoStopped = true;
 				updateSilentVideoPlaybackState();
 			} else {
-				_videoIsSilent = _doc && (_doc->isVideo() || _doc->isRoundVideo()) && !_gif->hasAudio();
+				_videoIsSilent = _doc && (_doc->isVideoFile() || _doc->isVideoMessage()) && !_gif->hasAudio();
 				_videoDurationMs = _gif->getDurationMs();
 				_videoPositionMs = _gif->getPositionMs();
 				if (_videoIsSilent) {
@@ -936,11 +937,7 @@ void MediaView::onForward() {
 	}
 
 	close();
-	if (auto main = App::main()) {
-		auto items = SelectedItemSet();
-		items.insert(item->id, item);
-		main->showForwardLayer(items);
-	}
+	Window::ShowForwardMessagesBox({ 1, item->fullId() });
 }
 
 void MediaView::onDelete() {
@@ -948,7 +945,7 @@ void MediaView::onDelete() {
 	auto deletingPeerPhoto = [this]() {
 		if (!_msgid) return true;
 		if (_photo && _history) {
-			if (_history->peer->photoId == _photo->id) {
+			if (_history->peer->userpicPhotoId() == _photo->id) {
 				return _firstOpenedPeerPhoto;
 			}
 		}
@@ -1000,7 +997,7 @@ base::optional<MediaView::SharedMediaType> MediaView::sharedMediaType() const {
 		} else if (_doc) {
 			if (_doc->isGifv()) {
 				return Type::GIF;
-			} else if (_doc->isVideo()) {
+			} else if (_doc->isVideoFile()) {
 				return Type::Video;
 			}
 			return Type::File;
@@ -1010,12 +1007,12 @@ base::optional<MediaView::SharedMediaType> MediaView::sharedMediaType() const {
 }
 
 base::optional<MediaView::SharedMediaKey> MediaView::sharedMediaKey() const {
-	if (!_msgid && _peer && !_user && _photo && _peer->photoId == _photo->id) {
+	if (!_msgid && _peer && !_user && _photo && _peer->userpicPhotoId() == _photo->id) {
 		return SharedMediaKey {
 			_history->peer->id,
 			_migrated ? _migrated->peer->id : 0,
 			SharedMediaType::ChatPhoto,
-			_peer->photoId
+			_peer->userpicPhotoId()
 		};
 	}
 	if (!IsServerMsgId(_msgid.msg)) {
@@ -1246,7 +1243,7 @@ void MediaView::showDocument(not_null<DocumentData*> document, HistoryItem *cont
 	}
 	if (!_animOpacities.isEmpty()) _animOpacities.clear();
 
-	if (document->isVideo() || document->isRoundVideo()) {
+	if (document->isVideoFile() || document->isVideoMessage()) {
 		_autoplayVideoDocument = document;
 	}
 	displayDocument(document, context);
@@ -1323,7 +1320,7 @@ void MediaView::destroyThemePreview() {
 
 void MediaView::displayDocument(DocumentData *doc, HistoryItem *item) { // empty messages shown as docs: doc can be NULL
 	auto documentChanged = (!doc || doc != _doc || (item && item->fullId() != _msgid));
-	if (documentChanged || (!doc->isAnimation() && !doc->isVideo())) {
+	if (documentChanged || (!doc->isAnimation() && !doc->isVideoFile())) {
 		_fullScreenVideo = false;
 		_current = QPixmap();
 		stopGif();
@@ -1355,7 +1352,7 @@ void MediaView::displayDocument(DocumentData *doc, HistoryItem *item) { // empty
 		} else {
 			_doc->automaticLoad(item);
 
-			if (_doc->isAnimation() || _doc->isVideo()) {
+			if (_doc->isAnimation() || _doc->isVideoFile()) {
 				initAnimation();
 			} else if (_doc->isTheme()) {
 				initThemePreview();
@@ -1509,7 +1506,7 @@ void MediaView::displayFinished() {
 
 Images::Options MediaView::videoThumbOptions() const {
 	auto options = Images::Option::Smooth | Images::Option::Blurred;
-	if (_doc && _doc->isRoundVideo()) {
+	if (_doc && _doc->isVideoMessage()) {
 		options |= Images::Option::Circled;
 	}
 	return options;
@@ -1517,7 +1514,7 @@ Images::Options MediaView::videoThumbOptions() const {
 
 void MediaView::initAnimation() {
 	Expects(_doc != nullptr);
-	Expects(_doc->isAnimation() || _doc->isVideo());
+	Expects(_doc->isAnimation() || _doc->isVideoFile());
 
 	auto &location = _doc->location(true);
 	if (!_doc->data().isEmpty()) {
@@ -1539,7 +1536,7 @@ void MediaView::createClipReader() {
 	if (_gif) return;
 
 	Expects(_doc != nullptr);
-	Expects(_doc->isAnimation() || _doc->isVideo());
+	Expects(_doc->isAnimation() || _doc->isVideoFile());
 
 	if (_doc->dimensions.width() && _doc->dimensions.height()) {
 		int w = _doc->dimensions.width();
@@ -1549,7 +1546,9 @@ void MediaView::createClipReader() {
 	} else {
 		_current = _doc->thumb->pixNoCache(_doc->thumb->width(), _doc->thumb->height(), videoThumbOptions(), st::mediaviewFileIconSize, st::mediaviewFileIconSize);
 	}
-	auto mode = (_doc->isVideo() || _doc->isRoundVideo()) ? Media::Clip::Reader::Mode::Video : Media::Clip::Reader::Mode::Gif;
+	auto mode = (_doc->isVideoFile() || _doc->isVideoMessage())
+		? Media::Clip::Reader::Mode::Video
+		: Media::Clip::Reader::Mode::Gif;
 	_gif = Media::Clip::MakeReader(_doc, _msgid, [this](Media::Clip::Notification notification) {
 		clipCallback(notification);
 	}, mode);
@@ -1608,7 +1607,7 @@ void MediaView::initThemePreview() {
 
 void MediaView::createClipController() {
 	Expects(_doc != nullptr);
-	if (!_doc->isVideo() && !_doc->isRoundVideo()) return;
+	if (!_doc->isVideoFile() && !_doc->isVideoMessage()) return;
 
 	_clipController.create(this);
 	setClipControllerGeometry();
@@ -1663,7 +1662,7 @@ void MediaView::restartVideoAtSeekPosition(TimeMs positionMs) {
 	_autoplayVideoDocument = _doc;
 
 	if (_current.isNull()) {
-		auto rounding = (_doc && _doc->isRoundVideo()) ? ImageRoundRadius::Ellipse : ImageRoundRadius::None;
+		auto rounding = (_doc && _doc->isVideoMessage()) ? ImageRoundRadius::Ellipse : ImageRoundRadius::None;
 		_current = _gif->current(_gif->width() / cIntRetinaFactor(), _gif->height() / cIntRetinaFactor(), _gif->width() / cIntRetinaFactor(), _gif->height() / cIntRetinaFactor(), rounding, ImageRoundCorner::All, getms());
 	}
 	_gif = Media::Clip::MakeReader(_doc, _msgid, [this](Media::Clip::Notification notification) {
@@ -1776,7 +1775,7 @@ void MediaView::paintEvent(QPaintEvent *e) {
 		for (int i = 0, l = region.rectCount(); i < l; ++i) {
 			p.fillRect(rs.at(i), st::mediaviewVideoBg);
 		}
-		if (_doc && _doc->isRoundVideo()) {
+		if (_doc && _doc->isVideoMessage()) {
 			p.setCompositionMode(m);
 		}
 	} else {
@@ -1811,7 +1810,7 @@ void MediaView::paintEvent(QPaintEvent *e) {
 	if (_photo || fileShown()) {
 		QRect imgRect(_x, _y, _w, _h);
 		if (imgRect.intersects(r)) {
-			auto rounding = (_doc && _doc->isRoundVideo()) ? ImageRoundRadius::Ellipse : ImageRoundRadius::None;
+			auto rounding = (_doc && _doc->isVideoMessage()) ? ImageRoundRadius::Ellipse : ImageRoundRadius::None;
 			auto toDraw = _current.isNull() ? _gif->current(_gif->width() / cIntRetinaFactor(), _gif->height() / cIntRetinaFactor(), _gif->width() / cIntRetinaFactor(), _gif->height() / cIntRetinaFactor(), rounding, ImageRoundCorner::None, ms) : _current;
 			if (!_gif && (!_doc || !_doc->sticker() || _doc->sticker()->img->isNull()) && toDraw.hasAlpha()) {
 				p.fillRect(imgRect, _transparentBrush);
@@ -2153,7 +2152,7 @@ void MediaView::keyPressEvent(QKeyEvent *e) {
 	} else if (e->key() == Qt::Key_Enter || e->key() == Qt::Key_Return || e->key() == Qt::Key_Space) {
 		if (_doc && !_doc->loading() && (fileBubbleShown() || !_doc->loaded())) {
 			onDocClick();
-		} else if (_doc && (_doc->isVideo() || _doc->isRoundVideo())) {
+		} else if (_doc && (_doc->isVideoFile() || _doc->isVideoMessage())) {
 			onVideoPauseResume();
 		}
 	} else if (e->key() == Qt::Key_Left) {
@@ -2319,12 +2318,12 @@ void MediaView::setContext(base::optional_variant<
 	_user = _peer ? _peer->asUser() : nullptr;
 }
 
-bool MediaView::moveToNext(int32 delta) {
+bool MediaView::moveToNext(int delta) {
 	if (!_index) {
 		return false;
 	}
 	auto newIndex = *_index + delta;
-	auto entity = entityByIndex(*_index + delta);
+	auto entity = entityByIndex(newIndex);
 	if (!entity.data && !entity.item) {
 		return false;
 	}
@@ -2348,7 +2347,7 @@ bool MediaView::moveToNext(int32 delta) {
 	return true;
 }
 
-void MediaView::preloadData(int32 delta) {
+void MediaView::preloadData(int delta) {
 	if (!_index) {
 		return;
 	}
@@ -2573,7 +2572,7 @@ void MediaView::updateOver(QPoint pos) {
 	} else if (_closeNav.contains(pos)) {
 		updateOverState(OverClose);
 	} else if (_doc && fileShown() && QRect(_x, _y, _w, _h).contains(pos)) {
-		if ((_doc->isVideo() || _doc->isRoundVideo()) && _gif) {
+		if ((_doc->isVideoFile() || _doc->isVideoMessage()) && _gif) {
 			updateOverState(OverVideo);
 		} else if (!_doc->loaded()) {
 			updateOverState(OverIcon);

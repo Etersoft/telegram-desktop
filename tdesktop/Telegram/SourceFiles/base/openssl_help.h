@@ -55,8 +55,7 @@ private:
 
 class BigNum {
 public:
-	BigNum() {
-		BN_init(raw());
+	BigNum() : _data(BN_new()) {
 	}
 	BigNum(const BigNum &other) : BigNum() {
 		*this = other;
@@ -84,11 +83,18 @@ public:
 		}
 	}
 	void setBytes(base::const_byte_span bytes) {
-		if (!BN_bin2bn(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size(), raw())) {
+		if (!BN_bin2bn(
+				reinterpret_cast<const unsigned char*>(bytes.data()),
+				bytes.size(),
+				raw())) {
 			_failed = true;
 		}
 	}
-	void setModExp(const BigNum &a, const BigNum &p, const BigNum &m, const Context &context = Context()) {
+	void setModExp(
+			const BigNum &a,
+			const BigNum &p,
+			const BigNum &m,
+			const Context &context = Context()) {
 		if (a.failed() || p.failed() || m.failed()) {
 			_failed = true;
 		} else if (a.isNegative() || p.isNegative() || m.isNegative()) {
@@ -135,7 +141,11 @@ public:
 			return false;
 		}
 		constexpr auto kMillerRabinIterationCount = 30;
-		auto result = BN_is_prime_ex(raw(), kMillerRabinIterationCount, context.raw(), NULL);
+		auto result = BN_is_prime_ex(
+			raw(),
+			kMillerRabinIterationCount,
+			context.raw(),
+			NULL);
 		if (result == 1) {
 			return true;
 		} else if (result != 0) {
@@ -170,16 +180,21 @@ public:
 		}
 		auto length = BN_num_bytes(raw());
 		auto result = base::byte_vector(length, gsl::byte());
-		auto resultSize = BN_bn2bin(raw(), reinterpret_cast<unsigned char*>(result.data()));
+		auto resultSize = BN_bn2bin(
+			raw(),
+			reinterpret_cast<unsigned char*>(result.data()));
 		Assert(resultSize == length);
 		return result;
 	}
 
 	BIGNUM *raw() {
-		return &_data;
+		return _data;
 	}
 	const BIGNUM *raw() const {
-		return &_data;
+		return _data;
+	}
+	BIGNUM *takeRaw() {
+		return base::take(_data);
 	}
 
 	bool failed() const {
@@ -193,7 +208,7 @@ public:
 	}
 
 private:
-	BIGNUM _data;
+	BIGNUM *_data = nullptr;
 	mutable bool _failed = false;
 
 };

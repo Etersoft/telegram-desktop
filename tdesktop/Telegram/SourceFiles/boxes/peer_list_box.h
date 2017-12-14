@@ -22,6 +22,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 
 #include <rpl/event_stream.h>
 #include "ui/rp_widget.h"
+#include "ui/empty_userpic.h"
 #include "boxes/abstract_box.h"
 #include "mtproto/sender.h"
 #include "base/timer.h"
@@ -46,7 +47,15 @@ namespace Notify {
 struct PeerUpdate;
 } // namespace Notify
 
-inline auto PaintUserpicCallback(PeerData *peer) {
+inline auto PaintUserpicCallback(
+	not_null<PeerData*> peer,
+	bool respectSavedMessagesChat)
+->base::lambda<void(Painter &p, int x, int y, int outerWidth, int size)> {
+	if (respectSavedMessagesChat && peer->isSelf()) {
+		return [](Painter &p, int x, int y, int outerWidth, int size) {
+			Ui::EmptyUserpic::PaintSavedMessages(p, x, y, outerWidth, size);
+		};
+	}
 	return [peer](Painter &p, int x, int y, int outerWidth, int size) {
 		peer->paintUserpicLeft(p, x, y, outerWidth, size);
 	};
@@ -141,13 +150,22 @@ public:
 	void setIsSearchResult(bool isSearchResult) {
 		_isSearchResult = isSearchResult;
 	}
+	bool isSavedMessagesChat() const {
+		return _isSavedMessagesChat;
+	}
+	void setIsSavedMessagesChat(bool isSavedMessagesChat) {
+		_isSavedMessagesChat = isSavedMessagesChat;
+	}
 
 	enum class SetStyle {
 		Animated,
 		Fast,
 	};
 	template <typename UpdateCallback>
-	void setChecked(bool checked, SetStyle style, UpdateCallback callback) {
+	void setChecked(
+			bool checked,
+			SetStyle style,
+			UpdateCallback callback) {
 		if (checked && !_checkbox) {
 			createCheckbox(std::move(callback));
 		}
@@ -218,6 +236,7 @@ private:
 	State _disabledState = State::Active;
 	bool _initialized : 1;
 	bool _isSearchResult : 1;
+	bool _isSavedMessagesChat : 1;
 
 };
 
@@ -265,7 +284,7 @@ public:
 
 	virtual int peerListSelectedRowsCount() = 0;
 	virtual std::vector<not_null<PeerData*>> peerListCollectSelectedRows() = 0;
-	virtual std::unique_ptr<PeerListState> peerListSaveState() = 0;
+	virtual std::unique_ptr<PeerListState> peerListSaveState() const = 0;
 	virtual void peerListRestoreState(
 		std::unique_ptr<PeerListState> state) = 0;
 	virtual ~PeerListDelegate() = default;
@@ -299,7 +318,7 @@ public:
 		_delegate = delegate;
 	}
 
-	virtual std::unique_ptr<SavedStateBase> saveState() {
+	virtual std::unique_ptr<SavedStateBase> saveState() const {
 		return nullptr;
 	}
 	virtual void restoreState(
@@ -354,7 +373,7 @@ public:
 		return nullptr;
 	}
 
-	virtual std::unique_ptr<PeerListState> saveState();
+	virtual std::unique_ptr<PeerListState> saveState() const ;
 	virtual void restoreState(
 		std::unique_ptr<PeerListState> state);
 
@@ -370,6 +389,10 @@ public:
 
 	void peerListSearchAddRow(not_null<PeerData*> peer) override;
 	void peerListSearchRefreshRows() override;
+
+	virtual bool respectSavedMessagesChat() const {
+		return false;
+	}
 
 	virtual rpl::producer<int> onlineCountValue() const;
 
@@ -692,10 +715,10 @@ public:
 	}
 	void peerListSortRows(
 			base::lambda<bool(const PeerListRow &a, const PeerListRow &b)> compare) override {
-		_content->reorderRows([compare = std::move(compare)](
+		_content->reorderRows([&](
 				auto &&begin,
 				auto &&end) {
-			std::sort(begin, end, [&compare](auto &&a, auto &&b) {
+			std::sort(begin, end, [&](auto &&a, auto &&b) {
 				return compare(*a, *b);
 			});
 		});
@@ -703,10 +726,10 @@ public:
 	int peerListPartitionRows(
 			base::lambda<bool(const PeerListRow &a)> border) override {
 		auto result = 0;
-		_content->reorderRows([border = std::move(border), &result](
+		_content->reorderRows([&](
 				auto &&begin,
 				auto &&end) {
-			auto edge = std::stable_partition(begin, end, [&border](
+			auto edge = std::stable_partition(begin, end, [&](
 					auto &&current) {
 				return border(*current);
 			});
@@ -714,7 +737,7 @@ public:
 		});
 		return result;
 	}
-	std::unique_ptr<PeerListState> peerListSaveState() override {
+	std::unique_ptr<PeerListState> peerListSaveState() const override {
 		return _content->saveState();
 	}
 	void peerListRestoreState(
@@ -784,6 +807,6 @@ private:
 
 	std::unique_ptr<PeerListController> _controller;
 	base::lambda<void(PeerListBox*)> _init;
-	bool _scrollBottomFixed = true;
+	bool _scrollBottomFixed = false;
 
 };

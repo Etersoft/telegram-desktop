@@ -46,6 +46,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "numbers.h"
 #include "observer_peer.h"
 #include "auth_session.h"
+#include "core/crash_reports.h"
 #include "storage/storage_facade.h"
 #include "storage/storage_shared_media.h"
 #include "window/themes/window_theme.h"
@@ -60,7 +61,7 @@ namespace {
 	using PeersData = QHash<PeerId, PeerData*>;
 	PeersData peersData;
 
-	using MutedPeers = QMap<PeerData*, bool>;
+	using MutedPeers = QMap<not_null<PeerData*>, bool>;
 	MutedPeers mutedPeers;
 
 	PhotosData photosData;
@@ -195,9 +196,6 @@ namespace {
 		Window::Theme::Background()->reset();
 
 		cSetOtherOnline(0);
-		globalNotifyAllPtr = UnknownNotifySettings;
-		globalNotifyUsersPtr = UnknownNotifySettings;
-		globalNotifyChatsPtr = UnknownNotifySettings;
 		clearStorageImages();
 		if (auto w = wnd()) {
 			w->updateConnectingStatus();
@@ -260,11 +258,11 @@ namespace {
 
 	int32 onlineWillChangeIn(TimeId online, TimeId now) {
 		if (online <= 0) {
-            if (-online > now) return -online - now;
+			if (-online > now) return std::max(-online - now, 86400);
             return 86400;
         }
 		if (online > now) {
-			return online - now;
+			return std::max(online - now, 86400);
 		}
 		int32 minutes = (now - online) / 60;
 		if (minutes < 60) {
@@ -275,7 +273,7 @@ namespace {
 			return (hours + 1) * 3600 - (now - online);
 		}
 		QDateTime dNow(date(now)), dTomorrow(dNow.date().addDays(1));
-		return dNow.secsTo(dTomorrow);
+		return std::max(dNow.secsTo(dTomorrow), 86400LL);
 	}
 
 	QString onlineText(UserData *user, TimeId now, bool precise) {
@@ -475,7 +473,7 @@ namespace {
 				QString pname = (showPhoneChanged || phoneChanged || nameChanged) ? ((showPhone && !phone.isEmpty()) ? formatPhone(phone) : QString()) : data->nameOrPhone;
 
 				if (!minimal && d.is_self() && uname != data->username) {
-					SignalHandlers::setCrashAnnotation("Username", uname);
+					CrashReports::SetAnnotation("Username", uname);
 				}
 				data->setName(fname, lname, pname, uname);
 				if (d.has_photo()) {
@@ -1043,8 +1041,7 @@ namespace {
 			existing->updateMedia(m.has_media() ? (&m.vmedia) : nullptr);
 			existing->updateReplyMarkup(m.has_reply_markup() ? (&m.vreply_markup) : nullptr);
 			existing->setViewsCount(m.has_views() ? m.vviews.v : -1);
-			existing->addToOverview(AddToOverviewNew);
-
+			existing->addToUnreadMentions(AddToUnreadMentionsMethod::New);
 			if (auto sharedMediaTypes = existing->sharedMediaTypes()) {
 				Auth().storage().add(Storage::SharedMediaAddNew(
 					peerId,
@@ -1160,28 +1157,6 @@ namespace {
 		} break;
 		}
 		return ImagePtr();
-	}
-
-	StorageImageLocation imageLocation(int32 w, int32 h, const MTPFileLocation &loc) {
-		if (loc.type() == mtpc_fileLocation) {
-			const auto &l(loc.c_fileLocation());
-			return StorageImageLocation(w, h, l.vdc_id.v, l.vvolume_id.v, l.vlocal_id.v, l.vsecret.v);
-		}
-		return StorageImageLocation(w, h, 0, 0, 0, 0);
-	}
-
-	StorageImageLocation imageLocation(const MTPPhotoSize &size) {
-		switch (size.type()) {
-		case mtpc_photoSize: {
-			const auto &d(size.c_photoSize());
-			return imageLocation(d.vw.v, d.vh.v, d.vlocation);
-		} break;
-		case mtpc_photoCachedSize: {
-			const auto &d(size.c_photoCachedSize());
-			return imageLocation(d.vw.v, d.vh.v, d.vlocation);
-		} break;
-		}
-		return StorageImageLocation();
 	}
 
 	void feedInboxRead(const PeerId &peer, MsgId upTo) {
@@ -1421,7 +1396,18 @@ namespace {
 	}
 
 	DocumentData *feedDocument(const MTPDdocument &document, DocumentData *convert) {
-		return App::documentSet(document.vid.v, convert, document.vaccess_hash.v, document.vversion.v, document.vdate.v, document.vattributes.v, qs(document.vmime_type), App::image(document.vthumb), document.vdc_id.v, document.vsize.v, App::imageLocation(document.vthumb));
+		return App::documentSet(
+			document.vid.v,
+			convert,
+			document.vaccess_hash.v,
+			document.vversion.v,
+			document.vdate.v,
+			document.vattributes.v,
+			qs(document.vmime_type),
+			App::image(document.vthumb),
+			document.vdc_id.v,
+			document.vsize.v,
+			StorageImageLocation::FromMTP(document.vthumb));
 	}
 
 	WebPageData *feedWebPage(const MTPDwebPage &webpage, WebPageData *convert) {
@@ -1630,7 +1616,7 @@ namespace {
 
 				MediaKey newKey = convert->mediaKey();
 				if (idChanged) {
-					if (convert->voice()) {
+					if (convert->isVoiceMessage()) {
 						Local::copyAudio(oldKey, newKey);
 					} else if (convert->sticker() || convert->isAnimation()) {
 						Local::copyStickerImage(oldKey, newKey);
@@ -2598,28 +2584,32 @@ namespace {
 		return QString();
 	}
 
-	void regMuted(PeerData *peer, int32 changeIn) {
+	void regMuted(not_null<PeerData*> peer, TimeMs changeIn) {
 		::mutedPeers.insert(peer, true);
-		if (App::main()) App::main()->updateMutedIn(changeIn);
+		App::main()->updateMutedIn(changeIn);
 	}
 
-	void unregMuted(PeerData *peer) {
+	void unregMuted(not_null<PeerData*> peer) {
 		::mutedPeers.remove(peer);
 	}
 
 	void updateMuted() {
-		int32 changeInMin = 0;
-		for (MutedPeers::iterator i = ::mutedPeers.begin(); i != ::mutedPeers.end();) {
-			int32 changeIn = 0;
-			History *h = App::history(i.key()->id);
-			if (isNotifyMuted(i.key()->notify, &changeIn)) {
-				h->setMute(true);
-				if (changeIn && (!changeInMin || changeIn < changeInMin)) {
-					changeInMin = changeIn;
+		auto changeInMin = TimeMs(0);
+		for (auto i = ::mutedPeers.begin(); i != ::mutedPeers.end();) {
+			const auto history = App::historyLoaded(i.key()->id);
+			const auto muteFinishesIn = i.key()->notifyMuteFinishesIn();
+			if (muteFinishesIn > 0) {
+				if (history) {
+					history->changeMute(true);
+				}
+				if (!changeInMin || muteFinishesIn < changeInMin) {
+					changeInMin = muteFinishesIn;
 				}
 				++i;
 			} else {
-				h->setMute(false);
+				if (history) {
+					history->changeMute(false);
+				}
 				i = ::mutedPeers.erase(i);
 			}
 		}

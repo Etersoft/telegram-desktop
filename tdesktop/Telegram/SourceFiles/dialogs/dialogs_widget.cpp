@@ -756,7 +756,7 @@ void DialogsWidget::dragEnterEvent(QDragEnterEvent *e) {
 		e->setDropAction(Qt::CopyAction);
 		e->accept();
 		updateDragInScroll(_scroll->geometry().contains(e->pos()));
-	} else if (App::main() && App::main()->getDragState(e->mimeData()) != DragStateNone) {
+	} else if (App::main() && App::main()->getDragState(e->mimeData()) != DragState::None) {
 		e->setDropAction(Qt::CopyAction);
 		e->accept();
 	}
@@ -798,7 +798,7 @@ void DialogsWidget::updateDragInScroll(bool inScroll) {
 	if (_dragInScroll != inScroll) {
 		_dragInScroll = inScroll;
 		if (_dragInScroll) {
-			App::main()->showForwardLayer(SelectedItemSet());
+			App::main()->showForwardLayer({});
 		} else {
 			App::main()->dialogsCancelled();
 		}

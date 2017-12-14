@@ -29,6 +29,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/shadow.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/wrap/fade_wrap.h"
+#include "ui/empty_userpic.h"
 #include "messenger.h"
 #include "mainwindow.h"
 #include "lang/lang_keys.h"
@@ -436,20 +437,26 @@ void Panel::processUserPhoto() {
 	if (!_user->userpicLoaded()) {
 		_user->loadUserpic(true);
 	}
-	auto photo = (_user->photoId && _user->photoId != UnknownPeerPhotoId) ? App::photo(_user->photoId) : nullptr;
+	const auto photo = _user->userpicPhotoId()
+		? App::photo(_user->userpicPhotoId())
+		: nullptr;
 	if (isGoodUserPhoto(photo)) {
 		photo->full->load(true);
-	} else {
-		if ((_user->photoId == UnknownPeerPhotoId) || (_user->photoId && (!photo || !photo->date))) {
-			Auth().api().requestFullPeer(_user);
-		}
+	} else if (_user->userpicPhotoUnknown() || (photo && !photo->date)) {
+		Auth().api().requestFullPeer(_user);
 	}
 	refreshUserPhoto();
 }
 
 void Panel::refreshUserPhoto() {
-	auto photo = (_user->photoId && _user->photoId != UnknownPeerPhotoId) ? App::photo(_user->photoId) : nullptr;
-	if (isGoodUserPhoto(photo) && photo->full->loaded() && (photo->id != _userPhotoId || !_userPhotoFull)) {
+	const auto photo = _user->userpicPhotoId()
+		? App::photo(_user->userpicPhotoId())
+		: nullptr;
+	const auto isNewPhoto = [&](not_null<PhotoData*> photo) {
+		return photo->full->loaded()
+			&& (photo->id != _userPhotoId || !_userPhotoFull);
+	};
+	if (isGoodUserPhoto(photo) && isNewPhoto(photo)) {
 		_userPhotoId = photo->id;
 		_userPhotoFull = true;
 		createUserpicCache(photo->full);
@@ -478,7 +485,10 @@ void Panel::createUserpicCache(ImagePtr image) {
 		filled.setDevicePixelRatio(cRetinaFactor());
 		{
 			Painter p(&filled);
-			EmptyUserpic(_user->id, _user->name).paintSquare(p, 0, 0, st::callWidth, st::callWidth);
+			Ui::EmptyUserpic(
+				Data::PeerUserpicColor(_user->id),
+				_user->name
+			).paintSquare(p, 0, 0, st::callWidth, st::callWidth);
 		}
 		Images::prepareRound(filled, ImageRoundRadius::Large, ImageRoundCorner::TopLeft | ImageRoundCorner::TopRight);
 		_userPhoto = App::pixmapFromImageInPlace(std::move(filled));

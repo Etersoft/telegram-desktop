@@ -87,6 +87,9 @@ void SpecialConfigRequest::dnsFinished() {
 	if (!_dnsReply) {
 		return;
 	}
+	if (_dnsReply->error() != QNetworkReply::NoError) {
+		LOG(("Config Error: Failed to get dns response JSON, error: %1 (%2)").arg(_dnsReply->errorString()).arg(_dnsReply->error()));
+	}
 	auto result = _dnsReply->readAll();
 	_dnsReply.release()->deleteLater();
 
@@ -154,7 +157,9 @@ bool SpecialConfigRequest::decryptSimpleConfig(const QByteArray &bytes) {
 		return false;
 	}
 
-	auto publicKey = internal::RSAPublicKey(gsl::as_bytes(gsl::make_span(kPublicKey.c_str(), kPublicKey.size())));
+	auto publicKey = internal::RSAPublicKey(gsl::as_bytes(gsl::make_span(
+		kPublicKey.c_str(),
+		kPublicKey.size())));
 	auto decrypted = publicKey.decrypt(gsl::as_bytes(gsl::make_span(decodedBytes)));
 	auto decryptedBytes = gsl::make_span(decrypted);
 

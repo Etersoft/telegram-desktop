@@ -26,6 +26,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "history/history_item.h"
 #include "window/themes/window_theme.h"
 #include "window/window_controller.h"
+#include "window/window_peer_menu.h"
 #include "storage/file_download.h"
 #include "ui/widgets/popup_menu.h"
 #include "lang/lang_keys.h"
@@ -34,6 +35,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "window/main_window.h"
 #include "styles/style_overview.h"
 #include "styles/style_info.h"
+#include "media/player/media_player_instance.h"
 #include "boxes/peer_list_controllers.h"
 #include "boxes/confirm_box.h"
 #include "core/file_utilities.h"
@@ -545,7 +547,7 @@ void ListWidget::Section::refreshHeight() {
 
 ListWidget::ListWidget(
 	QWidget *parent,
-	not_null<Controller*> controller)
+	not_null<AbstractController*> controller)
 : RpWidget(parent)
 , _controller(controller)
 , _peer(_controller->peer())
@@ -591,6 +593,18 @@ rpl::producer<int> ListWidget::scrollToRequests() const {
 rpl::producer<SelectedItems> ListWidget::selectedListValue() const {
 	return _selectedListStream.events_starting_with(
 		collectSelectedItems());
+}
+
+QRect ListWidget::getCurrentSongGeometry() {
+	const auto type = AudioMsgId::Type::Song;
+	const auto current = ::Media::Player::instance()->current(type);
+	const auto fullMsgId = current.contextId();
+	if (fullMsgId && isPossiblyMyId(fullMsgId)) {
+		if (const auto item = findItemById(GetUniversalId(fullMsgId))) {
+			return item->geometry;
+		}
+	}
+	return QRect(0, 0, width(), 0);
 }
 
 void ListWidget::restart() {
@@ -673,17 +687,13 @@ auto ListWidget::collectSelectedItems() const -> SelectedItems {
 	return items;
 }
 
-SelectedItemSet ListWidget::collectSelectedSet() const {
-	auto items = SelectedItemSet();
-	if (hasSelectedItems()) {
-		for (auto &data : _selected) {
-			auto fullId = computeFullId(data.first);
-			if (auto item = App::histItemById(fullId)) {
-				items.insert(items.size(), item);
-			}
-		}
-	}
-	return items;
+MessageIdsList ListWidget::collectSelectedIds() const {
+	const auto selected = collectSelectedItems();
+	return ranges::view::all(
+		selected.list
+	) | ranges::view::transform([](const SelectedItem &item) {
+		return item.msgId;
+	}) | ranges::to_vector;
 }
 
 void ListWidget::pushSelectedItems() {
@@ -1228,13 +1238,13 @@ void ListWidget::showContextMenu(
 	auto photoLink = dynamic_cast<PhotoClickHandler*>(link.data());
 	auto fileLink = dynamic_cast<DocumentClickHandler*>(link.data());
 	if (photoLink || fileLink) {
-		auto [isVideo, isVoice, isSong] = [&] {
+		auto [isVideo, isVoice, isAudio] = [&] {
 			if (fileLink) {
 				auto document = fileLink->document();
 				return std::make_tuple(
-					document->isVideo(),
-					(document->voice() != nullptr),
-					(document->song() != nullptr)
+					document->isVideoFile(),
+					document->isVoiceMessage(),
+					document->isAudioFile()
 				);
 			}
 			return std::make_tuple(false, false, false);
@@ -1275,7 +1285,7 @@ void ListWidget::showContextMenu(
 							? lng_context_save_video
 							: isVoice
 							? lng_context_save_audio
-							: isSong
+							: isAudio
 							? lng_context_save_audio_file
 							: lng_context_save_file),
 						std::move(handler));
@@ -1350,6 +1360,7 @@ void ListWidget::showContextMenu(
 			_contextMenu = nullptr;
 			mouseActionUpdate(QCursor::pos());
 			repaintItem(universalId);
+			_checkForHide.fire({});
 		}));
 	_contextMenu->popup(e->globalPos());
 	e->accept();
@@ -1364,53 +1375,53 @@ void ListWidget::contextMenuEvent(QContextMenuEvent *e) {
 }
 
 void ListWidget::forwardSelected() {
-	forwardItems(collectSelectedSet());
-}
-
-void ListWidget::forwardItem(UniversalMsgId universalId) {
-	if (auto item = App::histItemById(computeFullId(universalId))) {
-		auto items = SelectedItemSet();
-		items.insert(0, item);
+	if (auto items = collectSelectedIds(); !items.empty()) {
 		forwardItems(std::move(items));
 	}
 }
 
-void ListWidget::forwardItems(SelectedItemSet items) {
-	if (items.empty()) {
-		return;
+void ListWidget::forwardItem(UniversalMsgId universalId) {
+	if (const auto item = App::histItemById(computeFullId(universalId))) {
+		forwardItems({ 1, item->fullId() });
 	}
-	auto weak = make_weak(this);
-	auto controller = std::make_unique<ChooseRecipientBoxController>(
-		[weak, items = std::move(items)](not_null<PeerData*> peer) {
-			App::main()->setForwardDraft(peer->id, items);
-			if (weak) {
-				weak->clearSelected();
-			}
-		});
-	Ui::show(Box<PeerListBox>(
-		std::move(controller),
-		[](not_null<PeerListBox*> box) {
-			box->addButton(langFactory(lng_cancel), [box] {
-				box->closeBox();
-			});
-		}));
+}
+
+void ListWidget::forwardItems(MessageIdsList &&items) {
+	auto callback = [weak = make_weak(this)] {
+		if (const auto strong = weak.data()) {
+			strong->clearSelected();
+		}
+	};
+	setActionBoxWeak(Window::ShowForwardMessagesBox(
+		std::move(items),
+		std::move(callback)));
 }
 
 void ListWidget::deleteSelected() {
-	deleteItems(collectSelectedSet());
+	deleteItems(collectSelectedIds());
 }
 
 void ListWidget::deleteItem(UniversalMsgId universalId) {
-	if (auto item = App::histItemById(computeFullId(universalId))) {
-		auto items = SelectedItemSet();
-		items.insert(0, item);
-		deleteItems(std::move(items));
+	if (const auto item = App::histItemById(computeFullId(universalId))) {
+		deleteItems({ 1, item->fullId() });
 	}
 }
 
-void ListWidget::deleteItems(SelectedItemSet items) {
+void ListWidget::deleteItems(MessageIdsList &&items) {
 	if (!items.empty()) {
-		Ui::show(Box<DeleteMessagesBox>(items));
+		const auto box = Ui::show(Box<DeleteMessagesBox>(std::move(items)));
+		setActionBoxWeak(box.data());
+	}
+}
+
+void ListWidget::setActionBoxWeak(QPointer<Ui::RpWidget> box) {
+	if ((_actionBoxWeak = box)) {
+		_actionBoxWeakLifetime = _actionBoxWeak->alive(
+		) | rpl::start_with_done([weak = make_weak(this)]{
+			if (weak) {
+				weak->_checkForHide.fire({});
+			}
+		});
 	}
 }
 
@@ -1785,8 +1796,8 @@ void ListWidget::mouseActionStart(const QPoint &screenPos, Qt::MouseButton butto
 	auto pressLayout = _overLayout;
 
 	_mouseAction = MouseAction::None;
-	_pressWasInactive = _controller->window()->window()->wasInactivePress();
-	if (_pressWasInactive) _controller->window()->window()->setInactivePress(false);
+	_pressWasInactive = _controller->parentController()->window()->wasInactivePress();
+	if (_pressWasInactive) _controller->parentController()->window()->setInactivePress(false);
 
 	if (ClickHandler::getPressed() && !hasSelected()) {
 		_mouseAction = MouseAction::PrepareDrag;
@@ -1910,7 +1921,7 @@ void ListWidget::performDrag() {
 	//			mimeData->setData(qsl("application/x-td-forward-selected"), "1");
 	//		}
 	//	}
-	//	_controller->window()->launchDrag(std::move(mimeData));
+	//	_controller->parentController()->window()->launchDrag(std::move(mimeData));
 	//	return;
 	//} else {
 	//	auto forwardMimeType = QString();
@@ -1941,7 +1952,7 @@ void ListWidget::performDrag() {
 	//		}
 
 	//		// This call enters event loop and can destroy any QObject.
-	//		_controller->window()->launchDrag(std::move(mimeData));
+	//		_controller->parentController()->window()->launchDrag(std::move(mimeData));
 	//		return;
 	//	}
 	//}
@@ -1991,7 +2002,7 @@ void ListWidget::mouseActionFinish(const QPoint &screenPos, Qt::MouseButton butt
 			if (selection.text != FullSelection
 				&& selection.text.from == selection.text.to) {
 				clearSelected();
-				//_controller->window()->setInnerFocus(); // #TODO focus
+				//_controller->parentController()->window()->setInnerFocus(); // #TODO focus
 			}
 		}
 	}

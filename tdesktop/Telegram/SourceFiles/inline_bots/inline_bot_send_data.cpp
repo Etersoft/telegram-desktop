@@ -43,7 +43,25 @@ UserId viaBotId, MsgId replyToId, const QString &postAuthor, const MTPReplyMarku
 	if (!fields.entities.v.isEmpty()) {
 		flags |= MTPDmessage::Flag::f_entities;
 	}
-	history->addNewMessage(MTP_message(MTP_flags(flags), MTP_int(msgId), MTP_int(fromId), peerToMTP(history->peer->id), MTPnullFwdHeader, MTP_int(viaBotId), MTP_int(replyToId), mtpDate, fields.text, fields.media, markup, fields.entities, MTP_int(1), MTPint(), MTP_string(postAuthor)), NewMessageUnread);
+	history->addNewMessage(
+		MTP_message(
+			MTP_flags(flags),
+			MTP_int(msgId),
+			MTP_int(fromId),
+			peerToMTP(history->peer->id),
+			MTPnullFwdHeader,
+			MTP_int(viaBotId),
+			MTP_int(replyToId),
+			mtpDate,
+			fields.text,
+			fields.media,
+			markup,
+			fields.entities,
+			MTP_int(1),
+			MTPint(),
+			MTP_string(postAuthor),
+			MTPlong()),
+		NewMessageUnread);
 }
 
 QString SendDataCommon::getErrorOnSend(const Result *owner, History *history) const {
@@ -120,9 +138,12 @@ QString SendFile::getErrorOnSend(const Result *owner, History *history) const {
 	if (auto megagroup = history->peer->asMegagroup()) {
 		if (megagroup->restricted(ChannelRestriction::f_send_media)) {
 			return lang(lng_restricted_send_media);
-		} else if (megagroup->restricted(ChannelRestriction::f_send_stickers) && (_document->sticker() != nullptr)) {
+		} else if (megagroup->restricted(ChannelRestriction::f_send_stickers)
+			&& (_document->sticker() != nullptr)) {
 			return lang(lng_restricted_send_stickers);
-		} else if (megagroup->restricted(ChannelRestriction::f_send_gifs) && _document->isAnimation() && !_document->isRoundVideo()) {
+		} else if (megagroup->restricted(ChannelRestriction::f_send_gifs)
+			&& _document->isAnimation()
+			&& !_document->isVideoMessage()) {
 			return lang(lng_restricted_send_gifs);
 		}
 	}

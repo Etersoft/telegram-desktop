@@ -23,7 +23,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "data/data_document.h"
 #include "media/media_audio.h"
 #include "media/media_audio_capture.h"
-#include "observer_peer.h"
 #include "messenger.h"
 #include "auth_session.h"
 #include "calls/calls_instance.h"
@@ -34,6 +33,12 @@ namespace Player {
 namespace {
 
 Instance *SingleInstance = nullptr;
+
+// Preload X message ids before and after current.
+constexpr auto kIdsLimit = 32;
+
+// Preload next messages if we went further from current than that.
+constexpr auto kIdsPreloadAfter = 28;
 
 } // namespace
 
@@ -52,15 +57,11 @@ void finish() {
 }
 
 Instance::Instance()
-: _songData(AudioMsgId::Type::Song, OverviewMusicFiles)
-, _voiceData(AudioMsgId::Type::Voice, OverviewRoundVoiceFiles) {
+: _songData(AudioMsgId::Type::Song, SharedMediaType::MusicFile)
+, _voiceData(AudioMsgId::Type::Voice, SharedMediaType::RoundVoiceFile) {
 	subscribe(Media::Player::Updated(), [this](const AudioMsgId &audioId) {
 		handleSongUpdate(audioId);
 	});
-	auto observeEvents = Notify::PeerUpdate::Flag::SharedMediaChanged;
-	subscribe(Notify::PeerUpdated(), Notify::PeerUpdatedHandler(observeEvents, [this](const Notify::PeerUpdate &update) {
-		notifyPeerUpdated(update);
-	}));
 	subscribe(Global::RefSelfChanged(), [this] {
 		if (!App::self()) {
 			handleLogout();
@@ -95,27 +96,6 @@ AudioMsgId::Type Instance::getActiveType() const {
 	return AudioMsgId::Type::Song;
 }
 
-void Instance::notifyPeerUpdated(const Notify::PeerUpdate &update) {
-	checkPeerUpdate(AudioMsgId::Type::Song, update);
-	checkPeerUpdate(AudioMsgId::Type::Voice, update);
-}
-
-void Instance::checkPeerUpdate(AudioMsgId::Type type, const Notify::PeerUpdate &update) {
-	if (auto data = getData(type)) {
-		if (!data->history) {
-			return;
-		}
-		if (!(update.mediaTypesMask & (1 << data->overview))) {
-			return;
-		}
-		if (update.peer != data->history->peer && (!data->migrated || update.peer != data->migrated->peer)) {
-			return;
-		}
-
-		rebuildPlaylist(data);
-	}
-}
-
 void Instance::handleSongUpdate(const AudioMsgId &audioId) {
 	emitUpdate(audioId.type(), [&audioId](const AudioMsgId &playing) {
 		return (audioId == playing);
@@ -139,58 +119,162 @@ void Instance::setCurrent(const AudioMsgId &audioId) {
 				data->migrated = nullptr;
 			}
 			_trackChangedNotifier.notify(data->type, true);
-			if (data->history != history || data->migrated != migrated) {
-				rebuildPlaylist(data);
-			}
+			refreshPlaylist(data);
 		}
 	}
 }
 
-void Instance::rebuildPlaylist(Data *data) {
-	Expects(data != nullptr);
-
-	data->playlist.clear();
-	if (data->history && data->history->loadedAtBottom()) {
-		auto &historyOverview = data->history->overview(data->overview);
-		if (data->migrated && data->migrated->loadedAtBottom() && data->history->loadedAtTop()) {
-			auto &migratedOverview = data->migrated->overview(data->overview);
-			data->playlist.reserve(migratedOverview.size() + historyOverview.size());
-			for_const (auto msgId, migratedOverview) {
-				data->playlist.push_back(FullMsgId(data->migrated->channelId(), msgId));
-			}
-		} else {
-			data->playlist.reserve(historyOverview.size());
-		}
-		for_const (auto msgId, historyOverview) {
-			data->playlist.push_back(FullMsgId(data->history->channelId(), msgId));
-		}
+void Instance::refreshPlaylist(not_null<Data*> data) {
+	if (!validPlaylist(data)) {
+		validatePlaylist(data);
 	}
-	_playlistChangedNotifier.notify(data->type, true);
+	playlistUpdated(data);
 }
 
-bool Instance::moveInPlaylist(Data *data, int delta, bool autonext) {
-	Expects(data != nullptr);
+void Instance::playlistUpdated(not_null<Data*> data) {
+	if (data->playlistSlice) {
+		const auto fullId = data->current.contextId();
+		data->playlistIndex = data->playlistSlice->indexOf(fullId);
+	} else {
+		data->playlistIndex = base::none;
+	}
+	data->playlistChanges.fire({});
+}
 
-	auto index = data->playlist.indexOf(data->current.contextId());
-	auto newIndex = index + delta;
-	if (!data->current || index < 0 || newIndex < 0 || newIndex >= data->playlist.size()) {
-		rebuildPlaylist(data);
+bool Instance::validPlaylist(not_null<Data*> data) {
+	if (const auto key = playlistKey(data)) {
+		if (!data->playlistSlice) {
+			return false;
+		}
+		using Key = SliceKey;
+		const auto inSameDomain = [](const Key &a, const Key &b) {
+			return (a.peerId == b.peerId)
+				&& (a.migratedPeerId == b.migratedPeerId);
+		};
+		const auto countDistanceInData = [&](const Key &a, const Key &b) {
+			return [&](const SparseIdsMergedSlice &data) {
+				return inSameDomain(a, b)
+					? data.distance(a, b)
+					: base::optional<int>();
+			};
+		};
+
+		if (key == data->playlistRequestedKey) {
+			return true;
+		} else if (!data->playlistSliceKey
+			|| !data->playlistRequestedKey
+			|| *data->playlistRequestedKey != *data->playlistSliceKey) {
+			return false;
+		}
+		auto distance = data->playlistSlice
+			| countDistanceInData(*key, *data->playlistRequestedKey)
+			| func::abs;
+		if (distance) {
+			return (*distance < kIdsPreloadAfter);
+		}
+	}
+	return !data->playlistSlice;
+}
+
+void Instance::validatePlaylist(not_null<Data*> data) {
+	if (const auto key = playlistKey(data)) {
+		data->playlistRequestedKey = key;
+		SharedMediaMergedViewer(
+			SharedMediaMergedKey(*key, data->overview),
+			kIdsLimit,
+			kIdsLimit
+		) | rpl::start_with_next([=](SparseIdsMergedSlice &&update) {
+			data->playlistSlice = std::move(update);
+			data->playlistSliceKey = key;
+			playlistUpdated(data);
+		}, data->playlistLifetime);
+	} else {
+		data->playlistSlice = base::none;
+		data->playlistSliceKey = data->playlistRequestedKey = base::none;
+		playlistUpdated(data);
+	}
+}
+
+auto Instance::playlistKey(not_null<Data*> data) const
+-> base::optional<SliceKey> {
+	const auto contextId = data->current.contextId();
+	const auto history = data->history;
+	if (!contextId || !history || !IsServerMsgId(contextId.msg)) {
+		return {};
+	}
+
+	const auto universalId = (contextId.channel == history->channelId())
+		? contextId.msg
+		: (contextId.msg - ServerMaxMsgId);
+	return SliceKey(
+		data->history->peer->id,
+		data->migrated ? data->migrated->peer->id : 0,
+		universalId);
+}
+
+HistoryItem *Instance::itemByIndex(not_null<Data*> data, int index) {
+	if (!data->playlistSlice
+		|| index < 0
+		|| index >= data->playlistSlice->size()) {
+		return nullptr;
+	}
+	const auto fullId = (*data->playlistSlice)[index];
+	return App::histItemById(fullId);
+}
+
+bool Instance::moveInPlaylist(
+		not_null<Data*> data,
+		int delta,
+		bool autonext) {
+	if (!data->playlistIndex) {
 		return false;
 	}
-
-	auto msgId = data->playlist[newIndex];
-	if (auto item = App::histItemById(msgId)) {
-		if (auto media = item->getMedia()) {
-			if (auto document = media->getDocument()) {
+	const auto newIndex = *data->playlistIndex + delta;
+	if (const auto item = itemByIndex(data, newIndex)) {
+		if (const auto media = item->getMedia()) {
+			if (const auto document = media->getDocument()) {
 				if (autonext) {
-					_switchToNextNotifier.notify({ data->current, msgId });
+					_switchToNextNotifier.notify({
+						data->current,
+						item->fullId()
+					});
 				}
-				DocumentOpenClickHandler::doOpen(media->getDocument(), item, ActionOnLoadPlayInline);
+				if (document->isAudioFile()) {
+					play(AudioMsgId(document, item->fullId()));
+				} else {
+					DocumentOpenClickHandler::doOpen(
+						document,
+						item,
+						ActionOnLoadPlayInline);
+				}
 				return true;
 			}
 		}
 	}
 	return false;
+}
+
+bool Instance::previousAvailable(AudioMsgId::Type type) const {
+	const auto data = getData(type);
+	Assert(data != nullptr);
+	return data->playlistIndex
+		&& data->playlistSlice
+		&& (*data->playlistIndex > 0);
+}
+
+bool Instance::nextAvailable(AudioMsgId::Type type) const {
+	const auto data = getData(type);
+	Assert(data != nullptr);
+	return data->playlistIndex
+		&& data->playlistSlice
+		&& (*data->playlistIndex + 1 < data->playlistSlice->size());
+}
+
+rpl::producer<> Media::Player::Instance::playlistChanges(
+		AudioMsgId::Type type) const {
+	const auto data = getData(type);
+	Assert(data != nullptr);
+	return data->playlistChanges.events();
 }
 
 Instance *instance() {
@@ -214,18 +298,19 @@ void Instance::play(AudioMsgId::Type type) {
 }
 
 void Instance::play(const AudioMsgId &audioId) {
-	if (!audioId) {
+	const auto document = audioId.audio();
+	if (!audioId || !document) {
 		return;
 	}
-	if (audioId.audio()->song() || audioId.audio()->voice()) {
+	if (document->isAudioFile() || document->isVoiceMessage()) {
 		mixer()->play(audioId);
 		setCurrent(audioId);
-		if (audioId.audio()->loading()) {
-			documentLoadProgress(audioId.audio());
+		if (document->loading()) {
+			documentLoadProgress(document);
 		}
-	} else if (audioId.audio()->isRoundVideo()) {
-		if (auto item = App::histItemById(audioId.contextId())) {
-			if (auto media = item->getMedia()) {
+	} else if (document->isVideoMessage()) {
+		if (const auto item = App::histItemById(audioId.contextId())) {
+			if (const auto media = item->getMedia()) {
 				media->playInline();
 			}
 		}
@@ -311,7 +396,10 @@ void Instance::stopSeeking(AudioMsgId::Type type) {
 }
 
 void Instance::documentLoadProgress(DocumentData *document) {
-	emitUpdate(document->song() ? AudioMsgId::Type::Song : AudioMsgId::Type::Voice, [document](const AudioMsgId &audioId) {
+	const auto type = document->isAudioFile()
+		? AudioMsgId::Type::Song
+		: AudioMsgId::Type::Voice;
+	emitUpdate(type, [document](const AudioMsgId &audioId) {
 		return (audioId.audio() == document);
 	});
 }
@@ -344,25 +432,21 @@ void Instance::emitUpdate(AudioMsgId::Type type, CheckCallback check) {
 	}
 }
 
-void Instance::preloadNext(Data *data) {
-	Expects(data != nullptr);
-
-	if (!data->current) {
+void Instance::preloadNext(not_null<Data*> data) {
+	if (!data->current || !data->playlistSlice || !data->playlistIndex) {
 		return;
 	}
-	auto index = data->playlist.indexOf(data->current.contextId());
-	if (index < 0) {
-		return;
-	}
-	auto nextIndex = index + 1;
-	if (nextIndex >= data->playlist.size()) {
-		return;
-	}
-	if (auto item = App::histItemById(data->playlist[nextIndex])) {
-		if (auto media = item->getMedia()) {
-			if (auto document = media->getDocument()) {
-				if (!document->loaded(DocumentData::FilePathResolveSaveFromDataSilent)) {
-					DocumentOpenClickHandler::doOpen(document, nullptr, ActionOnLoadNone);
+	const auto nextIndex = *data->playlistIndex + 1;
+	if (const auto item = itemByIndex(data, nextIndex)) {
+		if (const auto media = item->getMedia()) {
+			if (const auto document = media->getDocument()) {
+				const auto isLoaded = document->loaded(
+					DocumentData::FilePathResolveSaveFromDataSilent);
+				if (!isLoaded) {
+					DocumentOpenClickHandler::doOpen(
+						document,
+						nullptr,
+						ActionOnLoadNone);
 				}
 			}
 		}
@@ -370,8 +454,12 @@ void Instance::preloadNext(Data *data) {
 }
 
 void Instance::handleLogout() {
-	*getData(AudioMsgId::Type::Voice) = Data(AudioMsgId::Type::Voice, OverviewRoundVoiceFiles);
-	*getData(AudioMsgId::Type::Song) = Data(AudioMsgId::Type::Song, OverviewMusicFiles);
+	const auto reset = [&](AudioMsgId::Type type) {
+		const auto data = getData(type);
+		*data = Data(type, data->overview);
+	};
+	reset(AudioMsgId::Type::Voice);
+	reset(AudioMsgId::Type::Song);
 	_usePanelPlayer.notify(false, true);
 }
 

@@ -261,15 +261,18 @@ object_ptr<Ui::RpWidget> DetailsFiller::setupInfo() {
 		});
 		addInfoLine(lng_info_about_label, AboutValue(_peer));
 	}
-	result->add(object_ptr<Ui::SlideWrap<>>(
-		result,
-		object_ptr<Ui::PlainShadow>(result),
-		st::infoProfileSeparatorPadding)
-	)->setDuration(
-		st::infoSlideDuration
-	)->toggleOn(
-		std::move(tracker).atLeastOneShownValue()
-	);
+	if (!_peer->isSelf()) {
+		// No notifications toggle for Self => no separator.
+		result->add(object_ptr<Ui::SlideWrap<>>(
+			result,
+			object_ptr<Ui::PlainShadow>(result),
+			st::infoProfileSeparatorPadding)
+		)->setDuration(
+			st::infoSlideDuration
+		)->toggleOn(
+			std::move(tracker).atLeastOneShownValue()
+		);
+	}
 	object_ptr<FloatingIcon>(
 		result,
 		st::infoIconInformation,
@@ -278,7 +281,7 @@ object_ptr<Ui::RpWidget> DetailsFiller::setupInfo() {
 }
 
 object_ptr<Ui::RpWidget> DetailsFiller::setupMuteToggle() {
-	auto peer = _peer;
+	const auto peer = _peer;
 	auto result = object_ptr<Button>(
 		_wrap,
 		Lang::Viewer(lng_profile_enable_notifications),
@@ -286,11 +289,10 @@ object_ptr<Ui::RpWidget> DetailsFiller::setupMuteToggle() {
 	result->toggleOn(
 		NotificationsEnabledValue(peer)
 	)->addClickHandler([=] {
-		App::main()->updateNotifySetting(
-			peer,
-			peer->isMuted()
-				? NotifySettingSetNotify
-				: NotifySettingSetMuted);
+		const auto muteState = peer->isMuted()
+			? Data::NotifySettings::MuteChange::Unmute
+			: Data::NotifySettings::MuteChange::Mute;
+		App::main()->updateNotifySettings(peer, muteState);
 	});
 	object_ptr<FloatingIcon>(
 		result,
@@ -323,29 +325,50 @@ Ui::MultiSlideTracker DetailsFiller::fillUserButtons(
 	using namespace rpl::mappers;
 
 	Ui::MultiSlideTracker tracker;
-	auto window = _controller->window();
-	auto sendMessageVisible = rpl::combine(
-		_controller->wrapValue(),
-		window->historyPeer.value(),
-		(_1 != Wrap::Side) || (_2 != user));
-	auto sendMessage = [window, user] {
-		window->showPeerHistory(
-			user,
-			Window::SectionShow::Way::Forward);
-	};
-	AddMainButton(
-		_wrap,
-		Lang::Viewer(lng_profile_send_message),
-		std::move(sendMessageVisible),
-		std::move(sendMessage),
-		tracker);
-	AddMainButton(
-		_wrap,
-		Lang::Viewer(lng_info_add_as_contact),
-		CanAddContactValue(user),
-		[user] { Window::PeerMenuAddContact(user); },
-		tracker);
+	auto window = _controller->parentController();
 
+	auto addSendMessageButton = [&] {
+		auto sendMessageVisible = rpl::combine(
+			_controller->wrapValue(),
+			window->historyPeer.value(),
+			(_1 != Wrap::Side) || (_2 != user));
+		auto sendMessage = [window, user] {
+			window->showPeerHistory(
+				user,
+				Window::SectionShow::Way::Forward);
+		};
+		AddMainButton(
+			_wrap,
+			Lang::Viewer(lng_profile_send_message),
+			std::move(sendMessageVisible),
+			std::move(sendMessage),
+			tracker);
+	};
+
+	if (user->isSelf()) {
+		auto separator = _wrap->add(object_ptr<Ui::SlideWrap<>>(
+			_wrap,
+			object_ptr<Ui::PlainShadow>(_wrap),
+			st::infoProfileSeparatorPadding)
+		)->setDuration(
+			st::infoSlideDuration
+		);
+
+		addSendMessageButton();
+
+		separator->toggleOn(
+			std::move(tracker).atLeastOneShownValue()
+		);
+	} else {
+		addSendMessageButton();
+
+		AddMainButton(
+			_wrap,
+			Lang::Viewer(lng_info_add_as_contact),
+			CanAddContactValue(user),
+			[user] { Window::PeerMenuAddContact(user); },
+			tracker);
+	}
 	return tracker;
 }
 
@@ -354,7 +377,7 @@ Ui::MultiSlideTracker DetailsFiller::fillChannelButtons(
 	using namespace rpl::mappers;
 
 	Ui::MultiSlideTracker tracker;
-	auto window = _controller->window();
+	auto window = _controller->parentController();
 	auto viewChannelVisible = rpl::combine(
 		_controller->wrapValue(),
 		window->historyPeer.value(),
@@ -378,7 +401,9 @@ object_ptr<Ui::RpWidget> DetailsFiller::fill() {
 	add(object_ptr<BoxContentDivider>(_wrap));
 	add(CreateSkipWidget(_wrap));
 	add(setupInfo());
-	add(setupMuteToggle());
+	if (!_peer->isSelf()) {
+		add(setupMuteToggle());
+	}
 	setupMainButtons();
 	add(CreateSkipWidget(_wrap));
 	return std::move(_wrap);
@@ -428,53 +453,20 @@ void ActionsFiller::addDeleteContactAction(
 }
 
 void ActionsFiller::addClearHistoryAction(not_null<UserData*> user) {
-	auto callback = [user] {
-		auto confirmation = lng_sure_delete_history(
-			lt_contact,
-			App::peerName(user));
-		auto confirmCallback = [user] {
-			Ui::hideLayer();
-			Auth().api().clearHistory(user);
-			Ui::showPeerHistory(user, ShowAtUnreadMsgId);
-		};
-		auto box = Box<ConfirmBox>(
-			confirmation,
-			lang(lng_box_delete),
-			st::attentionBoxButton,
-			std::move(confirmCallback));
-		Ui::show(std::move(box));
-	};
 	AddActionButton(
 		_wrap,
 		Lang::Viewer(lng_profile_clear_history),
 		rpl::single(true),
-		std::move(callback));
+		 Window::ClearHistoryHandler(user));
 }
 
 void ActionsFiller::addDeleteConversationAction(
 		not_null<UserData*> user) {
-	auto callback = [user] {
-		auto confirmation = lng_sure_delete_history(
-			lt_contact,
-			App::peerName(user));
-		auto confirmButton = lang(lng_box_delete);
-		auto confirmCallback = [user] {
-			Ui::hideLayer();
-			Ui::showChatsList();
-			App::main()->deleteConversation(user);
-		};
-		auto box = Box<ConfirmBox>(
-			confirmation,
-			confirmButton,
-			st::attentionBoxButton,
-			std::move(confirmCallback));
-		Ui::show(std::move(box));
-	};
 	AddActionButton(
 		_wrap,
 		Lang::Viewer(lng_profile_delete_conversation),
 		rpl::single(true),
-		std::move(callback));
+		Window::DeleteAndLeaveHandler(user));
 }
 
 void ActionsFiller::addBotCommandActions(not_null<UserData*> user) {
@@ -612,8 +604,10 @@ void ActionsFiller::fillUserActions(not_null<UserData*> user) {
 		addInviteToGroupAction(user);
 	}
 	addShareContactAction(user);
-	addEditContactAction(user);
-	addDeleteContactAction(user);
+	if (!user->isSelf()) {
+		addEditContactAction(user);
+		addDeleteContactAction(user);
+	}
 	addClearHistoryAction(user);
 	addDeleteConversationAction(user);
 	if (!user->isSelf()) {
@@ -729,7 +723,7 @@ object_ptr<Ui::RpWidget> SetupChannelMembers(
 		return lng_chat_status_members(lt_count, count);
 	});
 	auto membersCallback = [controller, channel] {
-		controller->window()->showSection(Info::Memento(
+		controller->showSection(Info::Memento(
 			channel->id,
 			Section::Type::Members));
 	};

@@ -26,23 +26,97 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include <openssl/bio.h>
 #include <openssl/err.h>
 
-using std::string;
-
 namespace MTP {
 namespace internal {
+namespace {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+
+// This is a key setter for compatibility with OpenSSL 1.0
+int RSA_set0_key(RSA *r, BIGNUM *n, BIGNUM *e, BIGNUM *d) {
+	if ((r->n == nullptr && n == nullptr) || (r->e == nullptr && e == nullptr)) {
+		return 0;
+	}
+	if (n != nullptr) {
+		BN_free(r->n);
+		r->n = n;
+	}
+	if (e != nullptr) {
+		BN_free(r->e);
+		r->e = e;
+	}
+	if (d != nullptr) {
+		BN_free(r->d);
+		r->d = d;
+	}
+	return 1;
+}
+
+// This is a key getter for compatibility with OpenSSL 1.0
+void RSA_get0_key(const RSA *r, const BIGNUM **n, const BIGNUM **e, const BIGNUM **d) {
+	if (n != nullptr) {
+		*n = r->n;
+	}
+	if (e != nullptr) {
+		*e = r->e;
+	}
+	if (d != nullptr) {
+		*d = r->d;
+	}
+}
+
+#endif
+
+enum class Format {
+	RSAPublicKey,
+	RSA_PUBKEY,
+	Unknown,
+};
+
+Format GuessFormat(base::const_byte_span key) {
+	const auto array = QByteArray::fromRawData(
+		reinterpret_cast<const char*>(key.data()),
+		key.size());
+	if (array.indexOf("BEGIN RSA PUBLIC KEY") >= 0) {
+		return Format::RSAPublicKey;
+	} else if (array.indexOf("BEGIN PUBLIC KEY") >= 0) {
+		return Format::RSA_PUBKEY;
+	}
+	return Format::Unknown;
+}
+
+RSA *CreateRaw(base::const_byte_span key) {
+	const auto format = GuessFormat(key);
+	const auto bio = BIO_new_mem_buf(
+		const_cast<gsl::byte*>(key.data()),
+		key.size());
+	switch (format) {
+	case Format::RSAPublicKey:
+		return PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
+	case Format::RSA_PUBKEY:
+		return PEM_read_bio_RSA_PUBKEY(bio, nullptr, nullptr, nullptr);
+	}
+	Unexpected("format in RSAPublicKey::Private::Create.");
+}
+
+} // namespace
 
 class RSAPublicKey::Private {
 public:
-	Private(base::const_byte_span key) : _rsa(PEM_read_bio_RSAPublicKey(BIO_new_mem_buf(const_cast<gsl::byte*>(key.data()), key.size()), 0, 0, 0)) {
+	Private(base::const_byte_span key)
+	: _rsa(CreateRaw(key)) {
 		if (_rsa) {
 			computeFingerprint();
 		}
 	}
-	Private(base::const_byte_span nBytes, base::const_byte_span eBytes) : _rsa(RSA_new()) {
+	Private(base::const_byte_span nBytes, base::const_byte_span eBytes)
+	: _rsa(RSA_new()) {
 		if (_rsa) {
-			_rsa->n = BN_dup(openssl::BigNum(nBytes).raw());
-			_rsa->e = BN_dup(openssl::BigNum(eBytes).raw());
-			if (!_rsa->n || !_rsa->e) {
+			auto n = openssl::BigNum(nBytes).takeRaw();
+			auto e = openssl::BigNum(eBytes).takeRaw();
+			auto valid = (n != nullptr) && (e != nullptr);
+			// We still pass both values to RSA_set0_key() so that even
+			// if only one of them is valid RSA would take ownership of it.
+			if (!RSA_set0_key(_rsa, n, e, nullptr) || !valid) {
 				RSA_free(base::take(_rsa));
 			} else {
 				computeFingerprint();
@@ -51,11 +125,15 @@ public:
 	}
 	base::byte_vector getN() const {
 		Expects(isValid());
-		return toBytes(_rsa->n);
+		const BIGNUM *n;
+		RSA_get0_key(_rsa, &n, nullptr, nullptr);
+		return toBytes(n);
 	}
 	base::byte_vector getE() const {
 		Expects(isValid());
-		return toBytes(_rsa->e);
+		const BIGNUM *e;
+		RSA_get0_key(_rsa, nullptr, &e, nullptr);
+		return toBytes(e);
 	}
 	uint64 getFingerPrint() const {
 		return _fingerprint;
@@ -105,14 +183,16 @@ private:
 	void computeFingerprint() {
 		Expects(isValid());
 
+		const BIGNUM *n, *e;
 		mtpBuffer string;
-		MTP_bytes(toBytes(_rsa->n)).write(string);
-		MTP_bytes(toBytes(_rsa->e)).write(string);
+		RSA_get0_key(_rsa, &n, &e, nullptr);
+		MTP_bytes(toBytes(n)).write(string);
+		MTP_bytes(toBytes(e)).write(string);
 
 		uchar sha1Buffer[20];
 		_fingerprint = *(uint64*)(hashSha1(&string[0], string.size() * sizeof(mtpPrime), sha1Buffer) + 3);
 	}
-	static base::byte_vector toBytes(BIGNUM *number) {
+	static base::byte_vector toBytes(const BIGNUM *number) {
 		auto size = BN_num_bytes(number);
 		auto result = base::byte_vector(size, gsl::byte {});
 		BN_bn2bin(number, reinterpret_cast<unsigned char*>(result.data()));
@@ -124,10 +204,14 @@ private:
 
 };
 
-RSAPublicKey::RSAPublicKey(base::const_byte_span key) : _private(std::make_shared<Private>(key)) {
+RSAPublicKey::RSAPublicKey(base::const_byte_span key)
+: _private(std::make_shared<Private>(key)) {
 }
 
-RSAPublicKey::RSAPublicKey(base::const_byte_span nBytes, base::const_byte_span eBytes) : _private(std::make_shared<Private>(nBytes, eBytes)) {
+RSAPublicKey::RSAPublicKey(
+	base::const_byte_span nBytes,
+	base::const_byte_span eBytes)
+: _private(std::make_shared<Private>(nBytes, eBytes)) {
 }
 
 bool RSAPublicKey::isValid() const {

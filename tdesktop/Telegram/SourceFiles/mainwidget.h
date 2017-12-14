@@ -21,7 +21,6 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #pragma once
 
 #include "storage/localimageloader.h"
-#include "history/history_common.h"
 #include "core/single_timer.h"
 #include "base/weak_ptr.h"
 #include "ui/rp_widget.h"
@@ -75,22 +74,18 @@ class HistoryHider;
 
 class StackItem;
 
-enum SilentNotifiesStatus {
-	SilentNotifiesDontChange,
-	SilentNotifiesSetSilent,
-	SilentNotifiesSetNotify,
-};
-enum NotifySettingStatus {
-	NotifySettingDontChange,
-	NotifySettingSetMuted,
-	NotifySettingSetNotify,
-};
-
 namespace InlineBots {
 namespace Layout {
 class ItemBase;
 } // namespace Layout
 } // namespace InlineBots
+
+enum class DragState {
+	None = 0x00,
+	Files = 0x01,
+	PhotoFiles = 0x02,
+	Image = 0x03,
+};
 
 class MainWidget : public Ui::RpWidget, public RPCSender, private base::Subscriber {
 	Q_OBJECT
@@ -114,9 +109,17 @@ public:
 	void stickersBox(const MTPInputStickerSet &set);
 
 	bool started();
-	void applyNotifySetting(const MTPNotifyPeer &peer, const MTPPeerNotifySettings &settings, History *history = 0);
+	void applyNotifySetting(
+		const MTPNotifyPeer &notifyPeer,
+		const MTPPeerNotifySettings &settings,
+		History *history = 0);
 
-	void updateNotifySetting(PeerData *peer, NotifySettingStatus notify, SilentNotifiesStatus silent = SilentNotifiesDontChange, int muteFor = 86400 * 365);
+	void updateNotifySettings(
+		not_null<PeerData*> peer,
+		Data::NotifySettings::MuteChange mute,
+		Data::NotifySettings::SilentPostsChange silent
+			= Data::NotifySettings::SilentPostsChange::Ignore,
+		int muteForSeconds = 86400 * 365);
 
 	void incrementSticker(DocumentData *sticker);
 
@@ -135,7 +138,9 @@ public:
 		return sentUpdatesReceived(0, updates);
 	}
 	bool deleteChannelFailed(const RPCError &error);
-	void inviteToChannelDone(ChannelData *channel, const MTPUpdates &updates);
+	void inviteToChannelDone(
+		not_null<ChannelData*> channel,
+		const MTPUpdates &updates);
 	void historyToDown(History *hist);
 	void dialogsToUp();
 	void newUnreadMsg(History *history, HistoryItem *item);
@@ -179,23 +184,21 @@ public:
 
 	int32 dlgsWidth() const;
 
-	void showForwardLayer(const SelectedItemSet &items);
+	void showForwardLayer(MessageIdsList &&items);
 	void showSendPathsLayer();
 	void deleteLayer(int selectedCount = 0); // 0 - context item
 	void cancelUploadLayer();
-	void shareContactLayer(UserData *contact);
 	void shareUrlLayer(const QString &url, const QString &text);
 	void inlineSwitchLayer(const QString &botAndQuery);
 	void hiderLayer(object_ptr<HistoryHider> h);
 	void noHider(HistoryHider *destroyed);
 	bool setForwardDraft(PeerId peer, ForwardWhatMessages what);
-	bool setForwardDraft(PeerId peer, const SelectedItemSet &items);
+	bool setForwardDraft(PeerId peer, MessageIdsList &&items);
 	bool shareUrl(
 		not_null<PeerData*> peer,
 		const QString &url,
 		const QString &text);
 	bool onInlineSwitchChosen(const PeerId &peer, const QString &botAndQuery);
-	void onShareContact(const PeerId &peer, UserData *contact);
 	bool onSendPaths(const PeerId &peer);
 	void onFilesOrForwardDrop(const PeerId &peer, const QMimeData *data);
 	bool selectingPeer(bool withConfirm = false) const;
@@ -209,19 +212,26 @@ public:
 
 	bool leaveChatFailed(PeerData *peer, const RPCError &e);
 	void deleteHistoryAfterLeave(PeerData *peer, const MTPUpdates &updates);
-	void deleteMessages(PeerData *peer, const QVector<MTPint> &ids, bool forEveryone);
+	void deleteMessages(
+		not_null<PeerData*> peer,
+		const QVector<MTPint> &ids,
+		bool forEveryone);
 	void deletedContact(UserData *user, const MTPcontacts_Link &result);
 	void deleteConversation(PeerData *peer, bool deleteHistory = true);
 	void deleteAndExit(ChatData *chat);
 	void deleteAllFromUser(ChannelData *channel, UserData *from);
 
-	void addParticipants(PeerData *chatOrChannel, const std::vector<not_null<UserData*>> &users);
+	void addParticipants(
+		not_null<PeerData*> chatOrChannel,
+		const std::vector<not_null<UserData*>> &users);
 	struct UserAndPeer {
 		UserData *user;
 		PeerData *peer;
 	};
 	bool addParticipantFail(UserAndPeer data, const RPCError &e);
-	bool addParticipantsFail(ChannelData *channel, const RPCError &e); // for multi invite in channels
+	bool addParticipantsFail(
+		not_null<ChannelData*> channel,
+		const RPCError &e); // for multi invite in channels
 
 	void kickParticipant(ChatData *chat, UserData *user);
 	bool kickParticipantFail(ChatData *chat, const RPCError &e);
@@ -240,17 +250,18 @@ public:
 	Dialogs::IndexedList *contactsNoDialogsList();
 
 	struct MessageToSend {
-		History *history = nullptr;
+		MessageToSend(not_null<History*> history) : history(history) {
+		}
+
+		not_null<History*> history;
 		TextWithTags textWithTags;
 		MsgId replyTo = 0;
-		bool silent = false;
 		WebPageId webPageId = 0;
 		bool clearDraft = true;
 	};
 	void sendMessage(const MessageToSend &message);
 	void saveRecentHashtags(const QString &text);
 
-    void readServerHistory(History *history, ReadServerHistoryChecks checks = ReadServerHistoryChecks::OnlyIfUnread);
 	void unreadCountChanged(History *history);
 
 	TimeMs highlightStartTime(not_null<const HistoryItem*> item) const;
@@ -261,10 +272,7 @@ public:
 
 	void jumpToDate(not_null<PeerData*> peer, const QDate &date);
 	void searchMessages(const QString &query, PeerData *inPeer);
-	bool preloadOverview(PeerData *peer, MediaOverviewType type);
 	void itemEdited(HistoryItem *item);
-
-	void loadMediaBack(PeerData *peer, MediaOverviewType type, bool many = false);
 
 	void checkLastUpdate(bool afterSleep);
 
@@ -288,16 +296,16 @@ public:
 
 	void pushReplyReturn(HistoryItem *item);
 
-	void cancelForwarding(History *history);
-	void finishForwarding(History *history, bool silent); // send them
+	void cancelForwarding(not_null<History*> history);
+	void finishForwarding(not_null<History*> history);
 
 	void mediaMarkRead(not_null<DocumentData*> data);
-	void mediaMarkRead(const HistoryItemsMap &items);
+	void mediaMarkRead(const base::flat_set<not_null<HistoryItem*>> &items);
 	void mediaMarkRead(not_null<HistoryItem*> item);
 
 	void webPageUpdated(WebPageData *page);
 	void gameUpdated(GameData *game);
-	void updateMutedIn(int32 seconds);
+	void updateMutedIn(TimeMs delay);
 
 	void choosePeer(PeerId peerId, MsgId showAtMsgId); // does offerPeer or showPeerHistory
 	void clearBotStartToken(PeerData *peer);
@@ -455,17 +463,10 @@ private:
 	void destroyCallTopBar();
 	void callTopBarHeightUpdated(int callTopBarHeight);
 
-	void sendReadRequest(PeerData *peer, MsgId upTo);
-	void channelReadDone(PeerData *peer, const MTPBool &result);
-	void historyReadDone(PeerData *peer, const MTPmessages_AffectedMessages &result);
-	bool readRequestFail(PeerData *peer, const RPCError &error);
-	void readRequestDone(PeerData *peer);
-
-	void messagesAffected(PeerData *peer, const MTPmessages_AffectedMessages &result);
-	void overviewLoaded(
-		std::pair<not_null<History*>, MsgId> historyAndStartMsgId,
-		const MTPmessages_Messages &result,
-		mtpRequestId req);
+	void messagesAffected(
+		not_null<PeerData*> peer,
+		const MTPmessages_AffectedMessages &result);
+	void messagesContentsRead(const MTPmessages_AffectedMessages &result);
 
 	Window::SectionSlideParams prepareShowAnimation(
 		bool willHaveTopBarShadow);
@@ -518,9 +519,6 @@ private:
 	void hideAll();
 	void showAll();
 
-	void overviewPreloaded(PeerData *data, const MTPmessages_Messages &result, mtpRequestId req);
-	bool overviewFailed(PeerData *data, const RPCError &error, mtpRequestId req);
-
 	void clearCachedBackground();
 	void checkCurrentFloatPlayer();
 	void toggleFloatPlayer(not_null<Float*> instance);
@@ -556,6 +554,10 @@ private:
 		FinishCallback &&finishCallback);
 	void ensureFirstColumnResizeAreaCreated();
 	void ensureThirdColumnResizeAreaCreated();
+
+	void updateNotifySettingsLocal(
+		not_null<PeerData*> peer,
+		History *history = nullptr);
 
 	not_null<Window::Controller*> _controller;
 	bool _started = false;
@@ -630,16 +632,8 @@ private:
 	TimeMs _lastSetOnline = 0;
 	bool _isIdle = false;
 
-	QSet<PeerData*> updateNotifySettingPeers;
+	base::flat_set<not_null<PeerData*>> updateNotifySettingPeers;
 	SingleTimer updateNotifySettingTimer;
-
-    typedef QMap<PeerData*, QPair<mtpRequestId, MsgId> > ReadRequests;
-    ReadRequests _readRequests;
-	typedef QMap<PeerData*, MsgId> ReadRequestsPending;
-	ReadRequestsPending _readRequestsPending;
-
-	typedef QMap<PeerData*, mtpRequestId> OverviewsPreload;
-	OverviewsPreload _overviewPreload[OverviewCount], _overviewLoad[OverviewCount];
 
 	int32 _failDifferenceTimeout = 1; // growing timeout for getDifference calls, if it fails
 	typedef QMap<ChannelData*, int32> ChannelFailDifferenceTimeout;

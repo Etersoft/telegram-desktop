@@ -45,11 +45,11 @@ constexpr auto kSortByOnlineDelay = TimeMs(1000);
 } // namespace
 
 ParticipantsBoxController::ParticipantsBoxController(
-	not_null<Window::Controller*> window,
+	not_null<Window::Navigation*> navigation,
 	not_null<ChannelData*> channel,
 	Role role)
 : PeerListController(CreateSearchController(channel, role, &_additional))
-, _window(window)
+, _navigation(navigation)
 , _channel(channel)
 , _role(role) {
 	if (_channel->mgInfo) {
@@ -162,11 +162,11 @@ ParticipantsBoxController::CreateSearchController(
 }
 
 void ParticipantsBoxController::Start(
-		not_null<Window::Controller*> window,
+		not_null<Window::Navigation*> navigation,
 		not_null<ChannelData*> channel,
 		Role role) {
 	auto controller = std::make_unique<ParticipantsBoxController>(
-		window,
+		navigation,
 		channel,
 		role);
 	auto initBox = [role, channel, controller = controller.get()](not_null<PeerListBox*> box) {
@@ -253,19 +253,16 @@ std::unique_ptr<PeerListRow> ParticipantsBoxController::createRestoredRow(
 	return nullptr;
 }
 
-std::unique_ptr<PeerListState> ParticipantsBoxController::saveState() {
+std::unique_ptr<PeerListState> ParticipantsBoxController::saveState() const {
 	Expects(_role == Role::Profile);
 
 	auto result = PeerListController::saveState();
 
 	auto my = std::make_unique<SavedState>();
-	my->additional = std::move(_additional);
+	my->additional = _additional;
 	my->offset = _offset;
 	my->allLoaded = _allLoaded;
-	if (auto requestId = base::take(_loadRequestId)) {
-		request(requestId).cancel();
-		my->wasLoading = true;
-	}
+	my->wasLoading = (_loadRequestId != 0);
 	if (auto search = searchController()) {
 		my->searchState = search->saveState();
 	}
@@ -520,7 +517,7 @@ void ParticipantsBoxController::setNonEmptyDescription() {
 
 bool ParticipantsBoxController::feedMegagroupLastParticipants() {
 	if ((_role != Role::Members && _role != Role::Profile)
-		|| _offset > 0) {
+		|| delegate()->peerListFullRowsCount() > 0) {
 		return false;
 	}
 	auto megagroup = _channel->asMegagroup();
@@ -567,7 +564,13 @@ bool ParticipantsBoxController::feedMegagroupLastParticipants() {
 			}
 		}
 		appendRow(user);
-		++_offset;
+
+		//
+		// Don't count lastParticipants in _offset, because we don't know
+		// their exact information (admin / creator / restricted), they
+		// could simply be added from the last messages authors.
+		//
+		//++_offset;
 	}
 	sortByOnline();
 	return true;
@@ -582,7 +585,7 @@ void ParticipantsBoxController::rowClicked(not_null<PeerListRow*> row) {
 	} else if (_role == Role::Restricted || _role == Role::Kicked) {
 		showRestricted(user);
 	} else {
-		_window->showPeerInfo(row->peer());
+		_navigation->showPeerInfo(row->peer());
 	}
 }
 
@@ -643,7 +646,7 @@ Ui::PopupMenu *ParticipantsBoxController::rowContextMenu(
 		lang(lng_context_view_profile),
 		[weak = base::make_weak(this), user] {
 			if (const auto strong = weak.get()) {
-				strong->_window->showPeerInfo(user);
+				strong->_navigation->showPeerInfo(user);
 			}
 		});
 	if (canEditAdmin(user)) {
@@ -982,16 +985,13 @@ void ParticipantsBoxSearchController::searchQuery(const QString &query) {
 	}
 }
 
-auto ParticipantsBoxSearchController::saveState()
+auto ParticipantsBoxSearchController::saveState() const
 -> std::unique_ptr<SavedStateBase> {
 	auto result = std::make_unique<SavedState>();
 	result->query = _query;
 	result->offset = _offset;
 	result->allLoaded = _allLoaded;
-	if (auto requestId = base::take(_requestId)) {
-		request(requestId).cancel();
-		result->wasLoading = true;
-	}
+	result->wasLoading = (_requestId != 0);
 	return std::move(result);
 }
 

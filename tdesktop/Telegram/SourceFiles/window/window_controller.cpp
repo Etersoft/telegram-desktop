@@ -130,7 +130,7 @@ Controller::ColumnLayout Controller::computeColumnLayout() const {
 int Controller::countDialogsWidthFromRatio(int bodyWidth) const {
 	auto result = qRound(bodyWidth * Auth().data().dialogsWidthRatio());
 	accumulate_max(result, st::columnMinimalWidthLeft);
-	accumulate_min(result, st::columnMaximalWidthLeft);
+//	accumulate_min(result, st::columnMaximalWidthLeft);
 	return result;
 }
 
@@ -367,24 +367,24 @@ void Controller::showPeerHistory(
 		msgId);
 }
 
-void Controller::showPeerInfo(
+void Navigation::showPeerInfo(
 		PeerId peerId,
 		const SectionShow &params) {
-	if (Adaptive::ThreeColumn()
-		&& !Auth().data().thirdSectionInfoEnabled()) {
-		Auth().data().setThirdSectionInfoEnabled(true);
-		Auth().saveDataDelayed();
-	}
+	//if (Adaptive::ThreeColumn()
+	//	&& !Auth().data().thirdSectionInfoEnabled()) {
+	//	Auth().data().setThirdSectionInfoEnabled(true);
+	//	Auth().saveDataDelayed();
+	//}
 	showSection(Info::Memento(peerId), params);
 }
 
-void Controller::showPeerInfo(
+void Navigation::showPeerInfo(
 		not_null<PeerData*> peer,
 		const SectionShow &params) {
 	showPeerInfo(peer->id, params);
 }
 
-void Controller::showPeerInfo(
+void Navigation::showPeerInfo(
 		not_null<History*> history,
 		const SectionShow &params) {
 	showPeerInfo(history->peer->id, params);
@@ -395,7 +395,7 @@ void Controller::showSection(
 		const SectionShow &params) {
 	if (App::wnd()->showSectionInExistingLayer(
 			&memento,
-			params)) {
+			params) && !params.thirdColumn) {
 		return;
 	}
 	App::main()->showSection(std::move(memento), params);

@@ -24,6 +24,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include <rpl/map.h>
 #include "data/data_peer_values.h"
 #include "data/data_channel_admins.h"
+#include "data/data_photo.h"
 #include "lang/lang_keys.h"
 #include "observer_peer.h"
 #include "mainwidget.h"
@@ -34,28 +35,25 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "messenger.h"
 #include "mainwindow.h"
 #include "window/window_controller.h"
+#include "ui/empty_userpic.h"
 
 namespace {
 
 constexpr auto kUpdateFullPeerTimeout = TimeMs(5000); // Not more than once in 5 seconds.
+constexpr auto kUserpicSize = 160;
 
-int peerColorIndex(const PeerId &peer) {
-	auto myId = Auth().userId();
-	auto peerId = peerToBareInt(peer);
-	auto both = (QByteArray::number(peerId) + QByteArray::number(myId)).mid(0, 15);
-	uchar md5[16];
-	hashMd5(both.constData(), both.size(), md5);
-	return (md5[peerId & 0x0F] & (peerIsUser(peer) ? 0x07 : 0x03));
+} // namespace
+
+namespace Data {
+
+int PeerColorIndex(int32 bareId) {
+	const auto index = std::abs(bareId) % 7;
+	const int map[] = { 0, 7, 4, 1, 6, 3, 5 };
+	return map[index];
 }
 
-ImagePtr generateUserpicImage(const style::icon &icon) {
-	auto data = QImage(icon.size() * cIntRetinaFactor(), QImage::Format_ARGB32_Premultiplied);
-	data.setDevicePixelRatio(cRetinaFactor());
-	{
-		Painter p(&data);
-		icon.paint(p, 0, 0, icon.width());
-	}
-	return ImagePtr(App::pixmapFromImageInPlace(std::move(data)), "PNG");
+int PeerColorIndex(PeerId peerId) {
+	return PeerColorIndex(peerToBareInt(peerId));
 }
 
 style::color PeerUserpicColor(PeerId peerId) {
@@ -72,195 +70,9 @@ style::color PeerUserpicColor(PeerId peerId) {
 	return colors[PeerColorIndex(peerId)];
 }
 
-} // namespace
-
-int PeerColorIndex(int32 bareId) {
-	const auto index = std::abs(bareId) % 7;
-	const int map[] = { 0, 7, 4, 1, 6, 3, 5 };
-	return map[index];
-}
-
-int PeerColorIndex(PeerId peerId) {
-	return PeerColorIndex(peerToBareInt(peerId));
-}
-
-class EmptyUserpic::Impl {
-public:
-	Impl(PeerId peerId, const QString &name)
-	: _color(PeerUserpicColor(peerId)) {
-		fillString(name);
-	}
-
-	void paint(Painter &p, int x, int y, int size);
-	void paintRounded(Painter &p, int x, int y, int size);
-	void paintSquare(Painter &p, int x, int y, int size);
-	StorageKey uniqueKey() const;
-
-private:
-	template <typename PaintBackground>
-	void paint(Painter &p, int x, int y, int size, PaintBackground paintBackground);
-
-	void fillString(const QString &name);
-
-	style::color _color;
-	QString _string;
-
-};
-
-template <typename PaintBackground>
-void EmptyUserpic::Impl::paint(Painter &p, int x, int y, int size, PaintBackground paintBackground) {
-	auto fontsize = (size * 13) / 33;
-	auto font = st::historyPeerUserpicFont->f;
-	font.setPixelSize(fontsize);
-
-	PainterHighQualityEnabler hq(p);
-	p.setBrush(_color);
-	p.setPen(Qt::NoPen);
-	paintBackground();
-
-	p.setFont(font);
-	p.setBrush(Qt::NoBrush);
-	p.setPen(st::historyPeerUserpicFg);
-	p.drawText(QRect(x, y, size, size), _string, QTextOption(style::al_center));
-}
-
-void EmptyUserpic::Impl::paint(Painter &p, int x, int y, int size) {
-	paint(p, x, y, size, [&p, x, y, size] {
-		p.drawEllipse(x, y, size, size);
-	});
-}
-
-void EmptyUserpic::Impl::paintRounded(Painter &p, int x, int y, int size) {
-	paint(p, x, y, size, [&p, x, y, size] {
-		p.drawRoundedRect(x, y, size, size, st::buttonRadius, st::buttonRadius);
-	});
-}
-
-void EmptyUserpic::Impl::paintSquare(Painter &p, int x, int y, int size) {
-	paint(p, x, y, size, [&p, x, y, size] {
-		p.fillRect(x, y, size, size, p.brush());
-	});
-}
-
-StorageKey EmptyUserpic::Impl::uniqueKey() const {
-	auto first = 0xFFFFFFFF00000000ULL | anim::getPremultiplied(_color->c);
-	auto second = uint64(0);
-	memcpy(&second, _string.constData(), qMin(sizeof(second), _string.size() * sizeof(QChar)));
-	return StorageKey(first, second);
-}
-
-void EmptyUserpic::Impl::fillString(const QString &name) {
-	QList<QString> letters;
-	QList<int> levels;
-	auto level = 0;
-	auto letterFound = false;
-	auto ch = name.constData(), end = ch + name.size();
-	while (ch != end) {
-		auto emojiLength = 0;
-		if (auto emoji = Ui::Emoji::Find(ch, end, &emojiLength)) {
-			ch += emojiLength;
-		} else if (ch->isHighSurrogate()) {
-			++ch;
-			if (ch != end && ch->isLowSurrogate()) {
-				++ch;
-			}
-		} else if (!letterFound && ch->isLetterOrNumber()) {
-			letterFound = true;
-			if (ch + 1 != end && chIsDiac(*(ch + 1))) {
-				letters.push_back(QString(ch, 2));
-				levels.push_back(level);
-				++ch;
-			} else {
-				letters.push_back(QString(ch, 1));
-				levels.push_back(level);
-			}
-			++ch;
-		} else {
-			if (*ch == ' ') {
-				level = 0;
-				letterFound = false;
-			} else if (letterFound && *ch == '-') {
-				level = 1;
-				letterFound = true;
-			}
-			++ch;
-		}
-	}
-
-	// We prefer the second letter to be after ' ', but it can also be after '-'.
-	_string = QString();
-	if (!letters.isEmpty()) {
-		_string += letters.front();
-		auto bestIndex = 0;
-		auto bestLevel = 2;
-		for (auto i = letters.size(); i != 1;) {
-			if (levels[--i] < bestLevel) {
-				bestIndex = i;
-				bestLevel = levels[i];
-			}
-		}
-		if (bestIndex > 0) {
-			_string += letters[bestIndex];
-		}
-	}
-	_string = _string.toUpper();
-}
-
-EmptyUserpic::EmptyUserpic() = default;
-
-EmptyUserpic::EmptyUserpic(PeerId peerId, const QString &name)
-: _impl(std::make_unique<Impl>(peerId, name)) {
-}
-
-EmptyUserpic::EmptyUserpic(const QString &nonce, const QString &name)
-: EmptyUserpic(qHash(nonce), name) {
-}
-
-void EmptyUserpic::set(PeerId peerId, const QString &name) {
-	_impl = std::make_unique<Impl>(peerId, name);
-}
-
-void EmptyUserpic::clear() {
-	_impl.reset();
-}
-
-void EmptyUserpic::paint(Painter &p, int x, int y, int outerWidth, int size) const {
-	Expects(_impl != nullptr);
-	_impl->paint(p, rtl() ? (outerWidth - x - size) : x, y, size);
-}
-
-void EmptyUserpic::paintRounded(Painter &p, int x, int y, int outerWidth, int size) const {
-	Expects(_impl != nullptr);
-	_impl->paintRounded(p, rtl() ? (outerWidth - x - size) : x, y, size);
-}
-
-void EmptyUserpic::paintSquare(Painter &p, int x, int y, int outerWidth, int size) const {
-	Expects(_impl != nullptr);
-	_impl->paintSquare(p, rtl() ? (outerWidth - x - size) : x, y, size);
-}
-
-StorageKey EmptyUserpic::uniqueKey() const {
-	Expects(_impl != nullptr);
-	return _impl->uniqueKey();
-}
-
-QPixmap EmptyUserpic::generate(int size) {
-	auto result = QImage(QSize(size, size) * cIntRetinaFactor(), QImage::Format_ARGB32_Premultiplied);
-	result.setDevicePixelRatio(cRetinaFactor());
-	result.fill(Qt::transparent);
-	{
-		Painter p(&result);
-		paint(p, 0, 0, size, size);
-	}
-	return App::pixmapFromImageInPlace(std::move(result));
-}
-
-EmptyUserpic::~EmptyUserpic() = default;
+} // namespace Data
 
 using UpdateFlag = Notify::PeerUpdate::Flag;
-
-NotifySettings globalNotifyAll, globalNotifyUsers, globalNotifyChats;
-NotifySettingsPtr globalNotifyAllPtr = UnknownNotifySettings, globalNotifyUsersPtr = UnknownNotifySettings, globalNotifyChatsPtr = UnknownNotifySettings;
 
 PeerClickHandler::PeerClickHandler(not_null<PeerData*> peer)
 : _peer(peer) {
@@ -286,9 +98,9 @@ void PeerClickHandler::onClick(Qt::MouseButton button) const {
 }
 
 PeerData::PeerData(const PeerId &id)
-: id(id) {
+: id(id)
+, _userpicEmpty(createEmptyUserpic()) {
 	nameText.setText(st::msgNameStyle, QString(), _textNameOptions);
-	_userpicEmpty.set(id, QString());
 }
 
 void PeerData::updateNameDelayed(
@@ -313,9 +125,7 @@ void PeerData::updateNameDelayed(
 	++nameVersion;
 	name = newName;
 	nameText.setText(st::msgNameStyle, name, _textNameOptions);
-	if (useEmptyUserpic()) {
-		_userpicEmpty.set(id, name);
-	}
+	refreshEmptyUserpic();
 
 	Notify::PeerUpdate update(this);
 	update.flags |= UpdateFlag::NameChanged;
@@ -343,19 +153,41 @@ void PeerData::updateNameDelayed(
 	Notify::PeerUpdated().notify(update, true);
 }
 
+std::unique_ptr<Ui::EmptyUserpic> PeerData::createEmptyUserpic() const {
+	return std::make_unique<Ui::EmptyUserpic>(
+		Data::PeerUserpicColor(id),
+		name);
+}
+
+void PeerData::refreshEmptyUserpic() const {
+	_userpicEmpty = useEmptyUserpic() ? createEmptyUserpic() : nullptr;
+}
+
 ClickHandlerPtr PeerData::createOpenLink() {
 	return MakeShared<PeerClickHandler>(this);
 }
 
 void PeerData::setUserpic(
-		ImagePtr userpic,
-		StorageImageLocation location) {
+		PhotoId photoId,
+		const StorageImageLocation &location,
+		ImagePtr userpic) {
+	_userpicPhotoId = photoId;
 	_userpic = userpic;
 	_userpicLocation = location;
-	if (useEmptyUserpic()) {
-		_userpicEmpty.set(id, name);
-	} else {
-		_userpicEmpty.clear();
+	refreshEmptyUserpic();
+}
+
+void PeerData::setUserpicPhoto(const MTPPhoto &data) {
+	auto photoId = [&]() -> PhotoId {
+		if (auto photo = App::feedPhoto(data)) {
+			photo->peer = this;
+			return photo->id;
+		}
+		return 0;
+	}();
+	if (_userpicPhotoId != photoId) {
+		_userpicPhotoId = photoId;
+		Notify::peerUpdatedDelayed(this, UpdateFlag::PhotoChanged);
 	}
 }
 
@@ -364,7 +196,7 @@ ImagePtr PeerData::currentUserpic() const {
 		_userpic->load();
 		if (_userpic->loaded()) {
 			if (!useEmptyUserpic()) {
-				_userpicEmpty.clear();
+				_userpicEmpty = nullptr;
 			}
 			return _userpic;
 		}
@@ -376,7 +208,7 @@ void PeerData::paintUserpic(Painter &p, int x, int y, int size) const {
 	if (auto userpic = currentUserpic()) {
 		p.drawPixmap(x, y, userpic->pixCircled(size, size));
 	} else {
-		_userpicEmpty.paint(p, x, y, x + size + x, size);
+		_userpicEmpty->paint(p, x, y, x + size + x, size);
 	}
 }
 
@@ -384,7 +216,7 @@ void PeerData::paintUserpicRounded(Painter &p, int x, int y, int size) const {
 	if (auto userpic = currentUserpic()) {
 		p.drawPixmap(x, y, userpic->pixRounded(size, size, ImageRoundRadius::Small));
 	} else {
-		_userpicEmpty.paintRounded(p, x, y, x + size + x, size);
+		_userpicEmpty->paintRounded(p, x, y, x + size + x, size);
 	}
 }
 
@@ -392,13 +224,13 @@ void PeerData::paintUserpicSquare(Painter &p, int x, int y, int size) const {
 	if (auto userpic = currentUserpic()) {
 		p.drawPixmap(x, y, userpic->pix(size, size));
 	} else {
-		_userpicEmpty.paintSquare(p, x, y, x + size + x, size);
+		_userpicEmpty->paintSquare(p, x, y, x + size + x, size);
 	}
 }
 
 StorageKey PeerData::userpicUniqueKey() const {
 	if (useEmptyUserpic()) {
-		return _userpicEmpty.uniqueKey();
+		return _userpicEmpty->uniqueKey();
 	}
 	return storageKey(_userpicLocation);
 }
@@ -439,6 +271,84 @@ QPixmap PeerData::genUserpicRounded(int size) const {
 	return App::pixmapFromImageInPlace(std::move(result));
 }
 
+void PeerData::updateUserpic(
+		PhotoId photoId,
+		const MTPFileLocation &location) {
+	const auto size = kUserpicSize;
+	const auto loc = StorageImageLocation::FromMTP(size, size, location);
+	const auto photo = loc.isNull() ? ImagePtr() : ImagePtr(loc);
+	setUserpicChecked(photoId, loc, photo);
+}
+
+void PeerData::clearUserpic() {
+	const auto photoId = PhotoId(0);
+	const auto loc = StorageImageLocation();
+	const auto photo = [&] {
+		if (id == peerFromUser(ServiceUserId)) {
+			auto image = Messenger::Instance().logoNoMargin().scaledToWidth(
+				kUserpicSize,
+				Qt::SmoothTransformation);
+			auto pixmap = App::pixmapFromImageInPlace(std::move(image));
+			return _userpic
+				? _userpic
+				: ImagePtr(std::move(pixmap), "PNG");
+		}
+		return ImagePtr();
+	}();
+	setUserpicChecked(photoId, loc, photo);
+}
+
+void PeerData::setUserpicChecked(
+		PhotoId photoId,
+		const StorageImageLocation &location,
+		ImagePtr userpic) {
+	if (_userpicPhotoId != photoId
+		|| _userpic.v() != userpic.v()
+		|| _userpicLocation != location) {
+		setUserpic(photoId, location, userpic);
+		Notify::peerUpdatedDelayed(this, UpdateFlag::PhotoChanged);
+	}
+}
+
+void PeerData::fillNames() {
+	_nameWords.clear();
+	_nameFirstChars.clear();
+	auto toIndexList = QStringList();
+	auto appendToIndex = [&](const QString &value) {
+		if (!value.isEmpty()) {
+			toIndexList.push_back(TextUtilities::RemoveAccents(value));
+		}
+	};
+
+	appendToIndex(name);
+	const auto appendTranslit = !toIndexList.isEmpty()
+		&& cRussianLetters().match(toIndexList.front()).hasMatch();
+	if (appendTranslit) {
+		appendToIndex(translitRusEng(toIndexList.front()));
+	}
+	if (auto user = asUser()) {
+		if (user->nameOrPhone != name) {
+			appendToIndex(user->nameOrPhone);
+		}
+		appendToIndex(user->username);
+		if (isSelf()) {
+			appendToIndex(lang(lng_saved_messages));
+		}
+	} else if (auto channel = asChannel()) {
+		appendToIndex(channel->username);
+	}
+	auto toIndex = toIndexList.join(' ');
+	toIndex += ' ' + rusKeyboardLayoutSwitch(toIndex);
+
+	const auto namesList = TextUtilities::PrepareSearchWords(toIndex);
+	for (const auto &name : namesList) {
+		_nameWords.insert(name);
+		_nameFirstChars.insert(name[0]);
+	}
+}
+
+PeerData::~PeerData() = default;
+
 const Text &BotCommand::descriptionText() const {
 	if (_descriptionText.isEmpty() && !_description.isEmpty()) {
 		_descriptionText.setText(st::defaultTextStyle, _description, _textNameOptions);
@@ -450,57 +360,13 @@ bool UserData::canShareThisContact() const {
 	return canShareThisContactFast() || !App::phoneFromSharedContact(peerToUser(id)).isEmpty();
 }
 
-void UserData::setPhoto(const MTPUserProfilePhoto &p) { // see Local::readPeer as well
-	auto newPhotoId = photoId;
-	auto newPhoto = _userpic;
-	auto newPhotoLoc = _userpicLocation;
-
-	switch (p.type()) {
-	case mtpc_userProfilePhoto: {
-		const auto &d(p.c_userProfilePhoto());
-		newPhotoId = d.vphoto_id.v;
-		newPhotoLoc = App::imageLocation(160, 160, d.vphoto_small);
-		newPhoto = newPhotoLoc.isNull() ? ImagePtr() : ImagePtr(newPhotoLoc);
-		//App::feedPhoto(App::photoFromUserPhoto(peerToUser(id), MTP_int(unixtime()), p));
-	} break;
-	default: {
-		newPhotoId = 0;
-		if (id == ServiceUserId) {
-			if (!_userpic) {
-				newPhoto = ImagePtr(App::pixmapFromImageInPlace(Messenger::Instance().logoNoMargin().scaledToWidth(160, Qt::SmoothTransformation)), "PNG");
-			}
-		} else {
-			newPhoto = ImagePtr();
-		}
-		newPhotoLoc = StorageImageLocation();
-	} break;
-	}
-	if (newPhotoId != photoId || newPhoto.v() != _userpic.v() || newPhotoLoc != _userpicLocation) {
-		photoId = newPhotoId;
-		setUserpic(newPhoto, newPhotoLoc);
-		Notify::peerUpdatedDelayed(this, UpdateFlag::PhotoChanged);
-	}
-}
-
-void PeerData::fillNames() {
-	_nameWords.clear();
-	_nameFirstChars.clear();
-	auto toIndex = TextUtilities::RemoveAccents(name);
-	if (cRussianLetters().match(toIndex).hasMatch()) {
-		toIndex += ' ' + translitRusEng(toIndex);
-	}
-	if (isUser()) {
-		if (!asUser()->nameOrPhone.isEmpty() && asUser()->nameOrPhone != name) toIndex += ' ' + TextUtilities::RemoveAccents(asUser()->nameOrPhone);
-		if (!asUser()->username.isEmpty()) toIndex += ' ' + TextUtilities::RemoveAccents(asUser()->username);
-	} else if (isChannel()) {
-		if (!asChannel()->username.isEmpty()) toIndex += ' ' + TextUtilities::RemoveAccents(asChannel()->username);
-	}
-	toIndex += ' ' + rusKeyboardLayoutSwitch(toIndex);
-
-	auto namesList = TextUtilities::PrepareSearchWords(toIndex);
-	for (auto &name : namesList) {
-		_nameWords.insert(name);
-		_nameFirstChars.insert(name[0]);
+// see Local::readPeer as well
+void UserData::setPhoto(const MTPUserProfilePhoto &photo) {
+	if (photo.type() == mtpc_userProfilePhoto) {
+		const auto &data = photo.c_userProfilePhoto();
+		updateUserpic(data.vphoto_id.v, data.vphoto_small);
+	} else {
+		clearUserpic();
 	}
 }
 
@@ -666,35 +532,20 @@ void UserData::setCallsStatus(CallsStatus callsStatus) {
 }
 
 bool UserData::hasCalls() const {
-	return (callsStatus() != CallsStatus::Disabled) && (callsStatus() != CallsStatus::Unknown);
+	return (callsStatus() != CallsStatus::Disabled)
+		&& (callsStatus() != CallsStatus::Unknown);
 }
 
-void ChatData::setPhoto(const MTPChatPhoto &p, const PhotoId &phId) { // see Local::readPeer as well
-	auto newPhotoId = photoId;
-	auto newPhoto = _userpic;
-	auto newPhotoLoc = _userpicLocation;
+void ChatData::setPhoto(const MTPChatPhoto &photo) {
+	setPhoto(userpicPhotoId(), photo);
+}
 
-	switch (p.type()) {
-	case mtpc_chatPhoto: {
-		auto &d = p.c_chatPhoto();
-		if (phId != UnknownPeerPhotoId) {
-			newPhotoId = phId;
-		}
-		newPhotoLoc = App::imageLocation(160, 160, d.vphoto_small);
-		newPhoto = newPhotoLoc.isNull() ? ImagePtr() : ImagePtr(newPhotoLoc);
-//		photoFull = newPhoto ? ImagePtr(640, 640, d.vphoto_big, ImagePtr()) : ImagePtr();
-	} break;
-	default: {
-		newPhotoId = 0;
-		newPhotoLoc = StorageImageLocation();
-		newPhoto = ImagePtr();
-//		photoFull = ImagePtr();
-	} break;
-	}
-	if (newPhotoId != photoId || newPhoto.v() != _userpic.v() || newPhotoLoc != _userpicLocation) {
-		photoId = newPhotoId;
-		setUserpic(newPhoto, newPhotoLoc);
-		Notify::peerUpdatedDelayed(this, UpdateFlag::PhotoChanged);
+void ChatData::setPhoto(PhotoId photoId, const MTPChatPhoto &photo) {
+	if (photo.type() == mtpc_chatPhoto) {
+		const auto &data = photo.c_chatPhoto();
+		updateUserpic(photoId, data.vphoto_small);
+	} else {
+		clearUserpic();
 	}
 }
 
@@ -737,32 +588,16 @@ ChannelData::ChannelData(const PeerId &id)
 		}, _lifetime);
 }
 
-void ChannelData::setPhoto(const MTPChatPhoto &p, const PhotoId &phId) { // see Local::readPeer as well
-	auto newPhotoId = photoId;
-	auto newPhoto = _userpic;
-	auto newPhotoLoc = _userpicLocation;
+void ChannelData::setPhoto(const MTPChatPhoto &photo) {
+	setPhoto(userpicPhotoId(), photo);
+}
 
-	switch (p.type()) {
-	case mtpc_chatPhoto: {
-		auto &d = p.c_chatPhoto();
-		if (phId != UnknownPeerPhotoId) {
-			newPhotoId = phId;
-		}
-		newPhotoLoc = App::imageLocation(160, 160, d.vphoto_small);
-		newPhoto = newPhotoLoc.isNull() ? ImagePtr() : ImagePtr(newPhotoLoc);
-//		photoFull = newPhoto ? ImagePtr(640, 640, d.vphoto_big, newPhoto) : ImagePtr();
-	} break;
-	default: {
-		newPhotoId = 0;
-		newPhotoLoc = StorageImageLocation();
-		newPhoto = ImagePtr();
-//		photoFull = ImagePtr();
-	} break;
-	}
-	if (newPhotoId != photoId || newPhoto.v() != _userpic.v() || newPhotoLoc != _userpicLocation) {
-		photoId = newPhotoId;
-		setUserpic(newPhoto, newPhotoLoc);
-		Notify::peerUpdatedDelayed(this, UpdateFlag::PhotoChanged);
+void ChannelData::setPhoto(PhotoId photoId, const MTPChatPhoto &photo) {
+	if (photo.type() == mtpc_chatPhoto) {
+		const auto &data = photo.c_chatPhoto();
+		updateUserpic(photoId, data.vphoto_small);
+	} else {
+		clearUserpic();
 	}
 }
 

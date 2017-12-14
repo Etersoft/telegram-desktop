@@ -33,6 +33,10 @@ class Playback;
 } // namespace Clip
 } // namespace Media
 
+namespace Ui {
+class EmptyUserpic;
+} // namespace Ui
+
 void HistoryInitMedia();
 
 class HistoryFileMedia : public HistoryMedia {
@@ -67,7 +71,7 @@ protected:
 		}
 		if (inlinegif) {
 			save = MakeShared<GifOpenClickHandler>(document);
-		} else if (document->voice()) {
+		} else if (document->isVoiceMessage()) {
 			save = MakeShared<DocumentOpenClickHandler>(document);
 		} else {
 			save = MakeShared<DocumentSaveClickHandler>(document);
@@ -160,8 +164,6 @@ public:
 	QString inDialogsText() const override;
 	TextWithEntities selectedText(TextSelection selection) const override;
 
-	int32 addToOverview(AddToOverviewMethod method) override;
-	void eraseFromOverview() override;
 	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	PhotoData *photo() const {
@@ -248,8 +250,6 @@ public:
 	QString inDialogsText() const override;
 	TextWithEntities selectedText(TextSelection selection) const override;
 
-	int32 addToOverview(AddToOverviewMethod method) override;
-	void eraseFromOverview() override;
 	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	DocumentData *getDocument() override {
@@ -373,7 +373,11 @@ public:
 	HistoryDocument(not_null<HistoryItem*> parent, DocumentData *document, const QString &caption);
 	HistoryDocument(not_null<HistoryItem*> parent, const HistoryDocument &other);
 	HistoryMediaType type() const override {
-		return _data->voice() ? MediaTypeVoiceFile : (_data->song() ? MediaTypeMusicFile : MediaTypeFile);
+		return _data->isVoiceMessage()
+			? MediaTypeVoiceFile
+			: (_data->isSong()
+				? MediaTypeMusicFile
+				: MediaTypeFile);
 	}
 	std::unique_ptr<HistoryMedia> clone(HistoryItem *newParent) const override {
 		return std::make_unique<HistoryDocument>(newParent, *this);
@@ -408,8 +412,6 @@ public:
 	QString inDialogsText() const override;
 	TextWithEntities selectedText(TextSelection selection) const override;
 
-	int32 addToOverview(AddToOverviewMethod method) override;
-	void eraseFromOverview() override;
 	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	bool uploading() const override {
@@ -447,7 +449,7 @@ public:
 	}
 	QMargins bubbleMargins() const override;
 	bool hideForwardedFrom() const override {
-		return _data->song();
+		return _data->isSong();
 	}
 	bool canEditCaption() const override {
 		return true;
@@ -517,8 +519,6 @@ public:
 	QString inDialogsText() const override;
 	TextWithEntities selectedText(TextSelection selection) const override;
 
-	int32 addToOverview(AddToOverviewMethod method) override;
-	void eraseFromOverview() override;
 	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
 
 	bool uploading() const override {
@@ -560,7 +560,7 @@ public:
 		return isBubbleBottom() && _caption.isEmpty();
 	}
 	bool canEditCaption() const override {
-		return !_data->isRoundVideo();
+		return !_data->isVideoMessage();
 	}
 	bool isReadyForOpen() const override {
 		return _data->loaded();
@@ -716,6 +716,8 @@ public:
 		return _phone;
 	}
 
+	~HistoryContact();
+
 private:
 	int32 _userId = 0;
 	UserData *_contact = nullptr;
@@ -723,7 +725,7 @@ private:
 	int _phonew = 0;
 	QString _fname, _lname, _phone;
 	Text _name;
-	EmptyUserpic _photoEmpty;
+	std::unique_ptr<Ui::EmptyUserpic> _photoEmpty;
 
 	ClickHandlerPtr _linkl;
 	int _linkw = 0;

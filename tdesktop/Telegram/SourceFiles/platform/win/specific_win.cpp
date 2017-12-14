@@ -32,6 +32,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "storage/localstorage.h"
 #include "passcodewidget.h"
 #include "base/task_queue.h"
+#include "core/crash_reports.h"
 
 #include <Shobjidl.h>
 #include <shellapi.h>
@@ -647,53 +648,6 @@ void psNewVersion() {
 	}
 }
 
-void psExecUpdater() {
-	if (cExeName().isEmpty()) {
-		return;
-	}
-
-	QString targs = qsl("-update -exename \"") + cExeName() + '"';
-	if (cLaunchMode() == LaunchModeAutoStart) targs += qsl(" -autostart");
-	if (cDebug()) targs += qsl(" -debug");
-	if (cStartInTray()) targs += qsl(" -startintray");
-	if (cWriteProtected()) targs += qsl(" -writeprotected \"") + cExeDir() + '"';
-
-	QString updaterPath = cWriteProtected() ? (cWorkingDir() + qsl("tupdates/temp/Updater.exe")) : (cExeDir() + qsl("Updater.exe"));
-
-	QString updater(QDir::toNativeSeparators(updaterPath)), wdir(QDir::toNativeSeparators(cWorkingDir()));
-
-	DEBUG_LOG(("Application Info: executing %1 %2").arg(cExeDir() + "Updater.exe").arg(targs));
-	HINSTANCE r = ShellExecute(0, cWriteProtected() ? L"runas" : 0, updater.toStdWString().c_str(), targs.toStdWString().c_str(), wdir.isEmpty() ? 0 : wdir.toStdWString().c_str(), SW_SHOWNORMAL);
-	if (long(r) < 32) {
-		DEBUG_LOG(("Application Error: failed to execute %1, working directory: '%2', result: %3").arg(updater).arg(wdir).arg(long(r)));
-		psDeleteDir(cWorkingDir() + qsl("tupdates/temp"));
-	}
-}
-
-void psExecTelegram(const QString &crashreport) {
-	if (cExeName().isEmpty()) {
-		return;
-	}
-	QString targs = crashreport.isEmpty() ? qsl("-noupdate") : ('"' + crashreport + '"');
-	if (crashreport.isEmpty()) {
-		if (cRestartingToSettings()) targs += qsl(" -tosettings");
-		if (cLaunchMode() == LaunchModeAutoStart) targs += qsl(" -autostart");
-		if (cDebug()) targs += qsl(" -debug");
-		if (cStartInTray()) targs += qsl(" -startintray");
-		if (cTestMode()) targs += qsl(" -testmode");
-		if (cDataFile() != qsl("data")) targs += qsl(" -key \"") + cDataFile() + '"';
-	}
-	QString telegram(QDir::toNativeSeparators(cExeDir() + cExeName())), wdir(QDir::toNativeSeparators(cWorkingDir()));
-
-	DEBUG_LOG(("Application Info: executing %1 %2").arg(cExeDir() + cExeName()).arg(targs));
-	Logs::closeMain();
-	SignalHandlers::finish();
-	HINSTANCE r = ShellExecute(0, 0, telegram.toStdWString().c_str(), targs.toStdWString().c_str(), wdir.isEmpty() ? 0 : wdir.toStdWString().c_str(), SW_SHOWNORMAL);
-	if (long(r) < 32) {
-		DEBUG_LOG(("Application Error: failed to execute %1, working directory: '%2', result: %3").arg(telegram).arg(wdir).arg(long(r)));
-	}
-}
-
 void _manageAppLnk(bool create, bool silent, int path_csidl, const wchar_t *args, const wchar_t *description) {
 	if (cExeName().isEmpty()) {
 		return;
@@ -1291,7 +1245,7 @@ QString psPrepareCrashDump(const QByteArray &crashdump, QString dumpfile) {
 void psWriteStackTrace() {
 #ifndef TDESKTOP_DISABLE_CRASH_REPORTS
 	if (!LoadDbgHelp()) {
-		SignalHandlers::dump() << "ERROR: Could not load dbghelp.dll!\n";
+		CrashReports::dump() << "ERROR: Could not load dbghelp.dll!\n";
 		return;
 	}
 
@@ -1348,17 +1302,17 @@ void psWriteStackTrace() {
 		// deeper frame could not be found.
 		// CONTEXT need not to be suplied if imageTyp is IMAGE_FILE_MACHINE_I386!
 		if (!stackWalk64(imageType, hProcess, hThread, &s, &c, ReadProcessMemoryRoutine64, symFunctionTableAccess64, symGetModuleBase64, NULL)) {
-			SignalHandlers::dump() << "ERROR: Call to StackWalk64() failed!\n";
+			CrashReports::dump() << "ERROR: Call to StackWalk64() failed!\n";
 			return;
 		}
 
 		if (s.AddrPC.Offset == s.AddrReturn.Offset) {
-			SignalHandlers::dump() << s.AddrPC.Offset << "\n";
-			SignalHandlers::dump() << "ERROR: StackWalk64() endless callstack!";
+			CrashReports::dump() << s.AddrPC.Offset << "\n";
+			CrashReports::dump() << "ERROR: StackWalk64() endless callstack!";
 			return;
 		}
 		if (s.AddrPC.Offset != 0) { // we seem to have a valid PC
-			SignalHandlers::dump() << s.AddrPC.Offset << "\n";
+			CrashReports::dump() << s.AddrPC.Offset << "\n";
 		}
 
 		if (s.AddrReturn.Offset == 0) {

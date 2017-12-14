@@ -21,6 +21,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "info/info_wrap_widget.h"
 
 #include <rpl/flatten_latest.h>
+#include <rpl/take.h>
 #include <rpl/combine.h>
 #include "info/profile/info_profile_widget.h"
 #include "info/profile/info_profile_members.h"
@@ -36,6 +37,7 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 #include "ui/widgets/dropdown_menu.h"
 #include "ui/wrap/fade_wrap.h"
 #include "ui/search_field_controller.h"
+#include "calls/calls_instance.h"
 #include "window/window_controller.h"
 #include "window/window_slide_animation.h"
 #include "window/window_peer_menu.h"
@@ -114,7 +116,7 @@ void WrapWidget::startInjectingActivePeerProfiles() {
 	using namespace rpl::mappers;
 	rpl::combine(
 		_wrap.value(),
-		_controller->window()->activePeer.value())
+		_controller->parentController()->activePeer.value())
 		| rpl::filter((_1 == Wrap::Side) && (_2 != nullptr))
 		| rpl::map(_2)
 		| rpl::start_with_next([this](not_null<PeerData*> peer) {
@@ -124,17 +126,35 @@ void WrapWidget::startInjectingActivePeerProfiles() {
 }
 
 void WrapWidget::injectActivePeerProfile(not_null<PeerData*> peer) {
-	auto firstPeerId = hasStackHistory()
+	const auto firstPeerId = hasStackHistory()
 		? _historyStack.front().section->peerId()
 		: _controller->peerId();
-	auto firstSectionType = hasStackHistory()
+	const auto firstSectionType = hasStackHistory()
 		? _historyStack.front().section->section().type()
 		: _controller->section().type();
-	if (firstSectionType != Section::Type::Profile
+	const auto firstSectionMediaType = [&] {
+		if (firstSectionType == Section::Type::Profile) {
+			return Section::MediaType::kCount;
+		}
+		return hasStackHistory()
+			? _historyStack.front().section->section().mediaType()
+			: _controller->section().mediaType();
+	}();
+	const auto expectedType = peer->isSelf()
+		? Section::Type::Media
+		: Section::Type::Profile;
+	const auto expectedMediaType = peer->isSelf()
+		? Section::MediaType::Photo
+		: Section::MediaType::kCount;
+	if (firstSectionType != expectedType
+		|| firstSectionMediaType != expectedMediaType
 		|| firstPeerId != peer->id) {
 		auto injected = StackItem();
+		auto section = peer->isSelf()
+			? Section(Section::MediaType::Photo)
+			: Section(Section::Type::Profile);
 		injected.section = std::move(
-			Memento(peer->id).takeStack().front());
+			Memento(peer->id, section).takeStack().front());
 		_historyStack.insert(
 			_historyStack.begin(),
 			std::move(injected));
@@ -221,7 +241,7 @@ void WrapWidget::forceContentRepaint() {
 //		_anotherTabMemento = createTabMemento(tab);
 //	}
 //	auto newController = createController(
-//		_controller->window(),
+//		_controller->parentController(),
 //		_anotherTabMemento.get());
 //	auto newContent = createContent(
 //		_anotherTabMemento.get(),
@@ -285,7 +305,7 @@ void WrapWidget::setupTop() {
 }
 
 void WrapWidget::createTopBar() {
-	auto wrapValue = wrap();
+	const auto wrapValue = wrap();
 	auto selectedItems = _topBar
 		? _topBar->takeSelectedItems()
 		: SelectedItems(Section::MediaType::kCount);
@@ -297,12 +317,13 @@ void WrapWidget::createTopBar() {
 
 	_topBar->setTitle(TitleValue(
 		_controller->section(),
-		_controller->peer()));
+		_controller->peer(),
+		!hasStackHistory()));
 	if (wrapValue == Wrap::Narrow || hasStackHistory()) {
 		_topBar->enableBackButton();
 		_topBar->backRequest()
 			| rpl::start_with_next([this] {
-				showBackFromStack();
+				_controller->showBackFromStack();
 			}, _topBar->lifetime());
 	} else if (wrapValue == Wrap::Side) {
 		auto close = _topBar->addButton(
@@ -310,7 +331,7 @@ void WrapWidget::createTopBar() {
 				_topBar,
 				st::infoTopBarClose));
 		close->addClickHandler([this] {
-			_controller->window()->closeThirdSection();
+			_controller->parentController()->closeThirdSection();
 		});
 	}
 	if (wrapValue == Wrap::Layer) {
@@ -319,18 +340,20 @@ void WrapWidget::createTopBar() {
 				_topBar,
 				st::infoLayerTopBarClose));
 		close->addClickHandler([this] {
-			_controller->window()->hideSpecialLayer();
+			_controller->parentController()->hideSpecialLayer();
 		});
 	} else if (requireTopBarSearch()) {
 		auto search = _controller->searchFieldController();
 		Assert(search != nullptr);
 		_topBar->createSearchView(
 			search,
-			_controller->searchEnabledByContent());
+			_controller->searchEnabledByContent(),
+			_controller->takeSearchStartsFocused());
 	}
 	if (_controller->section().type() == Section::Type::Profile
 		&& (wrapValue != Wrap::Side || hasStackHistory())) {
 		addProfileMenuButton();
+		addProfileCallsButton();
 //		addProfileNotificationsButton();
 	}
 
@@ -354,10 +377,42 @@ void WrapWidget::addProfileMenuButton() {
 	});
 }
 
+void WrapWidget::addProfileCallsButton() {
+	Expects(_topBar != nullptr);
+
+	const auto user = _controller->peer()->asUser();
+	if (!user || user->isSelf() || !Global::PhoneCallsEnabled()) {
+		return;
+	}
+
+	Notify::PeerUpdateValue(
+		user,
+		Notify::PeerUpdate::Flag::UserHasCalls
+	) | rpl::filter([=] {
+		return user->hasCalls();
+	}) | rpl::take(
+		1
+	) | rpl::start_with_next([=] {
+		_topBar->addButton(
+			base::make_unique_q<Ui::IconButton>(
+				_topBar,
+				(wrap() == Wrap::Layer
+					? st::infoLayerTopBarCall
+					: st::infoTopBarCall))
+		)->addClickHandler([=] {
+			Calls::Current().startOutgoingCall(user);
+		});
+	}, _topBar->lifetime());
+
+	if (user && user->callsStatus() == UserData::CallsStatus::Unknown) {
+		user->updateFull();
+	}
+}
+
 void WrapWidget::addProfileNotificationsButton() {
 	Expects(_topBar != nullptr);
 
-	auto peer = _controller->peer();
+	const auto peer = _controller->peer();
 	auto notifications = _topBar->addButton(
 		base::make_unique_q<Ui::IconButton>(
 			_topBar,
@@ -365,18 +420,17 @@ void WrapWidget::addProfileNotificationsButton() {
 				? st::infoLayerTopBarNotifications
 				: st::infoTopBarNotifications)));
 	notifications->addClickHandler([peer] {
-		App::main()->updateNotifySetting(
-			peer,
-			peer->isMuted()
-				? NotifySettingSetNotify
-				: NotifySettingSetMuted);
+		const auto muteState = peer->isMuted()
+			? Data::NotifySettings::MuteChange::Unmute
+			: Data::NotifySettings::MuteChange::Mute;
+		App::main()->updateNotifySettings(peer, muteState);
 	});
 	Profile::NotificationsEnabledValue(peer)
 		| rpl::start_with_next([notifications](bool enabled) {
-			auto iconOverride = enabled
+			const auto iconOverride = enabled
 				? &st::infoNotificationsActive
 				: nullptr;
-			auto rippleOverride = enabled
+			const auto rippleOverride = enabled
 				? &st::lightButtonBgOver
 				: nullptr;
 			notifications->setIconOverride(iconOverride, iconOverride);
@@ -411,7 +465,7 @@ void WrapWidget::showProfileMenu() {
 	_topBarMenuToggle->installEventFilter(_topBarMenu.get());
 
 	Window::FillPeerMenu(
-		_controller->window(),
+		_controller->parentController(),
 		_controller->peer(),
 		[this](const QString &text, base::lambda<void()> callback) {
 			return _topBarMenu->addAction(text, std::move(callback));
@@ -441,19 +495,18 @@ bool WrapWidget::requireTopBarSearch() const {
 	return false;
 }
 
-void WrapWidget::showBackFromStack() {
-	auto params = Window::SectionShow(
-		Window::SectionShow::Way::Backward);
+bool WrapWidget::showBackFromStackInternal(
+		const Window::SectionShow &params) {
 	if (hasStackHistory()) {
 		auto last = std::move(_historyStack.back());
 		_historyStack.pop_back();
 		showNewContent(
 			last.section.get(),
-			params);
+			params.withWay(Window::SectionShow::Way::Backward));
 		//_anotherTabMemento = std::move(last.anotherTab);
-	} else if (wrap() != Wrap::Layer) {
-		_controller->window()->showBackFromStack(params);
+		return true;
 	}
+	return (wrap() == Wrap::Layer);
 }
 
 not_null<Ui::RpWidget*> WrapWidget::topWidget() const {
@@ -617,7 +670,9 @@ void WrapWidget::showAnimatedHook(
 }
 
 void WrapWidget::doSetInnerFocus() {
-	_content->setInnerFocus();
+	if (!_topBar->focusSearchField()) {
+		_content->setInnerFocus();
+	}
 }
 
 void WrapWidget::showFinishedHook() {
@@ -718,7 +773,7 @@ bool WrapWidget::returnToFirstStackFrame(
 		&& firstSection.type() == memento->section().type()
 		&& firstSection.type() == Section::Type::Profile) {
 		_historyStack.resize(1);
-		showBackFromStack();
+		_controller->showBackFromStack();
 		return true;
 	}
 	return false;
@@ -733,7 +788,7 @@ void WrapWidget::showNewContent(
 		&& (params.animated != anim::type::instant);
 	auto animationParams = SectionSlideParams();
 	auto newController = createController(
-		_controller->window(),
+		_controller->parentController(),
 		memento);
 	auto newContent = object_ptr<ContentWidget>(nullptr);
 	if (needAnimation) {
@@ -763,6 +818,9 @@ void WrapWidget::showNewContent(
 		showNewContent(memento);
 	}
 	if (animationParams) {
+		if (Ui::InFocusChain(this)) {
+			setFocus();
+		}
 		showAnimated(
 			saveToStack
 				? SlideDirection::FromRight
@@ -809,7 +867,7 @@ void WrapWidget::resizeEvent(QResizeEvent *e) {
 void WrapWidget::keyPressEvent(QKeyEvent *e) {
 	if (e->key() == Qt::Key_Escape) {
 		if (hasStackHistory() || wrap() != Wrap::Layer) {
-			showBackFromStack();
+			_controller->showBackFromStack();
 			return;
 		}
 	}
@@ -840,7 +898,7 @@ object_ptr<Ui::RpWidget> WrapWidget::createTopBarSurrogate(
 		auto result = object_ptr<Ui::AbstractButton>(parent);
 		result->addClickHandler([weak = make_weak(this)]{
 			if (weak) {
-				weak->showBackFromStack();
+				weak->_controller->showBackFromStack();
 			}
 		});
 		result->setGeometry(_topBar->geometry());

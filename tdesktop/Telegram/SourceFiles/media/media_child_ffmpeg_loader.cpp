@@ -20,9 +20,24 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
 */
 #include "media/media_child_ffmpeg_loader.h"
 
+#include "core/crash_reports.h"
+
+namespace {
+
 constexpr AVSampleFormat AudioToFormat = AV_SAMPLE_FMT_S16;
 constexpr int64_t AudioToChannelLayout = AV_CH_LAYOUT_STEREO;
 constexpr int32 AudioToChannels = 2;
+
+bool IsPlanarFormat(int format) {
+	return (format == AV_SAMPLE_FMT_U8P)
+		|| (format == AV_SAMPLE_FMT_S16P)
+		|| (format == AV_SAMPLE_FMT_S32P)
+		|| (format == AV_SAMPLE_FMT_FLTP)
+		|| (format == AV_SAMPLE_FMT_DBLP)
+		|| (format == AV_SAMPLE_FMT_S64P);
+}
+
+} // namespace
 
 VideoSoundData::~VideoSoundData() {
 	if (context) {
@@ -37,7 +52,7 @@ ChildFFMpegLoader::ChildFFMpegLoader(std::unique_ptr<VideoSoundData> &&data) : A
 	_frame = av_frame_alloc();
 }
 
-bool ChildFFMpegLoader::open(qint64 &position) {
+bool ChildFFMpegLoader::open(TimeMs positionMs) {
 	int res = 0;
 	char err[AV_ERROR_MAX_STRING_SIZE] = { 0 };
 
@@ -106,7 +121,6 @@ bool ChildFFMpegLoader::open(qint64 &position) {
 		_sampleSize = AudioToChannels * sizeof(short);
 		_parentData->frequency = _dstRate;
 		_parentData->length = av_rescale_rnd(_parentData->length, _dstRate, _srcRate, AV_ROUND_UP);
-		position = av_rescale_rnd(position, _dstRate, _srcRate, AV_ROUND_DOWN);
 		_format = AL_FORMAT_STEREO16;
 
 		_maxResampleSamples = av_rescale_rnd(AVBlockSize / _sampleSize, _dstRate, _srcRate, AV_ROUND_UP);
@@ -180,11 +194,48 @@ AudioPlayerLoader::ReadResult ChildFFMpegLoader::readFromReadyFrame(QByteArray &
 				return ReadResult::Error;
 			}
 		}
+
+		// See the same check in media_audio_ffmpeg_loader.cpp.
+		if (_frame->extended_data[1] == nullptr) {
+			const auto params = _parentData->context;
+			if (IsPlanarFormat(params->sample_fmt) && params->channels > 1) {
+				LOG(("Audio Error: Inconsistent frame layout/channels in file, codec: (%1;%2;%3), frame: (%4;%5;%6)."
+					).arg(params->channel_layout
+					).arg(params->channels
+					).arg(params->sample_fmt
+					).arg(_frame->channel_layout
+					).arg(_frame->channels
+					).arg(_frame->format
+					));
+				return ReadResult::Error;
+			} else {
+				const auto key = "ffmpeg_" + std::to_string(ptrdiff_t(this));
+				const auto value = QString("codec: (%1;%2;%3), frame: (%4;%5;%6), ptrs: (%7;%8;%9)"
+				).arg(params->channel_layout
+				).arg(params->channels
+				).arg(params->sample_fmt
+				).arg(_frame->channel_layout
+				).arg(_frame->channels
+				).arg(_frame->format
+				).arg(ptrdiff_t(_frame->data[0])
+				).arg(ptrdiff_t(_frame->extended_data[0])
+				).arg(ptrdiff_t(_frame->data[1])
+				);
+				CrashReports::SetAnnotation(key, value);
+			}
+		}
+
 		if ((res = swr_convert(_swrContext, _dstSamplesData, dstSamples, (const uint8_t**)_frame->extended_data, _frame->nb_samples)) < 0) {
 			char err[AV_ERROR_MAX_STRING_SIZE] = { 0 };
 			LOG(("Audio Error: Unable to swr_convert for file '%1', data size '%2', error %3, %4").arg(_file.name()).arg(_data.size()).arg(res).arg(av_make_error_string(err, sizeof(err), res)));
 			return ReadResult::Error;
 		}
+
+		if (_frame->extended_data[1] == nullptr) {
+			const auto key = "ffmpeg_" + std::to_string(ptrdiff_t(this));
+			CrashReports::ClearAnnotation(key);
+		}
+
 		int32 resultLen = av_samples_get_buffer_size(0, AudioToChannels, res, AudioToFormat, 1);
 		result.append((const char*)_dstSamplesData[0], resultLen);
 		samplesAdded += resultLen / _sampleSize;
