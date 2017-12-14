@@ -9,6 +9,7 @@ BuildRequires(pre): rpm-build-ubt
 %def_without ffmpeg_static
 %endif
 
+%def_without clang
 
 Name: telegram-desktop
 Version: 1.1.26
@@ -89,6 +90,10 @@ BuildRequires: libffmpeg-devel-static
 BuildRequires: libavcodec-devel libavformat-devel libavutil-devel libswscale-devel libswresample-devel
 %endif
 
+%if_with clang
+BuildRequires: clang4.0
+%endif
+
 Requires: dbus
 
 # some problems with t_assert
@@ -142,6 +147,10 @@ EOF
 export PKG_CONFIG_PATH=%_libdir/ffmpeg-static/%_lib/pkgconfig/
 %endif
 cd Telegram
+%if_with clang
+export CC=clang
+export CXX=clang++
+%endif
 %cmake_insource
 %make_build
 
