@@ -10,9 +10,10 @@ BuildRequires(pre): rpm-build-ubt
 %endif
 
 %def_without clang
+%def_without libcxx
 
 Name: telegram-desktop
-Version: 1.1.26
+Version: 1.2.1
 Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
@@ -92,6 +93,9 @@ BuildRequires: libavcodec-devel libavformat-devel libavutil-devel libswscale-dev
 
 %if_with clang
 BuildRequires: clang4.0
+%if_with libcxx
+%add_optflags -stdlib=libc++
+%endif
 %endif
 
 Requires: dbus
@@ -151,7 +155,11 @@ cd Telegram
 export CC=clang
 export CXX=clang++
 %endif
-%cmake_insource
+%cmake_insource \
+%if_with libcxx
+    -DLLVM_ENABLE_LIBCXX=ON
+%endif
+
 %make_build
 
 %install
@@ -185,6 +193,9 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Thu Dec 14 2017 Vitaly Lipatov <lav@altlinux.ru> 1.2.1-alt1
+- new version 1.2.1 (with rpmrb script)
+
 * Sun Dec 03 2017 Vitaly Lipatov <lav@altlinux.ru> 1.1.26-alt1
 - new version 1.1.26 (with rpmrb script)
 

@@ -1,18 +1,15 @@
-This patch makes telegram-desktop use system-wide qt-plugins, but not static
-## Exclusion from first patch
-#+	// without this Telegram doesn't start on Ubuntu 17.04 due GTK errors
-#+	setenv("QT_STYLE_OVERRIDE", "qwerty", false);
-##
-
-diff --git a/Telegram/SourceFiles/main.cpp b/Telegram/SourceFiles/main.cpp
---- a/Telegram/SourceFiles/main.cpp
-+++ b/Telegram/SourceFiles/main.cpp
-@@ -39,6 +39,8 @@ int main(int argc, char *argv[]) {
- 	// both are finished in Application::closeApplication
- 	Logs::start(); // must be started before Platform is started
+diff --git a/tdesktop/Telegram/SourceFiles/core/launcher.cpp b/tdesktop/Telegram/SourceFiles/core/launcher.cpp
+index c059159..ffb91d7 100644
+--- a/Telegram/SourceFiles/core/launcher.cpp
++++ b/Telegram/SourceFiles/core/launcher.cpp
+@@ -63,6 +63,10 @@ int Launcher::exec() {
+ 	Logs::start(this); // must be started before Platform is started
  	Platform::start(); // must be started before QApplication is created
+ 
++	// ALT build: hack to find Qt5 plugins
 +	QCoreApplication::addLibraryPath("/usr/lib64/qt5/plugins");
 +	QCoreApplication::addLibraryPath("/usr/lib/qt5/plugins");
- 
- 	int result = 0;
++
+ 	auto result = 0;
  	{
+ 		Application app(this, _argc, _argv);
