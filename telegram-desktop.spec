@@ -13,7 +13,7 @@ BuildRequires(pre): rpm-build-ubt
 %def_without libcxx
 
 Name: telegram-desktop
-Version: 1.2.1
+Version: 1.2.8
 Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
