@@ -93,9 +93,9 @@ BuildRequires: libavcodec-devel libavformat-devel libavutil-devel libswscale-dev
 
 %if_with clang
 BuildRequires: clang4.0
+%endif
 %if_with libcxx
 %add_optflags -stdlib=libc++
-%endif
 %endif
 
 Requires: dbus
@@ -158,8 +158,9 @@ export CXX=clang++
 %cmake_insource \
 %if_with libcxx
     -DLLVM_ENABLE_LIBCXX=ON
+%else
+    %nil
 %endif
-
 %make_build
 
 %install
@@ -193,6 +194,9 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Thu Feb 22 2018 Vitaly Lipatov <lav@altlinux.ru> 1.2.8-alt1
+- new version (1.2.8) with rpmgs script
+
 * Thu Dec 14 2017 Vitaly Lipatov <lav@altlinux.ru> 1.2.1-alt1
 - new version 1.2.1 (with rpmrb script)
 
