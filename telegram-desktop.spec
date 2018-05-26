@@ -13,7 +13,7 @@ BuildRequires(pre): rpm-build-ubt
 %def_without libcxx
 
 Name: telegram-desktop
-Version: 1.2.8
+Version: 1.2.23
 Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
@@ -76,7 +76,8 @@ BuildRequires: libopenal-devel >= 1.17.2
 # used by qt imageformats: libwebp-devel 
 BuildRequires: libva-devel libdrm-devel
 
-BuildRequires: libtgvoip-devel >= 0.4.1.2
+BuildRequires: libtgvoip-devel >= 1.2.18t
+BuildRequires: libcrl-devel >= 0.1
 # C++ sugar
 BuildRequires: libmicrosoft-gsl-devel libvariant-devel librange-v3-devel
 
@@ -92,7 +93,8 @@ BuildRequires: libavcodec-devel libavformat-devel libavutil-devel libswscale-dev
 %endif
 
 %if_with clang
-BuildRequires: clang4.0
+BuildRequires: clang6.0
+%remove_optflags -frecord-gcc-switches
 %endif
 %if_with libcxx
 %add_optflags -stdlib=libc++
@@ -104,7 +106,7 @@ Requires: dbus
 %add_optflags -fpermissive
 
 # disable some warnings
-%add_optflags -Wno-strict-aliasing
+%add_optflags -Wno-strict-aliasing -Wno-unused-variable -Wno-sign-compare
 
 
 %description
@@ -131,7 +133,7 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 #patch9 -p1
 %patch14 -p1
 %patch15 -p1
-%patch16 -p1
+#patch16 -p1
 
 cp %SOURCE2 Telegram/
 # MacOS things will conflicts with binary name, so delete Telegram dir
@@ -194,6 +196,9 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Sat May 26 2018 Vitaly Lipatov <lav@altlinux.ru> 1.2.23-alt1
+- new version 1.2.23 (with rpmrb script)
+
 * Thu Feb 22 2018 Vitaly Lipatov <lav@altlinux.ru> 1.2.8-alt1
 - new version (1.2.8) with rpmgs script
 

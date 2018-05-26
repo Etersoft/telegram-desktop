@@ -13,12 +13,12 @@ set(CMAKE_AUTORCC ON)
 
 option(GTK "GTK+ (currently, v3) Integration" ON)
 
-find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Network)
+find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Network DBus)
 
 get_target_property(QTCORE_INCLUDE_DIRS Qt5::Core INTERFACE_INCLUDE_DIRECTORIES)
 list(GET QTCORE_INCLUDE_DIRS 0 QT_INCLUDE_DIR)
 
-foreach(__qt_module IN ITEMS QtCore QtGui)
+foreach(__qt_module IN ITEMS QtCore QtGui QtDBus)
     list(APPEND QT_PRIVATE_INCLUDE_DIRS
         ${QT_INCLUDE_DIR}/${__qt_module})
     list(APPEND QT_PRIVATE_INCLUDE_DIRS
@@ -32,6 +32,7 @@ find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(FFMPEG REQUIRED libavformat libavcodec libswresample libswscale libavutil)
 pkg_check_modules(TGVOIP REQUIRED libtgvoip)
+pkg_check_modules(LIBCRL REQUIRED libcrl)
 pkg_check_modules(LIBDRM REQUIRED libdrm)
 pkg_check_modules(LIBVA REQUIRED libva-x11 libva-drm libva)
 pkg_check_modules(MINIZIP REQUIRED minizip)
@@ -137,6 +138,7 @@ target_link_libraries(Telegram
     ${LIBDRM_LIBRARIES}
     ${ZLIB_LIBRARY_RELEASE}
     ${GTK3_LIBRARIES}
+    ${LIBCRL_LIBRARIES}
     ${TGVOIP_LIBRARIES}
     ${MINIZIP_LIBRARIES}
     ${OPENAL_LIBRARY}
@@ -151,6 +153,7 @@ target_include_directories(Telegram PUBLIC
     ${LIBDRM_INCLUDE_DIRS}
     ${ZLIB_INCLUDE_DIR}
     ${GTK3_INCLUDE_DIRS}
+    ${LIBCRL_INCLUDE_DIRS}
     ${TGVOIP_INCLUDE_DIRS}
     ${GSL_INCLUDE_DIR}
     ${EMOJI_SUGGESTIONS_INCLUDE_DIR}
