@@ -26,8 +26,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/labels.h"
 #include "ui/wrap/fade_wrap.h"
 #include "ui/effects/slide_animation.h"
-#include "autoupdater.h"
+#include "core/update_checker.h"
 #include "window/window_slide_animation.h"
+#include "window/window_connecting_widget.h"
 #include "styles/style_boxes.h"
 #include "styles/style_intro.h"
 #include "styles/style_window.h"
@@ -42,7 +43,7 @@ constexpr str_const kDefaultCountry = "US";
 
 } // namespace
 
-Widget::Widget(QWidget *parent) : TWidget(parent)
+Widget::Widget(QWidget *parent) : RpWidget(parent)
 , _back(this, object_ptr<Ui::IconButton>(this, st::introBackButton))
 , _settings(
 	this,
@@ -65,6 +66,7 @@ Widget::Widget(QWidget *parent) : TWidget(parent)
 	_settings->entity()->setClickedCallback([] { App::wnd()->showSettings(); });
 
 	getNearestDC();
+	setupConnectingWidget();
 
 	appendStep(new StartWidget(this, getData()));
 	fixOrder();
@@ -82,12 +84,25 @@ Widget::Widget(QWidget *parent) : TWidget(parent)
 	cSetPasswordRecovered(false);
 
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
-	Sandbox::connect(SIGNAL(updateLatest()), this, SLOT(onCheckUpdateStatus()));
-	Sandbox::connect(SIGNAL(updateFailed()), this, SLOT(onCheckUpdateStatus()));
-	Sandbox::connect(SIGNAL(updateReady()), this, SLOT(onCheckUpdateStatus()));
-	Sandbox::startUpdateCheck();
+	Core::UpdateChecker checker;
+	checker.isLatest() | rpl::start_with_next([=] {
+		onCheckUpdateStatus();
+	}, lifetime());
+	checker.failed() | rpl::start_with_next([=] {
+		onCheckUpdateStatus();
+	}, lifetime());
+	checker.ready() | rpl::start_with_next([=] {
+		onCheckUpdateStatus();
+	}, lifetime());
+	checker.start();
 	onCheckUpdateStatus();
 #endif // !TDESKTOP_DISABLE_AUTOUPDATE
+}
+
+void Widget::setupConnectingWidget() {
+	_connecting = Window::ConnectingWidget::CreateDefaultWidget(
+		this,
+		rpl::single(true));
 }
 
 void Widget::refreshLang() {
@@ -104,7 +119,7 @@ void Widget::createLanguageLink() {
 			this,
 			object_ptr<Ui::LinkButton>(this, text));
 		_changeLanguage->hide(anim::type::instant);
-		_changeLanguage->entity()->setClickedCallback([this, languageId] {
+		_changeLanguage->entity()->setClickedCallback([=] {
 			Lang::CurrentCloudManager().switchToLanguage(languageId);
 		});
 		_changeLanguage->toggle(!_resetAccount, anim::type::normal);
@@ -117,7 +132,10 @@ void Widget::createLanguageLink() {
 	if (!currentId.isEmpty() && currentId != defaultId) {
 		createLink(Lang::GetOriginalValue(lng_switch_to_this), defaultId);
 	} else if (!suggestedId.isEmpty() && suggestedId != currentId) {
-		request(MTPlangpack_GetStrings(MTP_string(suggestedId), MTP_vector<MTPstring>(1, MTP_string("lng_switch_to_this")))).done([this, suggestedId, createLink](const MTPVector<MTPLangPackString> &result) {
+		request(MTPlangpack_GetStrings(
+			MTP_string(suggestedId),
+			MTP_vector<MTPstring>(1, MTP_string("lng_switch_to_this"))
+		)).done([=](const MTPVector<MTPLangPackString> &result) {
 			auto strings = Lang::Instance::ParseStrings(result);
 			auto it = strings.find(lng_switch_to_this);
 			if (it != strings.end()) {
@@ -129,7 +147,7 @@ void Widget::createLanguageLink() {
 
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
 void Widget::onCheckUpdateStatus() {
-	if (Sandbox::updatingState() == Application::UpdatingReady) {
+	if (Core::UpdateChecker().state() == Core::UpdateChecker::State::Ready) {
 		if (_update) return;
 		_update.create(
 			this,
@@ -141,7 +159,7 @@ void Widget::onCheckUpdateStatus() {
 			_update->setVisible(true);
 		}
 		_update->entity()->setClickedCallback([] {
-			checkReadyUpdate();
+			Core::checkReadyUpdate();
 			App::restart();
 		});
 	} else {
@@ -202,6 +220,7 @@ void Widget::fixOrder() {
 	if (_update) _update->raise();
 	_settings->raise();
 	_back->raise();
+	_connecting->raise();
 }
 
 void Widget::moveToStep(Step *step, Direction direction) {
@@ -211,6 +230,7 @@ void Widget::moveToStep(Step *step, Direction direction) {
 	if (_update) {
 		_update->raise();
 	}
+	_connecting->raise();
 
 	historyMove(direction);
 }
@@ -300,6 +320,7 @@ void Widget::showControls() {
 	getStep()->show();
 	_next->show();
 	_next->setText([this] { return getStep()->nextButtonText(); });
+	_connecting->setForceHidden(false);
 	auto hasCover = getStep()->hasCover();
 	_settings->toggle(!hasCover, anim::type::instant);
 	if (_update) _update->toggle(!hasCover, anim::type::instant);
@@ -310,6 +331,7 @@ void Widget::showControls() {
 void Widget::hideControls() {
 	getStep()->hide();
 	_next->hide();
+	_connecting->setForceHidden(true);
 	_settings->hide(anim::type::instant);
 	if (_update) _update->hide(anim::type::instant);
 	if (_changeLanguage) _changeLanguage->hide(anim::type::instant);
@@ -790,6 +812,7 @@ QPixmap Widget::Step::prepareSlideAnimation() {
 }
 
 void Widget::Step::showAnimated(Direction direction) {
+	setFocus();
 	show();
 	hideChildren();
 	if (_slideAnimation) {

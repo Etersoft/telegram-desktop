@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_media_prepare.h"
 #include "mainwidget.h"
 #include "history/history_media_types.h"
+#include "chat_helpers/message_field.h"
 #include "core/file_utilities.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/buttons.h"
@@ -24,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_controller.h"
 #include "styles/style_history.h"
 #include "styles/style_boxes.h"
+#include "layout.h"
 
 namespace {
 
@@ -783,7 +785,11 @@ void SingleFilePreview::preparePreview(const Storage::PreparedFile &file) {
 	prepareThumb(preview);
 	const auto filepath = file.path;
 	if (filepath.isEmpty()) {
-		auto filename = filedialogDefaultName(qsl("image"), qsl(".png"), QString(), true);
+		auto filename = filedialogDefaultName(
+			qsl("image"),
+			qsl(".png"),
+			QString(),
+			true);
 		_nameText.setText(
 			st::semiboldTextStyle,
 			filename,
@@ -1314,10 +1320,17 @@ void SendFilesBox::AlbumPreview::mouseReleaseEvent(QMouseEvent *e) {
 SendFilesBox::SendFilesBox(
 	QWidget*,
 	Storage::PreparedList &&list,
+	const TextWithTags &caption,
 	CompressConfirm compressed)
 : _list(std::move(list))
 , _compressConfirmInitial(compressed)
-, _compressConfirm(compressed) {
+, _compressConfirm(compressed)
+, _caption(
+	this,
+	st::confirmCaptionArea,
+	Ui::InputField::Mode::MultiLine,
+	FieldPlaceholder(_list),
+	caption) {
 }
 
 void SendFilesBox::initPreview(rpl::producer<int> desiredPreviewHeight) {
@@ -1412,6 +1425,7 @@ void SendFilesBox::prepare() {
 
 	_send = addButton(langFactory(lng_send_button), [this] { send(); });
 	addButton(langFactory(lng_cancel), [this] { closeBox(); });
+	setupCaption();
 	initSendWay();
 	preparePreview();
 	subscribe(boxClosing, [this] {
@@ -1433,7 +1447,7 @@ void SendFilesBox::initSendWay() {
 				? SendFilesWay::Album
 				: SendFilesWay::Photos;
 		}
-		const auto currentWay = Auth().data().sendFilesWay();
+		const auto currentWay = Auth().settings().sendFilesWay();
 		if (currentWay == SendFilesWay::Files) {
 			return currentWay;
 		} else if (currentWay == SendFilesWay::Album) {
@@ -1483,7 +1497,7 @@ void SendFilesBox::preparePreview() {
 void SendFilesBox::setupControls() {
 	setupTitleText();
 	setupSendWayControls();
-	setupCaption();
+	_caption->setPlaceholder(FieldPlaceholder(_list));
 }
 
 void SendFilesBox::setupSendWayControls() {
@@ -1540,34 +1554,31 @@ void SendFilesBox::applyAlbumOrder() {
 }
 
 void SendFilesBox::setupCaption() {
-	if (_caption) {
-		_caption->setPlaceholder(FieldPlaceholder(_list));
-		return;
-	}
-
-	_caption.create(this, st::confirmCaptionArea, FieldPlaceholder(_list));
 	_caption->setMaxLength(MaxPhotoCaption);
-	_caption->setCtrlEnterSubmit(Ui::CtrlEnterSubmit::Both);
-	connect(_caption, &Ui::InputArea::resized, this, [this] {
+	_caption->setSubmitSettings(Ui::InputField::SubmitSettings::Both);
+	connect(_caption, &Ui::InputField::resized, this, [this] {
 		captionResized();
 	});
-	connect(_caption, &Ui::InputArea::submitted, this, [this](
-		bool ctrlShiftEnter) {
+	connect(_caption, &Ui::InputField::submitted, this, [this](
+			bool ctrlShiftEnter) {
 		send(ctrlShiftEnter);
 	});
-	connect(_caption, &Ui::InputArea::cancelled, this, [this] {
+	connect(_caption, &Ui::InputField::cancelled, this, [this] {
 		closeBox();
 	});
 	_caption->setMimeDataHook([this](
 			not_null<const QMimeData*> data,
-			Ui::InputArea::MimeAction action) {
-		if (action == Ui::InputArea::MimeAction::Check) {
+			Ui::InputField::MimeAction action) {
+		if (action == Ui::InputField::MimeAction::Check) {
 			return canAddFiles(data);
-		} else if (action == Ui::InputArea::MimeAction::Insert) {
+		} else if (action == Ui::InputField::MimeAction::Insert) {
 			return addFiles(data);
 		}
 		Unexpected("action in MimeData hook.");
 	});
+	_caption->setInstantReplaces(Ui::InstantReplaces::Default());
+	_caption->setInstantReplacesEnabled(Global::ReplaceEmojiValue());
+	_caption->setMarkdownReplacesEnabled(rpl::single(true));
 }
 
 void SendFilesBox::captionResized() {
@@ -1576,18 +1587,21 @@ void SendFilesBox::captionResized() {
 	update();
 }
 
+bool SendFilesBox::canAddUrls(const QList<QUrl> &urls) const {
+	return !urls.isEmpty() && ranges::find_if(
+		urls,
+		[](const QUrl &url) { return !url.isLocalFile(); }
+	) == urls.end();
+}
+
 bool SendFilesBox::canAddFiles(not_null<const QMimeData*> data) const {
-	auto files = 0;
-	if (data->hasUrls()) {
-		for (const auto &url : data->urls()) {
-			if (url.isLocalFile()) {
-				++files;
-			}
-		}
-	} else if (data->hasImage()) {
-		++files;
+	const auto urls = data->hasUrls() ? data->urls() : QList<QUrl>();
+	auto filesCount = canAddUrls(urls) ? urls.size() : 0;
+	if (!filesCount && data->hasImage()) {
+		++filesCount;
 	}
-	if (_list.files.size() + files > Storage::MaxAlbumItems()) {
+
+	if (_list.files.size() + filesCount > Storage::MaxAlbumItems()) {
 		return false;
 	} else if (_list.files.size() > 1 && !_albumPreview) {
 		return false;
@@ -1600,10 +1614,14 @@ bool SendFilesBox::canAddFiles(not_null<const QMimeData*> data) const {
 
 bool SendFilesBox::addFiles(not_null<const QMimeData*> data) {
 	auto list = [&] {
-		if (data->hasUrls()) {
-			return Storage::PrepareMediaList(
-				data->urls(),
-				st::sendMediaPreviewSize);
+		const auto urls = data->hasUrls() ? data->urls() : QList<QUrl>();
+		auto result = canAddUrls(urls)
+			? Storage::PrepareMediaList(urls, st::sendMediaPreviewSize)
+			: Storage::PreparedList(
+				Storage::PreparedList::Error::EmptyFile,
+				QString());
+		if (result.error == Storage::PreparedList::Error::None) {
+			return result;
 		} else if (data->hasImage()) {
 			auto image = qvariant_cast<QImage>(data->imageData());
 			if (!image.isNull()) {
@@ -1613,9 +1631,7 @@ bool SendFilesBox::addFiles(not_null<const QMimeData*> data) {
 					st::sendMediaPreviewSize);
 			}
 		}
-		return Storage::PreparedList(
-			Storage::PreparedList::Error::EmptyFile,
-			QString());
+		return result;
 	}();
 	if (_list.files.size() + list.files.size() > Storage::MaxAlbumItems()) {
 		return false;
@@ -1756,7 +1772,7 @@ void SendFilesBox::send(bool ctrlShiftEnter) {
 	const auto way = _sendWay ? _sendWay->value() : Way::Files;
 
 	if (_compressConfirm == CompressConfirm::Auto) {
-		const auto oldWay = Auth().data().sendFilesWay();
+		const auto oldWay = Auth().settings().sendFilesWay();
 		if (way != oldWay) {
 			// Check if the user _could_ use the old value, but didn't.
 			if ((oldWay == Way::Album && _sendAlbum)
@@ -1764,8 +1780,8 @@ void SendFilesBox::send(bool ctrlShiftEnter) {
 				|| (oldWay == Way::Files && _sendFiles)
 				|| (way == Way::Files && (_sendAlbum || _sendPhotos))) {
 				// And in that case save it to settings.
-				Auth().data().setSendFilesWay(way);
-				Auth().saveDataDelayed();
+				Auth().settings().setSendFilesWay(way);
+				Auth().saveSettingsDelayed();
 			}
 		}
 	}
@@ -1774,10 +1790,8 @@ void SendFilesBox::send(bool ctrlShiftEnter) {
 	_confirmed = true;
 	if (_confirmedCallback) {
 		auto caption = _caption
-			? TextUtilities::PrepareForSending(
-				_caption->getLastText(),
-				TextUtilities::PrepareTextOption::CheckLinks)
-			: QString();
+			? _caption->getTextWithTags()
+			: TextWithTags();
 		_confirmedCallback(
 			std::move(_list),
 			way,

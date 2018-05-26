@@ -8,7 +8,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 void initLocationManager();
-void reinitLocationManager();
 void deinitLocationManager();
 
 class LocationCoords {
@@ -85,11 +84,7 @@ public:
 		return _text;
 	}
 
-	void copyToClipboard() const override {
-		if (!_text.isEmpty()) {
-			QApplication::clipboard()->setText(_text);
-		}
-	}
+	QString copyToClipboardText() const override;
 	QString copyToClipboardContextItemText() const override;
 
 private:

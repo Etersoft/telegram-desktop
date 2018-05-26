@@ -32,9 +32,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace {
 
-constexpr auto kMaxGroupChannelTitle = 255;
-constexpr auto kMaxChannelDescription = 255;
+constexpr auto kMaxGroupChannelTitle = 255; // See also edit_peer_info_box.
+constexpr auto kMaxChannelDescription = 255; // See also edit_peer_info_box.
 constexpr auto kMaxBioLength = 70;
+constexpr auto kMinUsernameLength = 5;
 
 style::InputField CreateBioFieldStyle() {
 	auto result = st::newGroupDescription;
@@ -241,19 +242,23 @@ bool AddContactBox::onSaveUserFail(const RPCError &error) {
 void AddContactBox::onImportDone(const MTPcontacts_ImportedContacts &res) {
 	if (!isBoxShown() || !App::main()) return;
 
-	auto &d = res.c_contacts_importedContacts();
+	const auto &d = res.c_contacts_importedContacts();
 	App::feedUsers(d.vusers);
 
-	auto &v = d.vimported.v;
-	UserData *user = nullptr;
-	if (!v.isEmpty()) {
-		auto &c = v.front().c_importedContact();
-		if (c.vclient_id.v != _contactId) return;
-
-		user = App::userLoaded(c.vuser_id.v);
-	}
+	const auto &v = d.vimported.v;
+	const auto user = [&]() -> UserData* {
+		if (!v.isEmpty()) {
+			auto &c = v.front().c_importedContact();
+			if (c.vclient_id.v == _contactId) {
+				return App::userLoaded(c.vuser_id.v);
+			}
+		}
+		return nullptr;
+	}();
 	if (user) {
-		Notify::userIsContactChanged(user, true);
+		if (user->contactStatus() == UserData::ContactStatus::Contact) {
+			Ui::showPeerHistory(user, ShowAtTheEndMsgId);
+		}
 		Ui::hideLayer();
 	} else {
 		hideChildren();
@@ -315,11 +320,20 @@ void GroupInfoBox::prepare() {
 			? lng_dlg_new_channel_name
 			: lng_dlg_new_group_name));
 	_title->setMaxLength(kMaxGroupChannelTitle);
+	_title->setInstantReplaces(Ui::InstantReplaces::Default());
+	_title ->setInstantReplacesEnabled(Global::ReplaceEmojiValue());
 
 	if (_creating == CreatingGroupChannel) {
-		_description.create(this, st::newGroupDescription, langFactory(lng_create_group_description));
+		_description.create(
+			this,
+			st::newGroupDescription,
+			Ui::InputField::Mode::MultiLine,
+			langFactory(lng_create_group_description));
 		_description->show();
 		_description->setMaxLength(kMaxChannelDescription);
+		_description->setInstantReplaces(Ui::InstantReplaces::Default());
+		_description->setInstantReplacesEnabled(
+			Global::ReplaceEmojiValue());
 
 		connect(_description, SIGNAL(resized()), this, SLOT(onDescriptionResized()));
 		connect(_description, SIGNAL(submitted(bool)), this, SLOT(onNext()));
@@ -763,7 +777,7 @@ void SetupChannelBox::onChange() {
 				return;
 			}
 		}
-		if (name.size() < MinUsernameLength) {
+		if (name.size() < kMinUsernameLength) {
 			if (_errorText != lang(lng_create_channel_link_too_short)) {
 				_errorText = lang(lng_create_channel_link_too_short);
 				update();
@@ -784,9 +798,14 @@ void SetupChannelBox::onCheck() {
 		MTP::cancel(_checkRequestId);
 	}
 	QString link = _link->text().trimmed();
-	if (link.size() >= MinUsernameLength) {
+	if (link.size() >= kMinUsernameLength) {
 		_checkUsername = link;
-		_checkRequestId = MTP::send(MTPchannels_CheckUsername(_channel->inputChannel, MTP_string(link)), rpcDone(&SetupChannelBox::onCheckDone), rpcFail(&SetupChannelBox::onCheckFail));
+		_checkRequestId = MTP::send(
+			MTPchannels_CheckUsername(
+				_channel->inputChannel,
+				MTP_string(link)),
+			rpcDone(&SetupChannelBox::onCheckDone),
+			rpcFail(&SetupChannelBox::onCheckFail));
 	}
 }
 
@@ -1042,7 +1061,12 @@ bool EditNameBox::saveSelfFail(const RPCError &error) {
 EditBioBox::EditBioBox(QWidget*, not_null<UserData*> self) : BoxContent()
 , _dynamicFieldStyle(CreateBioFieldStyle())
 , _self(self)
-, _bio(this, _dynamicFieldStyle, langFactory(lng_bio_placeholder), _self->about())
+, _bio(
+	this,
+	_dynamicFieldStyle,
+	Ui::InputField::Mode::MultiLine,
+	langFactory(lng_bio_placeholder),
+	_self->about())
 , _countdown(this, QString(), Ui::FlatLabel::InitType::Simple, st::editBioCountdownLabel)
 , _about(this, lang(lng_bio_about), Ui::FlatLabel::InitType::Simple, st::aboutRevokePublicLabel) {
 }
@@ -1053,13 +1077,15 @@ void EditBioBox::prepare() {
 	addButton(langFactory(lng_settings_save), [this] { save(); });
 	addButton(langFactory(lng_cancel), [this] { closeBox(); });
 	_bio->setMaxLength(kMaxBioLength);
-	_bio->setCtrlEnterSubmit(Ui::CtrlEnterSubmit::Both);
+	_bio->setSubmitSettings(Ui::InputField::SubmitSettings::Both);
 	auto cursor = _bio->textCursor();
 	cursor.setPosition(_bio->getLastText().size());
 	_bio->setTextCursor(cursor);
-	connect(_bio, &Ui::InputArea::submitted, this, [this](bool ctrlShiftEnter) { save(); });
-	connect(_bio, &Ui::InputArea::resized, this, [this] { updateMaxHeight(); });
-	connect(_bio, &Ui::InputArea::changed, this, [this] { handleBioUpdated(); });
+	connect(_bio, &Ui::InputField::submitted, this, [this](bool ctrlShiftEnter) { save(); });
+	connect(_bio, &Ui::InputField::resized, this, [this] { updateMaxHeight(); });
+	connect(_bio, &Ui::InputField::changed, this, [this] { handleBioUpdated(); });
+	_bio->setInstantReplaces(Ui::InstantReplaces::Default());
+	_bio->setInstantReplacesEnabled(Global::ReplaceEmojiValue());
 	handleBioUpdated();
 	updateMaxHeight();
 }
@@ -1112,7 +1138,12 @@ void EditBioBox::save() {
 EditChannelBox::EditChannelBox(QWidget*, not_null<ChannelData*> channel)
 : _channel(channel)
 , _title(this, st::defaultInputField, langFactory(_channel->isMegagroup() ? lng_dlg_new_group_name : lng_dlg_new_channel_name), _channel->name)
-, _description(this, st::newGroupDescription, langFactory(lng_create_group_description), _channel->about())
+, _description(
+	this,
+	st::newGroupDescription,
+	Ui::InputField::Mode::MultiLine,
+	langFactory(lng_create_group_description),
+	_channel->about())
 , _sign(this, lang(lng_edit_sign_messages), channel->addsSignature(), st::defaultBoxCheckbox)
 , _inviteGroup(std::make_shared<Ui::RadioenumGroup<Invites>>(channel->anyoneCanAddMembers() ? Invites::Everybody : Invites::OnlyAdmins))
 , _inviteEverybody(this, _inviteGroup, Invites::Everybody, lang(lng_edit_group_invites_everybody))
@@ -1135,7 +1166,11 @@ void EditChannelBox::prepare() {
 	setMouseTracking(true);
 
 	_title->setMaxLength(kMaxGroupChannelTitle);
+	_title->setInstantReplaces(Ui::InstantReplaces::Default());
+	_title->setInstantReplacesEnabled(Global::ReplaceEmojiValue());
 	_description->setMaxLength(kMaxChannelDescription);
+	_description->setInstantReplaces(Ui::InstantReplaces::Default());
+	_description->setInstantReplacesEnabled(Global::ReplaceEmojiValue());
 
 	connect(_description, SIGNAL(resized()), this, SLOT(onDescriptionResized()));
 	connect(_description, SIGNAL(submitted(bool)), this, SLOT(onSave()));

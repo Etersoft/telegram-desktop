@@ -12,11 +12,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/timer.h"
 
 class AuthSession;
-class AuthSessionData;
+class AuthSessionSettings;
 class MainWidget;
 class FileUploader;
 class Translator;
 class MediaView;
+class BoxContent;
 
 namespace Core {
 class Launcher;
@@ -98,13 +99,16 @@ public:
 	MTP::DcOptions *dcOptions() {
 		return _dcOptions.get();
 	}
+	void setCurrentProxy(const ProxyData &proxy, bool enabled);
+	void badMtprotoConfigurationError();
 
 	// Set from legacy storage.
 	void setMtpMainDcId(MTP::DcId mainDcId);
 	void setMtpKey(MTP::DcId dcId, const MTP::AuthKey::Data &keyData);
 	void setAuthSessionUserId(UserId userId);
-	void setAuthSessionFromStorage(std::unique_ptr<AuthSessionData> data);
-	AuthSessionData *getAuthSessionData();
+	void setAuthSessionFromStorage(
+		std::unique_ptr<AuthSessionSettings> data);
+	AuthSessionSettings *getAuthSessionSettings();
 
 	// Serialization.
 	QByteArray serializeMtpAuthorization() const;
@@ -177,7 +181,6 @@ public:
 	void handleAppActivated();
 	void handleAppDeactivated();
 
-	void call_handleHistoryUpdate();
 	void call_handleUnreadCounterUpdate();
 	void call_handleDelayedPeerUpdates();
 	void call_handleObservables();
@@ -239,6 +242,7 @@ private:
 	std::unique_ptr<AuthSession> _authSession;
 	base::Observable<void> _authSessionChanged;
 	base::Observable<void> _passcodedChanged;
+	QPointer<BoxContent> _badProxyDisableBox;
 
 	std::unique_ptr<Media::Audio::Instance> _audio;
 	QImage _logo;

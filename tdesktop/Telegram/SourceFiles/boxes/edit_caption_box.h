@@ -9,13 +9,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "boxes/abstract_box.h"
 
+namespace Data {
+class Media;
+} // namespace Data
+
 namespace Ui {
-class InputArea;
+class InputField;
 } // namespace Ui
 
 class EditCaptionBox : public BoxContent, public RPCSender {
 public:
-	EditCaptionBox(QWidget*, not_null<HistoryMedia*> media, FullMsgId msgId);
+	EditCaptionBox(QWidget*, not_null<HistoryItem*> item);
 
 protected:
 	void prepare() override;
@@ -45,7 +49,7 @@ private:
 	QPixmap _thumb;
 	Media::Clip::ReaderPointer _gifPreview;
 
-	object_ptr<Ui::InputArea> _field = { nullptr };
+	object_ptr<Ui::InputField> _field = { nullptr };
 
 	int _thumbx = 0;
 	int _thumbw = 0;

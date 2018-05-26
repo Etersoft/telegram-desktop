@@ -132,7 +132,10 @@ public:
 	}
 
 	void notificationActivated(PeerId peerId, MsgId msgId);
-	void notificationReplied(PeerId peerId, MsgId msgId, const QString &reply);
+	void notificationReplied(
+		PeerId peerId,
+		MsgId msgId,
+		const TextWithTags &reply);
 
 	struct DisplayOptions {
 		bool hideNameAndPhoto;
@@ -160,6 +163,10 @@ protected:
 	}
 
 private:
+	void openNotificationMessage(
+		not_null<History*> history,
+		MsgId messageId);
+
 	System *_system = nullptr;
 
 };

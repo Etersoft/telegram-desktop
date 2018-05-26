@@ -29,12 +29,34 @@ LinkButton {
 	overColor: color;
 	font: font;
 	overFont: font;
+	padding: margins;
 }
 
 RippleAnimation {
 	color: color;
 	showDuration: int;
 	hideDuration: int;
+}
+
+InfiniteRadialAnimation {
+	color: color;
+	thickness: pixels;
+	size: size;
+	linearPeriod: int;
+	sinePeriod: int;
+	sineDuration: int;
+	sineShift: int;
+	arcMin: double;
+	arcMax: double;
+}
+
+defaultInfiniteRadialAnimation: InfiniteRadialAnimation {
+	linearPeriod: 1000;
+	sinePeriod: 3000;
+	sineDuration: 1000;
+	sineShift: 1500;
+	arcMin: 0.0625;
+	arcMax: 0.75;
 }
 
 FlatButton {
@@ -156,22 +178,6 @@ ScrollArea {
 
 	duration: int;
 	hiding: int;
-}
-
-FlatTextarea {
-	textColor: color;
-	bgColor: color;
-	width: pixels;
-	textMrg: margins;
-	align: align;
-	font: font;
-
-	phColor: color;
-	phFocusColor: color;
-	phPos: point;
-	phAlign: align;
-	phShift: pixels;
-	phDuration: int;
 }
 
 FlatInput {
@@ -492,6 +498,13 @@ UserpicButton {
 	uploadBg: color;
 	uploadIcon: icon;
 	uploadIconPosition: point;
+}
+
+FeedUserpicButton {
+	size: size;
+	innerSize: pixels;
+	innerPosition: point;
+	innerPart: UserpicButton;
 }
 
 InfoProfileButton {
@@ -987,6 +1000,12 @@ defaultUserpicButton: UserpicButton {
 	uploadBg: msgDateImgBgOver;
 	uploadIcon: defaultUploadUserpicIcon;
 	uploadIconPosition: point(-1px, 1px);
+}
+defaultFeedUserpicButton: FeedUserpicButton {
+	size: size(76px, 76px);
+	innerSize: 76px;
+	innerPosition: point(-1px, -1px);
+	innerPart: defaultUserpicButton;
 }
 
 historyToDownBelow: icon {

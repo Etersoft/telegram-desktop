@@ -14,6 +14,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class PeerData;
 
+namespace Ui {
+class InfiniteRadialAnimation;
+} // namespace Ui
+
+namespace Data {
+class Feed;
+} // namespace Data
+
 namespace Window {
 class Controller;
 } // namespace Window
@@ -65,9 +73,7 @@ private:
 
 	const style::IconButton &_st;
 
-	bool _loading = false;
-	Animation a_loading;
-	BasicAnimation _a_loading;
+	std::unique_ptr<Ui::InfiniteRadialAnimation> _loading;
 
 	const style::icon *_iconOverride = nullptr;
 	const style::color *_colorOverride = nullptr;
@@ -215,6 +221,33 @@ private:
 	bool _cursorInChangeOverlay = false;
 	bool _changeOverlayEnabled = false;
 	Animation _changeOverlayShown;
+
+};
+
+class FeedUserpicButton : public AbstractButton {
+public:
+	FeedUserpicButton(
+		QWidget *parent,
+		not_null<Window::Controller*> controller,
+		not_null<Data::Feed*> feed,
+		const style::FeedUserpicButton &st);
+
+private:
+	struct Part {
+		not_null<ChannelData*> channel;
+		base::unique_qptr<UserpicButton> button;
+	};
+
+	void prepare();
+	void checkParts();
+	bool partsAreValid() const;
+	void refreshParts();
+	QPoint countInnerPosition() const;
+
+	const style::FeedUserpicButton &_st;
+	not_null<Window::Controller*> _controller;
+	not_null<Data::Feed*> _feed;
+	std::vector<Part> _parts;
 
 };
 

@@ -13,12 +13,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_drafts.h"
 #include "boxes/send_files_box.h"
 #include "window/themes/window_theme.h"
+#include "core/crash_reports.h"
+#include "core/update_checker.h"
 #include "observer_peer.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "lang/lang_keys.h"
 #include "media/media_audio.h"
-#include "ui/widgets/input_fields.h"
 #include "mtproto/dc_options.h"
 #include "messenger.h"
 #include "application.h"
@@ -26,6 +27,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "auth_session.h"
 #include "window/window_controller.h"
 #include "base/flags.h"
+#include "data/data_session.h"
+#include "history/history.h"
 
 #include <openssl/evp.h>
 
@@ -34,6 +37,8 @@ namespace {
 
 constexpr auto kThemeFileSizeLimit = 5 * 1024 * 1024;
 constexpr auto kFileLoaderQueueStopTimeout = TimeMs(5000);
+constexpr auto kDefaultStickerInstallDate = TimeId(1);
+constexpr auto kProxyTypeShift = 1024;
 
 using FileKey = quint64;
 
@@ -516,7 +521,7 @@ enum {
 	// 0x10 reserved
 	dbiDefaultAttach = 0x11,
 	dbiCatsAndDogs = 0x12,
-	dbiReplaceEmojis = 0x13,
+	dbiReplaceEmoji = 0x13,
 	dbiAskDownloadPath = 0x14,
 	dbiDownloadPathOld = 0x15,
 	dbiScale = 0x16,
@@ -564,10 +569,12 @@ enum {
 	dbiDcOptions = 0x4a,
 	dbiMtpAuthorization = 0x4b,
 	dbiLastSeenWarningSeenOld = 0x4c,
-	dbiAuthSessionData = 0x4d,
+	dbiAuthSessionSettings = 0x4d,
 	dbiLangPackKey = 0x4e,
 	dbiConnectionType = 0x4f,
 	dbiStickersFavedLimit = 0x50,
+	dbiSuggestStickersByEmoji = 0x51,
+	dbiSuggestEmoji = 0x52,
 
 	dbiEncryptedWithSalt = 333,
 	dbiEncrypted = 444,
@@ -577,6 +584,13 @@ enum {
 	dbiVersion = 666,
 };
 
+enum {
+	dbictAuto = 0,
+	dbictHttpAuto = 1, // not used
+	dbictHttpProxy = 2,
+	dbictTcpProxy = 3,
+	dbictProxiesList = 4,
+};
 
 typedef QMap<PeerId, FileKey> DraftsMap;
 DraftsMap _draftsMap, _draftCursorsMap;
@@ -634,10 +648,10 @@ enum class WriteMapWhen {
 	Soon,
 };
 
-std::unique_ptr<AuthSessionData> StoredAuthSessionCache;
-AuthSessionData &GetStoredAuthSessionCache() {
+std::unique_ptr<AuthSessionSettings> StoredAuthSessionCache;
+AuthSessionSettings &GetStoredAuthSessionCache() {
 	if (!StoredAuthSessionCache) {
-		StoredAuthSessionCache = std::make_unique<AuthSessionData>();
+		StoredAuthSessionCache = std::make_unique<AuthSessionSettings>();
 	}
 	return *StoredAuthSessionCache;
 }
@@ -866,7 +880,12 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
 		stream >> dcId >> host >> ip >> port;
 		if (!_checkStreamStatus(stream)) return false;
 
-		context.dcOptions.constructAddOne(dcId, 0, ip.toStdString(), port);
+		context.dcOptions.constructAddOne(
+			dcId,
+			0,
+			ip.toStdString(),
+			port,
+			{});
 	} break;
 
 	case dbiDcOptionOld: {
@@ -876,7 +895,12 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
 		stream >> dcIdWithShift >> flags >> ip >> port;
 		if (!_checkStreamStatus(stream)) return false;
 
-		context.dcOptions.constructAddOne(dcIdWithShift, MTPDdcOption::Flags::from_raw(flags), ip.toStdString(), port);
+		context.dcOptions.constructAddOne(
+			dcIdWithShift,
+			MTPDdcOption::Flags::from_raw(flags),
+			ip.toStdString(),
+			port,
+			{});
 	} break;
 
 	case dbiDcOptions: {
@@ -1106,7 +1130,7 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
 		GetStoredAuthSessionCache().setLastSeenWarningSeen(v == 1);
 	} break;
 
-	case dbiAuthSessionData: {
+	case dbiAuthSessionSettings: {
 		QByteArray v;
 		stream >> v;
 		if (!_checkStreamStatus(stream)) return false;
@@ -1134,51 +1158,108 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
 		stream >> v;
 		if (!_checkStreamStatus(stream)) return false;
 
+		ProxyData proxy;
 		switch (v) {
 		case dbictHttpProxy:
 		case dbictTcpProxy: {
-			ProxyData p;
 			qint32 port;
-			stream >> p.host >> port >> p.user >> p.password;
+			stream >> proxy.host >> port >> proxy.user >> proxy.password;
 			if (!_checkStreamStatus(stream)) return false;
 
-			p.port = uint32(port);
-			Global::SetConnectionProxy(p);
-			Global::SetConnectionType(DBIConnectionType(v));
+			proxy.port = uint32(port);
+			proxy.type = (v == dbictTcpProxy)
+				? ProxyData::Type::Socks5
+				: ProxyData::Type::Http;
 		} break;
-		case dbictHttpAuto:
-		default: Global::SetConnectionType(dbictAuto); break;
 		};
-		Global::SetLastProxyType(Global::ConnectionType());
+		Global::SetSelectedProxy(proxy ? proxy : ProxyData());
+		Global::SetUseProxy(proxy ? true : false);
+		if (proxy) {
+			Global::SetProxiesList({ 1, proxy });
+		} else {
+			Global::SetProxiesList({});
+		}
+		Sandbox::refreshGlobalProxy();
 	} break;
 
 	case dbiConnectionType: {
-		ProxyData p;
-		qint32 connectionType, lastProxyType, port;
-		stream >> connectionType >> lastProxyType >> p.host >> port >> p.user >> p.password;
-		if (!_checkStreamStatus(stream)) return false;
-
-		p.port = port;
-		switch (connectionType) {
-		case dbictHttpProxy:
-		case dbictTcpProxy: {
-			Global::SetConnectionType(DBIConnectionType(lastProxyType));
-		} break;
-		case dbictHttpAuto:
-		default: Global::SetConnectionType(dbictAuto); break;
-		};
-		switch (lastProxyType) {
-		case dbictHttpProxy:
-		case dbictTcpProxy: {
-			Global::SetLastProxyType(DBIConnectionType(lastProxyType));
-			Global::SetConnectionProxy(p);
-		} break;
-		case dbictHttpAuto:
-		default: {
-			Global::SetLastProxyType(dbictAuto);
-			Global::SetConnectionProxy(ProxyData());
-		} break;
+		qint32 connectionType;
+		stream >> connectionType;
+		if (!_checkStreamStatus(stream)) {
+			return false;
 		}
+
+		const auto readProxy = [&] {
+			qint32 proxyType, port;
+			ProxyData proxy;
+			stream >> proxyType >> proxy.host >> port >> proxy.user >> proxy.password;
+			proxy.port = port;
+			proxy.type = (proxyType == dbictTcpProxy)
+				? ProxyData::Type::Socks5
+				: (proxyType == dbictHttpProxy)
+				? ProxyData::Type::Http
+				: (proxyType == kProxyTypeShift + int(ProxyData::Type::Socks5))
+				? ProxyData::Type::Socks5
+				: (proxyType == kProxyTypeShift + int(ProxyData::Type::Http))
+				? ProxyData::Type::Http
+				: (proxyType == kProxyTypeShift + int(ProxyData::Type::Mtproto))
+				? ProxyData::Type::Mtproto
+				: ProxyData::Type::None;
+			return proxy;
+		};
+		if (connectionType == dbictProxiesList) {
+			qint32 count = 0, index = 0;
+			stream >> count >> index;
+			if (std::abs(index) > count) {
+				Global::SetUseProxyForCalls(true);
+				index -= (index > 0 ? count : -count);
+			} else {
+				Global::SetUseProxyForCalls(false);
+			}
+
+			auto list = std::vector<ProxyData>();
+			for (auto i = 0; i < count; ++i) {
+				const auto proxy = readProxy();
+				if (proxy) {
+					list.push_back(proxy);
+				} else if (index < -list.size()) {
+					++index;
+				} else if (index > list.size()) {
+					--index;
+				}
+			}
+			if (!_checkStreamStatus(stream)) {
+				return false;
+			}
+			Global::SetProxiesList(list);
+			Global::SetUseProxy(index > 0 && index <= list.size());
+			index = std::abs(index);
+			if (index > 0 && index <= list.size()) {
+				Global::SetSelectedProxy(list[index - 1]);
+			} else {
+				Global::SetSelectedProxy(ProxyData());
+			}
+		} else {
+			const auto proxy = readProxy();
+			if (!_checkStreamStatus(stream)) {
+				return false;
+			}
+			if (proxy) {
+				Global::SetProxiesList({ 1, proxy });
+				Global::SetSelectedProxy(proxy);
+				if (connectionType == dbictTcpProxy
+					|| connectionType == dbictHttpProxy) {
+					Global::SetUseProxy(true);
+				} else {
+					Global::SetUseProxy(false);
+				}
+			} else {
+				Global::SetProxiesList({});
+				Global::SetSelectedProxy(ProxyData());
+				Global::SetUseProxy(false);
+			}
+		}
+		Sandbox::refreshGlobalProxy();
 	} break;
 
 	case dbiThemeKey: {
@@ -1221,7 +1302,7 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
 		cSetAutoUpdate(v == 1);
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
 		if (!cAutoUpdate()) {
-			Sandbox::stopUpdate();
+			Core::UpdateChecker().stop();
 		}
 #endif // !TDESKTOP_DISABLE_AUTOUPDATE
 	} break;
@@ -1345,12 +1426,28 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
 		Global::RefLocalPasscodeChanged().notify();
 	} break;
 
-	case dbiReplaceEmojis: {
+	case dbiReplaceEmoji: {
 		qint32 v;
 		stream >> v;
 		if (!_checkStreamStatus(stream)) return false;
 
-		cSetReplaceEmojis(v == 1);
+		Global::SetReplaceEmoji(v == 1);
+	} break;
+
+	case dbiSuggestEmoji: {
+		qint32 v;
+		stream >> v;
+		if (!_checkStreamStatus(stream)) return false;
+
+		Global::SetSuggestEmoji(v == 1);
+	} break;
+
+	case dbiSuggestStickersByEmoji: {
+		qint32 v;
+		stream >> v;
+		if (!_checkStreamStatus(stream)) return false;
+
+		Global::SetSuggestStickersByEmoji(v == 1);
 	} break;
 
 	case dbiDefaultAttach: {
@@ -1756,10 +1853,14 @@ void _writeUserSettings() {
 			recentEmojiPreloadData.push_back(qMakePair(item.first->id(), item.second));
 		}
 	}
-	auto userDataInstance = StoredAuthSessionCache ? StoredAuthSessionCache.get() : Messenger::Instance().getAuthSessionData();
-	auto userData = userDataInstance ? userDataInstance->serialize() : QByteArray();
+	auto userDataInstance = StoredAuthSessionCache
+		? StoredAuthSessionCache.get()
+		: Messenger::Instance().getAuthSessionSettings();
+	auto userData = userDataInstance
+		? userDataInstance->serialize()
+		: QByteArray();
 
-	uint32 size = 21 * (sizeof(quint32) + sizeof(qint32));
+	uint32 size = 23 * (sizeof(quint32) + sizeof(qint32));
 	size += sizeof(quint32) + Serialize::stringSize(Global::AskDownloadPath() ? QString() : Global::DownloadPath()) + Serialize::bytearraySize(Global::AskDownloadPath() ? QByteArray() : Global::DownloadPathBookmark());
 
 	size += sizeof(quint32) + sizeof(qint32);
@@ -1768,7 +1869,7 @@ void _writeUserSettings() {
 	}
 
 	size += sizeof(quint32) + sizeof(qint32) + cEmojiVariants().size() * (sizeof(uint32) + sizeof(uint64));
-	size += sizeof(quint32) + sizeof(qint32) + (Stickers::GetRecentPack().isEmpty() ? Stickers::GetRecentPack().size() : cRecentStickersPreload().size()) * (sizeof(uint64) + sizeof(ushort));
+	size += sizeof(quint32) + sizeof(qint32) + (cRecentStickersPreload().isEmpty() ? Stickers::GetRecentPack().size() : cRecentStickersPreload().size()) * (sizeof(uint64) + sizeof(ushort));
 	size += sizeof(quint32) + Serialize::stringSize(cDialogLastPath());
 	size += sizeof(quint32) + 3 * sizeof(qint32);
 	size += sizeof(quint32) + 2 * sizeof(qint32);
@@ -1784,7 +1885,9 @@ void _writeUserSettings() {
 	data.stream << quint32(dbiTileBackground) << qint32(Window::Theme::Background()->tileForSave() ? 1 : 0);
 	data.stream << quint32(dbiAdaptiveForWide) << qint32(Global::AdaptiveForWide() ? 1 : 0);
 	data.stream << quint32(dbiAutoLock) << qint32(Global::AutoLock());
-	data.stream << quint32(dbiReplaceEmojis) << qint32(cReplaceEmojis() ? 1 : 0);
+	data.stream << quint32(dbiReplaceEmoji) << qint32(Global::ReplaceEmoji() ? 1 : 0);
+	data.stream << quint32(dbiSuggestEmoji) << qint32(Global::SuggestEmoji() ? 1 : 0);
+	data.stream << quint32(dbiSuggestStickersByEmoji) << qint32(Global::SuggestStickersByEmoji() ? 1 : 0);
 	data.stream << quint32(dbiSoundNotify) << qint32(Global::SoundNotify());
 	data.stream << quint32(dbiIncludeMuted) << qint32(Global::IncludeMuted());
 	data.stream << quint32(dbiDesktopNotify) << qint32(Global::DesktopNotify());
@@ -1803,7 +1906,7 @@ void _writeUserSettings() {
 	data.stream << quint32(dbiAutoPlay) << qint32(cAutoPlayGif() ? 1 : 0);
 	data.stream << quint32(dbiUseExternalVideoPlayer) << qint32(cUseExternalVideoPlayer());
 	if (!userData.isEmpty()) {
-		data.stream << quint32(dbiAuthSessionData) << userData;
+		data.stream << quint32(dbiAuthSessionSettings) << userData;
 	}
 
 	{
@@ -2174,7 +2277,19 @@ void _writeMap(WriteMapWhen when) {
 	if (_backgroundKey) mapSize += sizeof(quint32) + sizeof(quint64);
 	if (_userSettingsKey) mapSize += sizeof(quint32) + sizeof(quint64);
 	if (_recentHashtagsAndBotsKey) mapSize += sizeof(quint32) + sizeof(quint64);
+
+	if (mapSize > 30 * 1024 * 1024) {
+		CrashReports::SetAnnotation("MapSize", QString("%1,%2,%3,%4,%5"
+		).arg(_draftsMap.size()
+		).arg(_draftCursorsMap.size()
+		).arg(_imagesMap.size()
+		).arg(_stickerImagesMap.size()
+		).arg(_audiosMap.size()
+		));
+	}
+
 	EncryptedDescriptor mapData(mapSize);
+
 	if (!_draftsMap.isEmpty()) {
 		mapData.stream << quint32(lskDraft) << quint32(_draftsMap.size());
 		for (DraftsMap::const_iterator i = _draftsMap.cbegin(), e = _draftsMap.cend(); i != e; ++i) {
@@ -2242,6 +2357,10 @@ void _writeMap(WriteMapWhen when) {
 	map.writeEncrypted(mapData);
 
 	_mapChanged = false;
+
+	if (mapSize > 30 * 1024 * 1024) {
+		CrashReports::ClearAnnotation("MapSize");
+	}
 }
 
 } // namespace
@@ -2340,10 +2459,20 @@ void writeSettings() {
 
 	quint32 size = 12 * (sizeof(quint32) + sizeof(qint32));
 	size += sizeof(quint32) + Serialize::bytearraySize(dcOptionsSerialized);
+	size += sizeof(quint32) + Serialize::stringSize(cLoggedPhoneNumber());
 
-	auto &proxy = Global::ConnectionProxy();
-	size += sizeof(quint32) + sizeof(qint32) + sizeof(qint32);
-	size += Serialize::stringSize(proxy.host) + sizeof(qint32) + Serialize::stringSize(proxy.user) + Serialize::stringSize(proxy.password);
+	auto &proxies = Global::RefProxiesList();
+	const auto &proxy = Global::SelectedProxy();
+	auto proxyIt = ranges::find(proxies, proxy);
+	if (proxy.type != ProxyData::Type::None
+		&& proxyIt == end(proxies)) {
+		proxies.push_back(proxy);
+		proxyIt = end(proxies) - 1;
+	}
+	size += sizeof(quint32) + sizeof(qint32) + sizeof(qint32) + sizeof(qint32);
+	for (const auto &proxy : proxies) {
+		size += sizeof(qint32) + Serialize::stringSize(proxy.host) + sizeof(qint32) + Serialize::stringSize(proxy.user) + Serialize::stringSize(proxy.password);
+	}
 
 	if (_themeKey) {
 		size += sizeof(quint32) + sizeof(quint64);
@@ -2368,9 +2497,18 @@ void writeSettings() {
 	data.stream << quint32(dbiLastUpdateCheck) << qint32(cLastUpdateCheck());
 	data.stream << quint32(dbiScale) << qint32(cConfigScale());
 	data.stream << quint32(dbiDcOptions) << dcOptionsSerialized;
+	data.stream << quint32(dbiLoggedPhoneNumber) << cLoggedPhoneNumber();
 
-	data.stream << quint32(dbiConnectionType) << qint32(Global::ConnectionType()) << qint32(Global::LastProxyType());
-	data.stream << proxy.host << qint32(proxy.port) << proxy.user << proxy.password;
+	data.stream << quint32(dbiConnectionType) << qint32(dbictProxiesList);
+	data.stream << qint32(proxies.size());
+	const auto index = qint32(proxyIt - begin(proxies))
+		+ qint32(Global::UseProxyForCalls() ? proxies.size() : 0)
+		+ 1;
+	data.stream << (Global::UseProxy() ? index : -index);
+	for (const auto &proxy : proxies) {
+		data.stream << qint32(kProxyTypeShift + int(proxy.type));
+		data.stream << proxy.host << qint32(proxy.port) << proxy.user << proxy.password;
+	}
 
 	data.stream << quint32(dbiTryIPv6) << qint32(Global::TryIPv6());
 	if (_themeKey) {
@@ -2396,6 +2534,60 @@ void writeUserSettings() {
 void writeMtpData() {
 	_writeMtpData();
 }
+
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+const QString &AutoupdatePrefix(const QString &replaceWith = {}) {
+	static auto value = QString();
+	if (!replaceWith.isEmpty()) {
+		value = replaceWith;
+	}
+	return value;
+}
+
+QString autoupdatePrefixFile() {
+	return cWorkingDir() + "tdata/prefix";
+}
+
+const QString &readAutoupdatePrefixRaw() {
+	const auto &result = AutoupdatePrefix();
+	if (!result.isEmpty()) {
+		return result;
+	}
+	QFile f(autoupdatePrefixFile());
+	if (f.open(QIODevice::ReadOnly)) {
+		const auto value = QString::fromUtf8(f.readAll());
+		if (!value.isEmpty()) {
+			return AutoupdatePrefix(value);
+		}
+	}
+	return AutoupdatePrefix("http://updates.tdesktop.com");
+}
+#endif // TDESKTOP_DISABLE_AUTOUPDATE
+
+void writeAutoupdatePrefix(const QString &prefix) {
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+	const auto current = readAutoupdatePrefixRaw();
+	if (current != prefix) {
+		AutoupdatePrefix(prefix);
+		QFile f(autoupdatePrefixFile());
+		if (f.open(QIODevice::WriteOnly)) {
+			f.write(prefix.toUtf8());
+			f.close();
+		}
+		if (cAutoUpdate()) {
+			Core::UpdateChecker checker;
+			checker.start();
+		}
+	}
+#endif // TDESKTOP_DISABLE_AUTOUPDATE
+}
+
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+QString readAutoupdatePrefix() {
+	auto result = readAutoupdatePrefixRaw();
+	return result.replace(QRegularExpression("/+$"), QString());
+}
+#endif // TDESKTOP_DISABLE_AUTOUPDATE
 
 void reset() {
 	if (_localLoader) {
@@ -2486,8 +2678,10 @@ void writeDrafts(const PeerId &peer, const MessageDraft &localDraft, const Messa
 			_writeMap(WriteMapWhen::Fast);
 		}
 
-		auto msgTags = Ui::FlatTextarea::serializeTagsList(localDraft.textWithTags.tags);
-		auto editTags = Ui::FlatTextarea::serializeTagsList(editDraft.textWithTags.tags);
+		auto msgTags = TextUtilities::SerializeTags(
+			localDraft.textWithTags.tags);
+		auto editTags = TextUtilities::SerializeTags(
+			editDraft.textWithTags.tags);
 
 		int size = sizeof(quint64);
 		size += Serialize::stringSize(localDraft.textWithTags.text) + Serialize::bytearraySize(msgTags) + 2 * sizeof(qint32);
@@ -2593,8 +2787,12 @@ void readDraftsWithCursors(History *h) {
 		return;
 	}
 
-	msgData.tags = Ui::FlatTextarea::deserializeTagsList(msgTagsSerialized, msgData.text.size());
-	editData.tags = Ui::FlatTextarea::deserializeTagsList(editTagsSerialized, editData.text.size());
+	msgData.tags = TextUtilities::DeserializeTags(
+		msgTagsSerialized,
+		msgData.text.size());
+	editData.tags = TextUtilities::DeserializeTags(
+		editTagsSerialized,
+		editData.text.size());
 
 	MessageCursor msgCursor, editCursor;
 	_readDraftCursors(peer, msgCursor, editCursor);
@@ -2603,13 +2801,21 @@ void readDraftsWithCursors(History *h) {
 		if (msgData.text.isEmpty() && !msgReplyTo) {
 			h->clearLocalDraft();
 		} else {
-			h->setLocalDraft(std::make_unique<Data::Draft>(msgData, msgReplyTo, msgCursor, msgPreviewCancelled));
+			h->setLocalDraft(std::make_unique<Data::Draft>(
+				msgData,
+				msgReplyTo,
+				msgCursor,
+				msgPreviewCancelled));
 		}
 	}
 	if (!editMsgId) {
 		h->clearEditDraft();
 	} else {
-		h->setEditDraft(std::make_unique<Data::Draft>(editData, editMsgId, editCursor, editPreviewCancelled));
+		h->setEditDraft(std::make_unique<Data::Draft>(
+			editData,
+			editMsgId,
+			editCursor,
+			editPreviewCancelled));
 	}
 }
 
@@ -2846,6 +3052,10 @@ TaskId startImageLoad(const StorageKey &location, mtpFileLoader *loader) {
 		std::make_unique<ImageLoadTask>(j->first, location, loader));
 }
 
+bool willImageLoad(const StorageKey &location) {
+	return _imagesMap.constFind(location) != _imagesMap.cend();
+}
+
 int32 hasImages() {
 	return _imagesMap.size();
 }
@@ -2990,6 +3200,10 @@ bool copyAudio(const StorageKey &oldLocation, const StorageKey &newLocation) {
 	return true;
 }
 
+bool willAudioLoad(const StorageKey &location) {
+	return _audiosMap.constFind(location) != _audiosMap.cend();
+}
+
 int32 hasAudios() {
 	return _audiosMap.size();
 }
@@ -3096,6 +3310,10 @@ TaskId startWebFileLoad(const QString &url, webFileLoader *loader) {
 		std::make_unique<WebFileLoadTask>(j->first, url, loader));
 }
 
+bool willWebFileLoad(const QString &url) {
+	return _webFilesMap.constFind(url) != _webFilesMap.cend();
+}
+
 int32 hasWebFiles() {
 	return _webFilesMap.size();
 }
@@ -3140,13 +3358,7 @@ public:
 				voice->waveform[0] = -2;
 				voice->wavemax = 0;
 			}
-			auto &items = App::documentItems();
-			auto i = items.constFind(_doc);
-			if (i != items.cend()) {
-				for_const (auto item, i.value()) {
-					Auth().data().requestItemRepaint(item);
-				}
-			}
+			Auth().data().requestDocumentViewRepaint(_doc);
 		}
 	}
 	virtual ~CountWaveformTask() {
@@ -3185,15 +3397,44 @@ void cancelTask(TaskId id) {
 void _writeStickerSet(QDataStream &stream, const Stickers::Set &set) {
 	bool notLoaded = (set.flags & MTPDstickerSet_ClientFlag::f_not_loaded);
 	if (notLoaded) {
-		stream << quint64(set.id) << quint64(set.access) << set.title << set.shortName << qint32(-set.count) << qint32(set.hash) << qint32(set.flags);
+		stream
+			<< quint64(set.id)
+			<< quint64(set.access)
+			<< set.title
+			<< set.shortName
+			<< qint32(-set.count)
+			<< qint32(set.hash)
+			<< qint32(set.flags);
+		if (AppVersion > 1002008) {
+			stream << qint32(set.installDate);
+		}
 		return;
 	} else {
 		if (set.stickers.isEmpty()) return;
 	}
 
-	stream << quint64(set.id) << quint64(set.access) << set.title << set.shortName << qint32(set.stickers.size()) << qint32(set.hash) << qint32(set.flags);
+	stream
+		<< quint64(set.id)
+		<< quint64(set.access)
+		<< set.title
+		<< set.shortName
+		<< qint32(set.stickers.size())
+		<< qint32(set.hash)
+		<< qint32(set.flags);
+	if (AppVersion > 1002008) {
+		stream << qint32(set.installDate);
+	}
 	for (auto j = set.stickers.cbegin(), e = set.stickers.cend(); j != e; ++j) {
 		Serialize::Document::writeToStream(stream, *j);
+	}
+	if (AppVersion > 1002008) {
+		stream << qint32(set.dates.size());
+		if (!set.dates.empty()) {
+			Assert(set.dates.size() == set.stickers.size());
+			for (const auto date : set.dates) {
+				stream << qint32(date);
+			}
+		}
 	}
 
 	if (AppVersion > 9018) {
@@ -3241,10 +3482,15 @@ void _writeStickerSets(FileKey &stickersKey, CheckSet checkSet, const Stickers::
 			continue;
 		}
 
-		// id + access + title + shortName + stickersCount + hash + flags
-		size += sizeof(quint64) * 2 + Serialize::stringSize(set.title) + Serialize::stringSize(set.shortName) + sizeof(quint32) + sizeof(qint32) * 2;
+		// id + access + title + shortName + stickersCount + hash + flags + installDate
+		size += sizeof(quint64) * 2 + Serialize::stringSize(set.title) + Serialize::stringSize(set.shortName) + sizeof(quint32) + sizeof(qint32) * 3;
 		for_const (auto &sticker, set.stickers) {
 			size += Serialize::Document::sizeInStream(sticker);
+		}
+		size += sizeof(qint32); // dates count
+		if (!set.dates.empty()) {
+			Assert(set.stickers.size() == set.dates.size());
+			size += set.dates.size() * sizeof(qint32);
 		}
 
 		size += sizeof(qint32); // emojiCount
@@ -3296,7 +3542,7 @@ void _readStickerSets(FileKey &stickersKey, Stickers::Order *outOrder = nullptr,
 		return;
 	}
 
-	bool readingInstalled = (readingFlags == MTPDstickerSet::Flag::f_installed);
+	bool readingInstalled = (readingFlags == MTPDstickerSet::Flag::f_installed_date);
 
 	auto &sets = Auth().data().stickerSetsRef();
 	if (outOrder) outOrder->clear();
@@ -3311,7 +3557,14 @@ void _readStickerSets(FileKey &stickersKey, Stickers::Order *outOrder = nullptr,
 		quint64 setId = 0, setAccess = 0;
 		QString setTitle, setShortName;
 		qint32 scnt = 0;
-		stickers.stream >> setId >> setAccess >> setTitle >> setShortName >> scnt;
+		auto setInstallDate = qint32(0);
+
+		stickers.stream
+			>> setId
+			>> setAccess
+			>> setTitle
+			>> setShortName
+			>> scnt;
 
 		qint32 setHash = 0;
 		MTPDstickerSet::Flags setFlags = 0;
@@ -3324,8 +3577,11 @@ void _readStickerSets(FileKey &stickersKey, Stickers::Order *outOrder = nullptr,
 				setFlags |= MTPDstickerSet_ClientFlag::f_not_loaded;
 			}
 		}
+		if (stickers.version > 1002008) {
+			stickers.stream >> setInstallDate;
+		}
 		if (readingInstalled && stickers.version < 9061) {
-			setFlags |= MTPDstickerSet::Flag::f_installed;
+			setFlags |= MTPDstickerSet::Flag::f_installed_date;
 		}
 
 		if (setId == Stickers::DefaultSetId) {
@@ -3354,8 +3610,16 @@ void _readStickerSets(FileKey &stickersKey, Stickers::Order *outOrder = nullptr,
 		auto it = sets.find(setId);
 		if (it == sets.cend()) {
 			// We will set this flags from order lists when reading those stickers.
-			setFlags &= ~(MTPDstickerSet::Flag::f_installed | MTPDstickerSet_ClientFlag::f_featured);
-			it = sets.insert(setId, Stickers::Set(setId, setAccess, setTitle, setShortName, 0, setHash, MTPDstickerSet::Flags(setFlags)));
+			setFlags &= ~(MTPDstickerSet::Flag::f_installed_date | MTPDstickerSet_ClientFlag::f_featured);
+			it = sets.insert(setId, Stickers::Set(
+				setId,
+				setAccess,
+				setTitle,
+				setShortName,
+				0,
+				setHash,
+				MTPDstickerSet::Flags(setFlags),
+				setInstallDate));
 		}
 		auto &set = it.value();
 		auto inputSet = MTP_inputStickerSetID(MTP_long(set.id), MTP_long(set.access));
@@ -3393,6 +3657,25 @@ void _readStickerSets(FileKey &stickersKey, Stickers::Order *outOrder = nullptr,
 			}
 		}
 
+		if (stickers.version > 1002008) {
+			auto datesCount = qint32(0);
+			stickers.stream >> datesCount;
+			if (datesCount > 0) {
+				if (datesCount != scnt) {
+					// Bad file.
+					return;
+				}
+				set.dates.reserve(datesCount);
+				for (auto i = 0; i != datesCount; ++i) {
+					auto date = qint32();
+					stickers.stream >> date;
+					if (set.id == Stickers::CloudRecentSetId) {
+						set.dates.push_back(TimeId(date));
+					}
+				}
+			}
+		}
+
 		if (stickers.version > 9018) {
 			qint32 emojiCount;
 			stickers.stream >> emojiCount;
@@ -3405,8 +3688,8 @@ void _readStickerSets(FileKey &stickersKey, Stickers::Order *outOrder = nullptr,
 				for (int32 k = 0; k < stickersCount; ++k) {
 					quint64 id;
 					stickers.stream >> id;
-					DocumentData *doc = App::document(id);
-					if (!doc || !doc->sticker()) continue;
+					const auto doc = Auth().data().document(id);
+					if (!doc->sticker()) continue;
 
 					pack.push_back(doc);
 				}
@@ -3431,6 +3714,9 @@ void _readStickerSets(FileKey &stickersKey, Stickers::Order *outOrder = nullptr,
 			auto it = sets.find(setId);
 			if (it != sets.cend()) {
 				it->flags |= readingFlags;
+				if (readingInstalled && !it->installDate) {
+					it->installDate = kDefaultStickerInstallDate;
+				}
 			}
 		}
 	}
@@ -3446,7 +3732,7 @@ void writeInstalledStickers() {
 			if (set.stickers.isEmpty()) { // all other special are "installed"
 				return StickerSetCheckResult::Skip;
 			}
-		} else if (!(set.flags & MTPDstickerSet::Flag::f_installed) || (set.flags & MTPDstickerSet::Flag::f_archived)) {
+		} else if (!(set.flags & MTPDstickerSet::Flag::f_installed_date) || (set.flags & MTPDstickerSet::Flag::f_archived)) {
 			return StickerSetCheckResult::Skip;
 		} else if (set.flags & MTPDstickerSet_ClientFlag::f_not_loaded) { // waiting to receive
 			return StickerSetCheckResult::Abort;
@@ -3529,8 +3815,27 @@ void importOldRecentStickers() {
 	auto &recent = cRefRecentStickers();
 	recent.clear();
 
-	auto &def = sets.insert(Stickers::DefaultSetId, Stickers::Set(Stickers::DefaultSetId, 0, lang(lng_stickers_default_set), QString(), 0, 0, MTPDstickerSet::Flag::f_official | MTPDstickerSet::Flag::f_installed | MTPDstickerSet_ClientFlag::f_special)).value();
-	auto &custom = sets.insert(Stickers::CustomSetId, Stickers::Set(Stickers::CustomSetId, 0, qsl("Custom stickers"), QString(), 0, 0, MTPDstickerSet::Flag::f_installed | MTPDstickerSet_ClientFlag::f_special)).value();
+	auto &def = sets.insert(Stickers::DefaultSetId, Stickers::Set(
+		Stickers::DefaultSetId,
+		uint64(0),
+		lang(lng_stickers_default_set),
+		QString(),
+		0, // count
+		0, // hash
+		(MTPDstickerSet::Flag::f_official
+			| MTPDstickerSet::Flag::f_installed_date
+			| MTPDstickerSet_ClientFlag::f_special),
+		kDefaultStickerInstallDate)).value();
+	auto &custom = sets.insert(Stickers::CustomSetId, Stickers::Set(
+		Stickers::CustomSetId,
+		uint64(0),
+		qsl("Custom stickers"),
+		QString(),
+		0, // count
+		0, // hash
+		(MTPDstickerSet::Flag::f_installed_date
+			| MTPDstickerSet_ClientFlag::f_special),
+		kDefaultStickerInstallDate)).value();
 
 	QMap<uint64, bool> read;
 	while (!stickers.stream.atEnd()) {
@@ -3556,7 +3861,17 @@ void importOldRecentStickers() {
 			attributes.push_back(MTP_documentAttributeImageSize(MTP_int(width), MTP_int(height)));
 		}
 
-		DocumentData *doc = App::documentSet(id, 0, access, 0, date, attributes, mime, ImagePtr(), dc, size, StorageImageLocation());
+		const auto doc = Auth().data().document(
+			id,
+			access,
+			int32(0),
+			date,
+			attributes,
+			mime,
+			ImagePtr(),
+			dc,
+			size,
+			StorageImageLocation());
 		if (!doc->sticker()) continue;
 
 		if (value > 0) {
@@ -3591,11 +3906,17 @@ void readInstalledStickers() {
 	}
 
 	Auth().data().stickerSetsRef().clear();
-	_readStickerSets(_installedStickersKey, &Auth().data().stickerSetsOrderRef(), MTPDstickerSet::Flag::f_installed);
+	_readStickerSets(
+		_installedStickersKey,
+		&Auth().data().stickerSetsOrderRef(),
+		MTPDstickerSet::Flag::f_installed_date);
 }
 
 void readFeaturedStickers() {
-	_readStickerSets(_featuredStickersKey, &Auth().data().featuredStickerSetsOrderRef(), MTPDstickerSet::Flags() | MTPDstickerSet_ClientFlag::f_featured);
+	_readStickerSets(
+		_featuredStickersKey,
+		&Auth().data().featuredStickerSetsOrderRef(),
+		MTPDstickerSet::Flags() | MTPDstickerSet_ClientFlag::f_featured);
 
 	auto &sets = Auth().data().stickerSets();
 	int unreadCount = 0;
@@ -4007,20 +4328,52 @@ void _writePeer(QDataStream &stream, PeerData *peer) {
 	stream << quint64(peer->id) << quint64(peer->userpicPhotoId());
 	Serialize::writeStorageImageLocation(stream, peer->userpicLocation());
 	if (const auto user = peer->asUser()) {
-		stream << user->firstName << user->lastName << user->phone() << user->username << quint64(user->accessHash());
+		stream
+			<< user->firstName
+			<< user->lastName
+			<< user->phone()
+			<< user->username
+			<< quint64(user->accessHash());
 		if (AppVersion >= 9012) {
 			stream << qint32(user->flags());
 		}
 		if (AppVersion >= 9016) {
-			stream << (user->botInfo ? user->botInfo->inlinePlaceholder : QString());
+			const auto botInlinePlaceholder = user->botInfo
+				? user->botInfo->inlinePlaceholder
+				: QString();
+			stream << botInlinePlaceholder;
 		}
-		stream << qint32(user->onlineTill) << qint32(user->contact) << qint32(user->botInfo ? user->botInfo->version : -1);
+		const auto contactSerialized = [&] {
+			switch (user->contactStatus()) {
+			case UserData::ContactStatus::Contact: return 1;
+			case UserData::ContactStatus::CanAdd: return 0;
+			case UserData::ContactStatus::PhoneUnknown: return -1;
+			}
+			Unexpected("contactStatus in _writePeer()");
+		}();
+		stream
+			<< qint32(user->onlineTill)
+			<< qint32(contactSerialized)
+			<< qint32(user->botInfo ? user->botInfo->version : -1);
 	} else if (const auto chat = peer->asChat()) {
-		stream << chat->name << qint32(chat->count) << qint32(chat->date) << qint32(chat->version) << qint32(chat->creator);
-		stream << qint32(0) << quint32(chat->flags()) << chat->inviteLink();
-	} else if (auto channel = peer->asChannel()) {
-		stream << channel->name << quint64(channel->access) << qint32(channel->date) << qint32(channel->version);
-		stream << qint32(0) << quint32(channel->flags()) << channel->inviteLink();
+		stream
+			<< chat->name
+			<< qint32(chat->count)
+			<< qint32(chat->date)
+			<< qint32(chat->version)
+			<< qint32(chat->creator)
+			<< qint32(0)
+			<< quint32(chat->flags())
+			<< chat->inviteLink();
+	} else if (const auto channel = peer->asChannel()) {
+		stream
+			<< channel->name
+			<< quint64(channel->access)
+			<< qint32(channel->date)
+			<< qint32(channel->version)
+			<< qint32(0)
+			<< quint32(channel->flags())
+			<< channel->inviteLink();
 	}
 }
 
@@ -4049,8 +4402,12 @@ PeerData *_readPeer(FileReadDescriptor &from, int32 fileVersion = 0) {
 		}
 		from.stream >> onlineTill >> contact >> botInfoVersion;
 
-		bool showPhone = !isServiceUser(user->id) && (user->id != Auth().userPeerId()) && (contact <= 0);
-		QString pname = (showPhone && !phone.isEmpty()) ? App::formatPhone(phone) : QString();
+		const auto showPhone = !isServiceUser(user->id)
+			&& (user->id != Auth().userPeerId())
+			&& (contact <= 0);
+		const auto pname = (showPhone && !phone.isEmpty())
+			? App::formatPhone(phone)
+			: QString();
 
 		if (!wasLoaded) {
 			user->setPhone(phone);
@@ -4059,7 +4416,11 @@ PeerData *_readPeer(FileReadDescriptor &from, int32 fileVersion = 0) {
 			user->setFlags(MTPDuser::Flags::from_raw(flags));
 			user->setAccessHash(access);
 			user->onlineTill = onlineTill;
-			user->contact = contact;
+			user->setContactStatus((contact > 0)
+				? UserData::ContactStatus::Contact
+				: (contact == 0)
+				? UserData::ContactStatus::CanAdd
+				: UserData::ContactStatus::PhoneUnknown);
 			user->setBotInfoVersion(botInfoVersion);
 			if (!inlinePlaceholder.isEmpty() && user->botInfo) {
 				user->botInfo->inlinePlaceholder = inlinePlaceholder;

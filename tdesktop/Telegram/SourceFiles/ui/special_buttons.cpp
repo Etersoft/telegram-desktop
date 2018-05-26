@@ -11,8 +11,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_history.h"
 #include "dialogs/dialogs_layout.h"
 #include "ui/effects/ripple_animation.h"
+#include "ui/effects/radial_animation.h"
 #include "ui/empty_userpic.h"
 #include "data/data_photo.h"
+#include "data/data_session.h"
+#include "data/data_feed.h"
+#include "history/history.h"
 #include "core/file_utilities.h"
 #include "boxes/photo_crop_box.h"
 #include "boxes/confirm_box.h"
@@ -160,8 +164,7 @@ void HistoryDownButton::setUnreadCount(int unreadCount) {
 
 EmojiButton::EmojiButton(QWidget *parent, const style::IconButton &st)
 : RippleButton(parent, st.ripple)
-, _st(st)
-, _a_loading(animation(this, &EmojiButton::step_loading)) {
+, _st(st) {
 	resize(_st.width, _st.height);
 	setCursor(style::cur_pointer);
 }
@@ -174,8 +177,10 @@ void EmojiButton::paintEvent(QPaintEvent *e) {
 	p.fillRect(e->rect(), st::historyComposeAreaBg);
 	paintRipple(p, _st.rippleAreaPosition.x(), _st.rippleAreaPosition.y(), ms, _rippleOverride ? &(*_rippleOverride)->c : nullptr);
 
-	auto loading = a_loading.current(ms, _loading ? 1 : 0);
-	p.setOpacity(1 - loading);
+	const auto loadingState = _loading
+		? _loading->computeState()
+		: Ui::InfiniteRadialAnimation::State{ 0., 0, FullArcLength };
+	p.setOpacity(1. - loadingState.shown);
 
 	auto over = isOver();
 	auto icon = _iconOverride ? _iconOverride : &(over ? _st.iconOver : _st.icon);
@@ -190,25 +195,23 @@ void EmojiButton::paintEvent(QPaintEvent *e) {
 
 	PainterHighQualityEnabler hq(p);
 	QRect inner(QPoint((width() - st::historyEmojiCircle.width()) / 2, st::historyEmojiCircleTop), st::historyEmojiCircle);
-	if (loading > 0) {
-		int32 full = FullArcLength;
-		int32 start = qRound(full * float64(ms % st::historyEmojiCirclePeriod) / st::historyEmojiCirclePeriod), part = qRound(loading * full / st::historyEmojiCirclePart);
-		p.drawArc(inner, start, full - part);
+	if (loadingState.arcLength < FullArcLength) {
+		p.drawArc(inner, loadingState.arcFrom, loadingState.arcLength);
 	} else {
 		p.drawEllipse(inner);
 	}
 }
 
 void EmojiButton::setLoading(bool loading) {
-	if (_loading != loading) {
-		_loading = loading;
-		auto from = loading ? 0. : 1., to = loading ? 1. : 0.;
-		a_loading.start([this] { update(); }, from, to, st::historyEmojiCircleDuration);
-		if (loading) {
-			_a_loading.start();
-		} else {
-			_a_loading.stop();
-		}
+	if (loading && !_loading) {
+		_loading = std::make_unique<Ui::InfiniteRadialAnimation>(
+			animation(this, &EmojiButton::step_loading),
+			st::defaultInfiniteRadialAnimation);
+	}
+	if (loading) {
+		_loading->start();
+	} else if (_loading) {
+		_loading->stop();
 	}
 }
 
@@ -299,7 +302,7 @@ void SendButton::paintEvent(QPaintEvent *e) {
 		auto rippleColor = anim::color(st::historyAttachEmoji.ripple.color, st::historyRecordVoiceRippleBgActive, recordActive);
 		paintRipple(p, (width() - st::historyAttachEmoji.rippleAreaSize) / 2, st::historyAttachEmoji.rippleAreaPosition.y(), ms, &rippleColor);
 
-		auto fastIcon = [recordActive, over, this] {
+		auto fastIcon = [&] {
 			if (recordActive == 1.) {
 				return &st::historyRecordVoiceActive;
 			} else if (over) {
@@ -479,7 +482,7 @@ void UserpicButton::openPeerPhoto() {
 	if (!id) {
 		return;
 	}
-	const auto photo = App::photo(id);
+	const auto photo = Auth().data().photo(id);
 	if (photo->date) {
 		Messenger::Instance().showPhoto(photo, _peer);
 	}
@@ -821,6 +824,95 @@ void UserpicButton::prepareUserpicPixmap() {
 	_userpicUniqueKey = _userpicHasImage
 		? _peer->userpicUniqueKey()
 		: StorageKey();
+}
+
+FeedUserpicButton::FeedUserpicButton(
+	QWidget *parent,
+	not_null<Window::Controller*> controller,
+	not_null<Data::Feed*> feed,
+	const style::FeedUserpicButton &st)
+: AbstractButton(parent)
+, _st(st)
+, _controller(controller)
+, _feed(feed) {
+	prepare();
+}
+
+void FeedUserpicButton::prepare() {
+	resize(_st.size);
+
+	Auth().data().feedUpdated(
+	) | rpl::filter([=](const Data::FeedUpdate &update) {
+		return (update.feed == _feed)
+			&& (update.flag == Data::FeedUpdateFlag::Channels);
+	}) | rpl::start_with_next([=] {
+		crl::on_main(this, [=] { checkParts(); });
+	}, lifetime());
+
+	refreshParts();
+}
+
+void FeedUserpicButton::checkParts() {
+	if (!partsAreValid()) {
+		refreshParts();
+	}
+}
+
+bool FeedUserpicButton::partsAreValid() const {
+	const auto &channels = _feed->channels();
+	const auto count = std::min(int(channels.size()), 4);
+	if (count != _parts.size()) {
+		return false;
+	}
+	for (auto i = 0; i != count; ++i) {
+		if (channels[i]->peer != _parts[i].channel) {
+			return false;
+		}
+	}
+	return true;
+}
+
+void FeedUserpicButton::refreshParts() {
+	const auto &channels = _feed->channels();
+	const auto count = std::min(int(channels.size()), 4);
+
+	const auto createButton = [&](not_null<ChannelData*> channel) {
+		auto result = base::make_unique_q<Ui::UserpicButton>(
+			this,
+			_controller,
+			channel,
+			Ui::UserpicButton::Role::Custom,
+			_st.innerPart);
+		result->setAttribute(Qt::WA_TransparentForMouseEvents);
+		result->show();
+		return result;
+	};
+
+	const auto position = countInnerPosition();
+	auto x = position.x();
+	auto y = position.y();
+	const auto delta = _st.innerSize - _st.innerPart.photoSize;
+	_parts.clear();
+	for (auto i = 0; i != count; ++i) {
+		const auto channel = channels[i]->peer->asChannel();
+		_parts.push_back({ channel, createButton(channel) });
+		_parts.back().button->moveToLeft(x, y);
+		switch (i) {
+		case 0:
+		case 2: x += delta; break;
+		case 1: x -= delta; y += delta; break;
+		}
+	}
+}
+
+QPoint FeedUserpicButton::countInnerPosition() const {
+	auto innerLeft = (_st.innerPosition.x() < 0)
+		? (width() - _st.innerSize) / 2
+		: _st.innerPosition.x();
+	auto innerTop = (_st.innerPosition.y() < 0)
+		? (height() - _st.innerSize) / 2
+		: _st.innerPosition.y();
+	return { innerLeft, innerTop };
 }
 
 SilentToggle::SilentToggle(QWidget *parent, not_null<ChannelData*> channel)

@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/labels.h"
 #include "ui/widgets/buttons.h"
 #include "ui/wrap/slide_wrap.h"
+#include "history/history.h"
 #include "boxes/peer_list_controllers.h"
 #include "apiwrap.h"
 #include "auth_session.h"
@@ -94,7 +95,7 @@ void EditPrivacyBox::prepare() {
 
 int EditPrivacyBox::resizeGetHeight(int newWidth) {
 	auto top = 0;
-	auto layoutRow = [this, newWidth, &top](auto &widget, style::margins padding) {
+	auto layoutRow = [&](auto &widget, style::margins padding) {
 		if (!widget) return;
 		widget->resizeToNaturalWidth(newWidth - padding.left() - padding.right());
 		widget->moveToLeft(padding.left(), top + padding.top());
@@ -136,7 +137,7 @@ int EditPrivacyBox::countDefaultHeight(int newWidth) {
 		}
 		return st::editPrivacyOptionMargin.top() + st::defaultCheck.diameter + st::editPrivacyOptionMargin.bottom();
 	};
-	auto labelHeight = [this, newWidth](const QString &text, const style::FlatLabel &st, style::margins padding) {
+	auto labelHeight = [newWidth](const QString &text, const style::FlatLabel &st, style::margins padding) {
 		if (text.isEmpty()) {
 			return 0;
 		}

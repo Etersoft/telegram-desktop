@@ -13,7 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Ui {
 class IconButton;
 class RoundButton;
-class InputArea;
+class InputField;
 } // namespace Ui
 
 namespace Window {
@@ -82,16 +82,10 @@ private:
 	SingleTimer _inputCheckTimer;
 
 	struct QueuedNotification {
-		QueuedNotification(HistoryItem *item, int forwardedCount)
-		: history(item->history())
-		, peer(history->peer)
-		, author((!peer->isUser() && !item->isPost()) ? item->author() : nullptr)
-		, item((forwardedCount > 1) ? nullptr : item)
-		, forwardedCount(forwardedCount) {
-		}
+		QueuedNotification(not_null<HistoryItem*> item, int forwardedCount);
 
-		History *history;
-		PeerData *peer;
+		not_null<History*> history;
+		not_null<PeerData*> peer;
 		PeerData *author;
 		HistoryItem *item;
 		int forwardedCount;
@@ -239,7 +233,7 @@ private:
 	object_ptr<Ui::IconButton> _close;
 	object_ptr<Ui::RoundButton> _reply;
 	object_ptr<Background> _background = { nullptr };
-	object_ptr<Ui::InputArea> _replyArea = { nullptr };
+	object_ptr<Ui::InputField> _replyArea = { nullptr };
 	object_ptr<Ui::IconButton> _replySend = { nullptr };
 	bool _waitingForInput = true;
 
