@@ -67,7 +67,7 @@ public slots:
 signals:
 	void changed();
 	void cancelled();
-	void submitted(bool ctrlShiftEnter);
+	void submitted(Qt::KeyboardModifiers);
 	void focused();
 	void blurred();
 
@@ -124,9 +124,10 @@ public:
 	};
 	using TagList = TextWithTags::Tags;
 
-	struct PossibleTag {
+	struct MarkdownTag {
 		int start = 0;
 		int length = 0;
+		bool closed = false;
 		QString tag;
 	};
 	static const QString kTagBold;
@@ -161,7 +162,11 @@ public:
 	const TextWithTags &getTextWithTags() const {
 		return _lastTextWithTags;
 	}
+	const std::vector<MarkdownTag> &getMarkdownTags() const {
+		return _lastMarkdownTags;
+	}
 	TextWithTags getTextWithTagsPart(int start, int end = -1) const;
+	TextWithTags getTextWithAppliedMarkdown() const;
 	void insertTag(const QString &text, QString tagId = QString());
 	bool empty() const {
 		return _lastTextWithTags.text.isEmpty();
@@ -186,6 +191,21 @@ public:
 	};
 	void setTagMimeProcessor(std::unique_ptr<TagMimeProcessor> &&processor);
 
+	struct EditLinkSelection {
+		int from = 0;
+		int till = 0;
+	};
+	enum class EditLinkAction {
+		Check,
+		Edit,
+	};
+	void setEditLinkCallback(
+		base::lambda<bool(
+			EditLinkSelection selection,
+			QString text,
+			QString link,
+			EditLinkAction action)> callback);
+
 	void setAdditionalMargin(int margin);
 
 	void setInstantReplaces(const InstantReplaces &replaces);
@@ -201,8 +221,13 @@ public:
 		int till,
 		const QString &tag,
 		const QString &edge = QString());
+	void commitMarkdownLinkEdit(
+		EditLinkSelection selection,
+		const QString &text,
+		const QString &link);
 	void toggleSelectionMarkdown(const QString &tag);
 	void clearSelectionMarkdown();
+	static bool IsValidMarkdownLink(const QString &link);
 
 	const QString &getLastText() const {
 		return _lastTextWithTags.text;
@@ -269,6 +294,7 @@ private slots:
 	void onTouchTimer();
 
 	void onDocumentContentsChange(int position, int charsRemoved, int charsAdded);
+	void onCursorPositionChanged();
 
 	void onUndoAvailable(bool avail);
 	void onRedoAvailable(bool avail);
@@ -277,7 +303,7 @@ private slots:
 
 signals:
 	void changed();
-	void submitted(bool ctrlShiftEnter);
+	void submitted(Qt::KeyboardModifiers);
 	void cancelled();
 	void tabbed();
 	void focused();
@@ -322,6 +348,7 @@ private:
 	QMimeData *createMimeDataFromSelectionInner() const;
 	bool canInsertFromMimeDataInner(const QMimeData *source) const;
 	void insertFromMimeDataInner(const QMimeData *source);
+	TextWithTags getTextWithTagsSelected() const;
 
 	// "start" and "end" are in coordinates of text where emoji are replaced
 	// by ObjectReplacementCharacter. If "end" = -1 means get text till the end.
@@ -330,7 +357,7 @@ private:
 		int end,
 		TagList &outTagsList,
 		bool &outTagsChanged,
-		std::vector<PossibleTag> *outPossibleTags = nullptr) const;
+		std::vector<MarkdownTag> *outMarkdownTags = nullptr) const;
 
 	// After any characters added we must postprocess them. This includes:
 	// 1. Replacing font family to semibold for ~ characters, if we used Open Sans 13px.
@@ -344,8 +371,8 @@ private:
 	void chopByMaxLength(int insertPosition, int insertLength);
 
 	bool processMarkdownReplaces(const QString &appended);
-	bool processMarkdownReplace(const QString &tag);
-	void addMarkdownActions(not_null<QMenu*> menu);
+	//bool processMarkdownReplace(const QString &tag);
+	void addMarkdownActions(not_null<QMenu*> menu, QContextMenuEvent *e);
 	void addMarkdownMenuAction(
 		not_null<QMenu*> menu,
 		not_null<QAction*> action);
@@ -357,7 +384,18 @@ private:
 	void processInstantReplaces(const QString &appended);
 	void applyInstantReplace(const QString &what, const QString &with);
 
+	struct EditLinkData {
+		int from = 0;
+		int till = 0;
+		QString link;
+	};
+	EditLinkData selectionEditLinkData(EditLinkSelection selection) const;
+	EditLinkSelection editLinkSelection(QContextMenuEvent *e) const;
+	void editMarkdownLink(EditLinkSelection selection);
+
 	bool revertFormatReplace();
+
+	void highlightMarkdown();
 
 	const style::InputField &_st;
 
@@ -371,8 +409,13 @@ private:
 	object_ptr<Inner> _inner;
 
 	TextWithTags _lastTextWithTags;
-	std::vector<PossibleTag> _textAreaPossibleTags;
+	std::vector<MarkdownTag> _lastMarkdownTags;
 	QString _lastPreEditText;
+	base::lambda<bool(
+		EditLinkSelection selection,
+		QString text,
+		QString link,
+		EditLinkAction action)> _editLinkCallback;
 
 	// Tags list which we should apply while setText() call or insert from mime data.
 	TagList _insertedTags;
@@ -482,7 +525,7 @@ public slots:
 signals:
 	void changed();
 	void cancelled();
-	void submitted(bool ctrlShiftEnter);
+	void submitted(Qt::KeyboardModifiers);
 	void focused();
 	void blurred();
 

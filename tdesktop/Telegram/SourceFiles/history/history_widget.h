@@ -318,7 +318,7 @@ public:
 
 	void setInnerFocus();
 
-	void updateNotifySettings();
+	void updateNotifyControls();
 
 	void saveGif(DocumentData *doc);
 
@@ -433,8 +433,6 @@ public slots:
 	void preloadHistoryIfNeeded();
 
 private slots:
-	void onSend();
-
 	void onHashtagOrBotCommandInsert(QString str, FieldAutocomplete::ChooseMethod method);
 	void onMentionInsert(UserData *user);
 	void onInlineBotCancel();
@@ -449,6 +447,7 @@ private:
 	using TabbedSelector = ChatHelpers::TabbedSelector;
 	using DragState = Storage::MimeDataState;
 
+	void send();
 	void handlePendingHistoryUpdate();
 	void fullPeerUpdated(PeerData *peer);
 	void toggleTabbedSelectorMode();
@@ -571,6 +570,7 @@ private:
 
 	object_ptr<Ui::IconButton> _fieldBarCancel;
 	void updateReplyEditTexts(bool force = false);
+	void updateReplyEditText(not_null<HistoryItem*> item);
 
 	struct PinnedBar {
 		PinnedBar(MsgId msgId, HistoryWidget *parent);
