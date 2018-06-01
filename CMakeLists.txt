@@ -13,6 +13,7 @@ set(CMAKE_AUTORCC ON)
 
 option(GTK "GTK+ (currently, v3) Integration" ON)
 
+# FIXME: doesn't work for DBus, we need add QtDbus below and fix linking
 find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Network DBus)
 
 get_target_property(QTCORE_INCLUDE_DIRS Qt5::Core INTERFACE_INCLUDE_DIRECTORIES)
@@ -94,11 +95,12 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/base/*.cpp SourceFiles/base/*.h
     SourceFiles/boxes/*.cpp SourceFiles/boxes/*h
     SourceFiles/calls/*.cpp SourceFiles/calls/*.h
-    SourceFiles/core/*.cpp SourceFiles/core/*.h
     SourceFiles/chat_helpers/*.cpp SourceFiles/chat_helpers/*.h
+    SourceFiles/core/*.cpp SourceFiles/core/*.h
     SourceFiles/data/*.cpp SourceFiles/data/*.h
     SourceFiles/dialogs/*.cpp SourceFiles/dialogs/*.h
     SourceFiles/history/*.cpp SourceFiles/history/*.h
+    SourceFiles/info/*.cpp SourceFiles/info/*.h
     SourceFiles/inline_bots/*.cpp SourceFiles/inline_bots/*.h
     SourceFiles/intro/*.cpp SourceFiles/intro/*.h
     SourceFiles/lang/*.cpp SourceFiles/lang/*.h
@@ -106,6 +108,7 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/mtproto/*.cpp SourceFiles/mtproto/*.h
     SourceFiles/overview/*.cpp SourceFiles/overview/*.h
     SourceFiles/platform/linux/*.cpp SourceFiles/platform/linux/*.h
+    SourceFiles/rpl/*.cpp SourceFiles/rpl/*.h
     SourceFiles/profile/*.cpp SourceFiles/profile/*.h
     SourceFiles/settings/*.cpp SourceFiles/settings/*.h
     SourceFiles/storage/*.cpp SourceFiles/storage/*.h
@@ -113,9 +116,12 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/window/*.cpp SourceFiles/window/*.h
     ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.cpp ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.h
 )
- # No unit-tests in non-CI builds plz
+# No unit-tests in non-CI builds plz
 file(GLOB_RECURSE NO_TESTS SourceFiles/*/*tests*.cpp)
 list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${NO_TESTS})
+
+# drop unused sources (https://github.com/telegramdesktop/tdesktop/issues/4776)
+list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/ui/effects/widget_slide_wrap.cpp)
 
 add_executable(Telegram WIN32 ${QRC_FILES} ${FLAT_SOURCE_FILES} ${SUBDIRS_SOURCE_FILES})
 
@@ -127,6 +133,7 @@ endif()
 target_link_libraries(Telegram
     Qt5::Widgets
     Qt5::Network
+    Qt5::DBus
     Threads::Threads
     OpenSSL::SSL
     OpenSSL::Crypto

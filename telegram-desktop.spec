@@ -13,7 +13,7 @@ BuildRequires(pre): rpm-build-ubt
 %def_without libcxx
 
 Name: telegram-desktop
-Version: 1.2.23
+Version: 1.3.0
 Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
@@ -51,8 +51,8 @@ Requires: qt5-imageformats
 # for -lQt5PlatformSupport
 BuildRequires: qt5-base-devel-static
 
-# for autoupdater
-#BuildRequires: liblzma-devel
+# for autoupdater (included ever if disabled)
+BuildRequires: liblzma-devel
 
 # for SourceFiles/mtproto/connection.cpp
 BuildRequires: libzip-devel
@@ -60,7 +60,8 @@ BuildRequires: libzip-devel
 BuildRequires: zlib-devel >= 1.2.8
 
 BuildRequires: libminizip-devel libpcre-devel libexpat-devel libssl-devel bison
-#BuildRequires: libexif-devel libpixman-devel libz3-devel liblzma-devel
+BuildRequires: libpixman-devel
+#BuildRequires:  libpixman-devel libz3-devel 
 #BuildRequires: libxkbcommon-devel libxkbcommon-x11-devel
 #BuildRequires: libXi-devel libSM-devel libICE-devel libdbus-devel libXfixes-devel
 BuildRequires: libX11-devel
@@ -106,7 +107,7 @@ Requires: dbus
 %add_optflags -fpermissive
 
 # disable some warnings
-%add_optflags -Wno-strict-aliasing -Wno-unused-variable -Wno-sign-compare
+%add_optflags -Wno-strict-aliasing -Wno-unused-variable -Wno-sign-compare -Wno-switch
 
 
 %description
@@ -163,6 +164,8 @@ export CXX=clang++
 %else
     %nil
 %endif
+# due precompiled headers
+export CCACHE_SLOPPINESS=pch_defines,time_macros
 %make_build
 
 %install
@@ -196,6 +199,9 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Fri Jun 01 2018 Vitaly Lipatov <lav@altlinux.ru> 1.3.0-alt1
+- new version 1.3.0 (with rpmrb script)
+
 * Sat May 26 2018 Vitaly Lipatov <lav@altlinux.ru> 1.2.23-alt1
 - new version 1.2.23 (with rpmrb script)
 
