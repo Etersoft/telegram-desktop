@@ -46,8 +46,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "application.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
-#include "passcodewidget.h"
-#include "mainwindow.h"
 #include "storage/localimageloader.h"
 #include "storage/localstorage.h"
 #include "storage/file_upload.h"
@@ -55,6 +53,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/media_audio.h"
 #include "media/media_audio_capture.h"
 #include "media/player/media_player_instance.h"
+#include "messenger.h"
 #include "apiwrap.h"
 #include "history/view/history_view_top_bar_widget.h"
 #include "observer_peer.h"
@@ -92,6 +91,9 @@ constexpr auto kShowMembersDropdownTimeoutMs = 300;
 constexpr auto kDisplayEditTimeWarningMs = 300 * 1000;
 constexpr auto kFullDayInMs = 86400 * 1000;
 constexpr auto kCancelTypingActionTimeout = TimeMs(5000);
+constexpr auto kSaveDraftTimeout = 1000;
+constexpr auto kSaveDraftAnywayTimeout = 5000;
+constexpr auto kSaveCloudDraftIdleTimeout = 14000;
 
 ApiWrap::RequestMessageDataCallback replyEditMessageDataCallback() {
 	return [](ChannelData *channel, MsgId msgId) {
@@ -1193,9 +1195,9 @@ void HistoryWidget::onDraftSave(bool delayed) {
 		auto ms = getms();
 		if (!_saveDraftStart) {
 			_saveDraftStart = ms;
-			return _saveDraftTimer.start(SaveDraftTimeout);
-		} else if (ms - _saveDraftStart < SaveDraftAnywayTimeout) {
-			return _saveDraftTimer.start(SaveDraftTimeout);
+			return _saveDraftTimer.start(kSaveDraftTimeout);
+		} else if (ms - _saveDraftStart < kSaveDraftAnywayTimeout) {
+			return _saveDraftTimer.start(kSaveDraftTimeout);
 		}
 	}
 	writeDrafts(nullptr, nullptr);
@@ -1276,7 +1278,7 @@ void HistoryWidget::writeDrafts(Data::Draft **localDraft, Data::Draft **editDraf
 	}
 
 	if (!_editMsgId && !_inlineBot) {
-		_saveCloudDraftTimer.start(SaveCloudDraftIdleTimeout);
+		_saveCloudDraftTimer.start(kSaveCloudDraftIdleTimeout);
 	}
 }
 
@@ -1979,6 +1981,7 @@ void HistoryWidget::updateNotifyControls() {
 void HistoryWidget::refreshSilentToggle() {
 	if (!_silent && hasSilentToggle()) {
 		_silent.create(this, _peer->asChannel());
+		orderWidgets();
 	} else if (_silent && !hasSilentToggle()) {
 		_silent.destroy();
 	}
@@ -3220,7 +3223,7 @@ void HistoryWidget::chooseAttach() {
 
 	auto filter = FileDialog::AllFilesFilter() + qsl(";;Image files (*") + cImgExtensions().join(qsl(" *")) + qsl(")");
 
-	FileDialog::GetOpenPaths(lang(lng_choose_files), filter, base::lambda_guarded(this, [this](FileDialog::OpenResult &&result) {
+	FileDialog::GetOpenPaths(this, lang(lng_choose_files), filter, crl::guard(this, [this](FileDialog::OpenResult &&result) {
 		if (result.paths.isEmpty() && result.remoteContent.isEmpty()) {
 			return;
 		}
@@ -3890,7 +3893,7 @@ void HistoryWidget::pushTabbedSelectorToThirdSection(
 	auto destroyingPanel = std::move(_tabbedPanel);
 	auto memento = ChatHelpers::TabbedMemento(
 		destroyingPanel->takeSelector(),
-		base::lambda_guarded(this, [this](
+		crl::guard(this, [this](
 				object_ptr<TabbedSelector> selector) {
 			returnTabbedSelector(std::move(selector));
 		}));
@@ -4178,7 +4181,7 @@ bool HistoryWidget::confirmSendingFiles(
 		text,
 		boxCompressConfirm);
 	_field->setTextWithTags({});
-	box->setConfirmedCallback(base::lambda_guarded(this, [=](
+	box->setConfirmedCallback(crl::guard(this, [=](
 			Storage::PreparedList &&list,
 			SendFilesWay way,
 			TextWithTags &&caption,
@@ -4199,7 +4202,7 @@ bool HistoryWidget::confirmSendingFiles(
 			replyToId(),
 			album);
 	}));
-	box->setCancelledCallback(base::lambda_guarded(this, [=] {
+	box->setCancelledCallback(crl::guard(this, [=] {
 		_field->setTextWithTags(text);
 		auto cursor = _field->textCursor();
 		cursor.setPosition(anchor);
@@ -4338,6 +4341,45 @@ void HistoryWidget::uploadFile(
 	Auth().api().sendFile(fileContent, type, options);
 }
 
+void HistoryWidget::subscribeToUploader() {
+	if (_uploaderSubscriptions) {
+		return;
+	}
+	using namespace Storage;
+	Auth().uploader().photoReady(
+	) | rpl::start_with_next([=](const UploadedPhoto &data) {
+		photoUploaded(data.fullId, data.silent, data.file);
+	}, _uploaderSubscriptions);
+	Auth().uploader().photoProgress(
+	) | rpl::start_with_next([=](const FullMsgId &fullId) {
+		photoProgress(fullId);
+	}, _uploaderSubscriptions);
+	Auth().uploader().photoFailed(
+	) | rpl::start_with_next([=](const FullMsgId &fullId) {
+		photoFailed(fullId);
+	}, _uploaderSubscriptions);
+	Auth().uploader().documentReady(
+	) | rpl::start_with_next([=](const UploadedDocument &data) {
+		documentUploaded(data.fullId, data.silent, data.file);
+	}, _uploaderSubscriptions);
+	Auth().uploader().thumbDocumentReady(
+	) | rpl::start_with_next([=](const UploadedThumbDocument &data) {
+		thumbDocumentUploaded(
+			data.fullId,
+			data.silent,
+			data.file,
+			data.thumb);
+	}, _uploaderSubscriptions);
+	Auth().uploader().documentProgress(
+	) | rpl::start_with_next([=](const FullMsgId &fullId) {
+		documentProgress(fullId);
+	}, _uploaderSubscriptions);
+	Auth().uploader().documentFailed(
+	) | rpl::start_with_next([=](const FullMsgId &fullId) {
+		documentFailed(fullId);
+	}, _uploaderSubscriptions);
+}
+
 void HistoryWidget::sendFileConfirmed(
 		const std::shared_ptr<FileLoadResult> &file) {
 	const auto channelId = peerToChannel(file->to.peer);
@@ -4357,13 +4399,7 @@ void HistoryWidget::sendFileConfirmed(
 		it->msgId = newId;
 	}
 
-	connect(&Auth().uploader(), SIGNAL(photoReady(const FullMsgId&,bool,const MTPInputFile&)), this, SLOT(onPhotoUploaded(const FullMsgId&,bool,const MTPInputFile&)), Qt::UniqueConnection);
-	connect(&Auth().uploader(), SIGNAL(documentReady(const FullMsgId&,bool,const MTPInputFile&)), this, SLOT(onDocumentUploaded(const FullMsgId&,bool,const MTPInputFile&)), Qt::UniqueConnection);
-	connect(&Auth().uploader(), SIGNAL(thumbDocumentReady(const FullMsgId&,bool,const MTPInputFile&,const MTPInputFile&)), this, SLOT(onThumbDocumentUploaded(const FullMsgId&,bool,const MTPInputFile&, const MTPInputFile&)), Qt::UniqueConnection);
-	connect(&Auth().uploader(), SIGNAL(photoProgress(const FullMsgId&)), this, SLOT(onPhotoProgress(const FullMsgId&)), Qt::UniqueConnection);
-	connect(&Auth().uploader(), SIGNAL(documentProgress(const FullMsgId&)), this, SLOT(onDocumentProgress(const FullMsgId&)), Qt::UniqueConnection);
-	connect(&Auth().uploader(), SIGNAL(photoFailed(const FullMsgId&)), this, SLOT(onPhotoFailed(const FullMsgId&)), Qt::UniqueConnection);
-	connect(&Auth().uploader(), SIGNAL(documentFailed(const FullMsgId&)), this, SLOT(onDocumentFailed(const FullMsgId&)), Qt::UniqueConnection);
+	subscribeToUploader();
 
 	Auth().uploader().upload(newId, file);
 
@@ -4492,6 +4528,8 @@ void HistoryWidget::sendFileConfirmed(
 				MTP_string(messagePostAuthor),
 				MTP_long(groupId)),
 			NewMessageUnread);
+	} else {
+		Unexpected("Type in sendFilesConfirmed.");
 	}
 
 	Auth().data().sendHistoryChangeNotifications();
@@ -4501,21 +4539,21 @@ void HistoryWidget::sendFileConfirmed(
 	App::main()->dialogsToUp();
 }
 
-void HistoryWidget::onPhotoUploaded(
+void HistoryWidget::photoUploaded(
 		const FullMsgId &newId,
 		bool silent,
 		const MTPInputFile &file) {
 	Auth().api().sendUploadedPhoto(newId, file, silent);
 }
 
-void HistoryWidget::onDocumentUploaded(
+void HistoryWidget::documentUploaded(
 		const FullMsgId &newId,
 		bool silent,
 		const MTPInputFile &file) {
 	Auth().api().sendUploadedDocument(newId, file, base::none, silent);
 }
 
-void HistoryWidget::onThumbDocumentUploaded(
+void HistoryWidget::thumbDocumentUploaded(
 		const FullMsgId &newId,
 		bool silent,
 		const MTPInputFile &file,
@@ -4523,7 +4561,7 @@ void HistoryWidget::onThumbDocumentUploaded(
 	Auth().api().sendUploadedDocument(newId, file, thumb, silent);
 }
 
-void HistoryWidget::onPhotoProgress(const FullMsgId &newId) {
+void HistoryWidget::photoProgress(const FullMsgId &newId) {
 	if (const auto item = App::histItemById(newId)) {
 		const auto photo = item->media()
 			? item->media()->photo()
@@ -4533,7 +4571,7 @@ void HistoryWidget::onPhotoProgress(const FullMsgId &newId) {
 	}
 }
 
-void HistoryWidget::onDocumentProgress(const FullMsgId &newId) {
+void HistoryWidget::documentProgress(const FullMsgId &newId) {
 	if (const auto item = App::histItemById(newId)) {
 		const auto media = item->media();
 		const auto document = media ? media->document() : nullptr;
@@ -4551,7 +4589,7 @@ void HistoryWidget::onDocumentProgress(const FullMsgId &newId) {
 	}
 }
 
-void HistoryWidget::onPhotoFailed(const FullMsgId &newId) {
+void HistoryWidget::photoFailed(const FullMsgId &newId) {
 	if (const auto item = App::histItemById(newId)) {
 		updateSendAction(
 			item->history(),
@@ -4561,7 +4599,7 @@ void HistoryWidget::onPhotoFailed(const FullMsgId &newId) {
 	}
 }
 
-void HistoryWidget::onDocumentFailed(const FullMsgId &newId) {
+void HistoryWidget::documentFailed(const FullMsgId &newId) {
 	if (const auto item = App::histItemById(newId)) {
 		const auto media = item->media();
 		const auto document = media ? media->document() : nullptr;
@@ -4575,7 +4613,7 @@ void HistoryWidget::onDocumentFailed(const FullMsgId &newId) {
 
 void HistoryWidget::onReportSpamClicked() {
 	auto text = lang(_peer->isUser() ? lng_report_spam_sure : ((_peer->isChat() || _peer->isMegagroup()) ? lng_report_spam_sure_group : lng_report_spam_sure_channel));
-	Ui::show(Box<ConfirmBox>(text, lang(lng_report_spam_ok), st::attentionBoxButton, base::lambda_guarded(this, [this, peer = _peer] {
+	Ui::show(Box<ConfirmBox>(text, lang(lng_report_spam_ok), st::attentionBoxButton, crl::guard(this, [this, peer = _peer] {
 		if (_reportSpamRequest) return;
 
 		Ui::hideLayer();
@@ -4667,15 +4705,20 @@ void HistoryWidget::handleHistoryChange(not_null<const History*> history) {
 	}
 }
 
-void HistoryWidget::grapWithoutTopBarShadow() {
-	grabStart();
-	_topShadow->hide();
-}
-
-void HistoryWidget::grabFinish() {
+QPixmap HistoryWidget::grabForShowAnimation(
+		const Window::SectionSlideParams &params) {
+	if (params.withTopBarShadow) {
+		_topShadow->hide();
+	}
+	_inGrab = true;
+	updateControlsGeometry();
+	auto result = Ui::GrabWidget(this);
 	_inGrab = false;
 	updateControlsGeometry();
-	_topShadow->show();
+	if (params.withTopBarShadow) {
+		_topShadow->show();
+	}
+	return result;
 }
 
 bool HistoryWidget::skipItemRepaint() {
@@ -5799,7 +5842,7 @@ void HistoryWidget::replyToMessage(not_null<HistoryItem*> item) {
 				Ui::show(Box<InformBox>(lang(lng_reply_cant)));
 			} else {
 				const auto itemId = item->fullId();
-				Ui::show(Box<ConfirmBox>(lang(lng_reply_cant_forward), lang(lng_selected_forward), base::lambda_guarded(this, [=] {
+				Ui::show(Box<ConfirmBox>(lang(lng_reply_cant_forward), lang(lng_selected_forward), crl::guard(this, [=] {
 					App::main()->setForwardDraft(
 						_peer->id,
 						{ 1, itemId });
@@ -5858,7 +5901,10 @@ void HistoryWidget::editMessage(not_null<HistoryItem*> item) {
 	}
 	if (!_editMsgId) {
 		if (_replyToId || !_field->empty()) {
-			_history->setLocalDraft(std::make_unique<Data::Draft>(_field, _replyToId, _previewCancelled));
+			_history->setLocalDraft(std::make_unique<Data::Draft>(
+				_field,
+				_replyToId,
+				_previewCancelled));
 		} else {
 			_history->clearLocalDraft();
 		}
@@ -5921,7 +5967,7 @@ void HistoryWidget::unpinMessage(FullMsgId itemId) {
 		return;
 	}
 
-	Ui::show(Box<ConfirmBox>(lang(lng_pinned_unpin_sure), lang(lng_pinned_unpin), base::lambda_guarded(this, [=] {
+	Ui::show(Box<ConfirmBox>(lang(lng_pinned_unpin_sure), lang(lng_pinned_unpin), crl::guard(this, [=] {
 		channel->clearPinnedMessage();
 
 		Ui::hideLayer();
@@ -6274,7 +6320,7 @@ void HistoryWidget::onCancel() {
 				lang(lng_cancel_edit_post_sure),
 				lang(lng_cancel_edit_post_yes),
 				lang(lng_cancel_edit_post_no),
-				base::lambda_guarded(this, [this] {
+				crl::guard(this, [this] {
 					if (_editMsgId) {
 						cancelEdit();
 						Ui::hideLayer();
@@ -6428,8 +6474,13 @@ void HistoryWidget::updateTopBarSelection() {
 	_topBar->showSelected(selectedState);
 	updateControlsVisibility();
 	updateHistoryGeometry();
-	if (!Ui::isLayerShown() && !App::passcoded()) {
-		if (_nonEmptySelection || (_list && _list->wasSelectedText()) || _recording || isBotStart() || isBlocked() || !_canSendMessages) {
+	if (!Ui::isLayerShown() && !Messenger::Instance().locked()) {
+		if (_nonEmptySelection
+			|| (_list && _list->wasSelectedText())
+			|| _recording
+			|| isBotStart()
+			|| isBlocked()
+			|| !_canSendMessages) {
 			_list->setFocus();
 		} else {
 			_field->setFocus();

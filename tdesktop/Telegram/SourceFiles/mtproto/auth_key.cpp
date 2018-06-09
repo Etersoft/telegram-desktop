@@ -7,10 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "mtproto/auth_key.h"
 
-#include <openssl/aes.h>
 extern "C" {
+#include <openssl/aes.h>
 #include <openssl/modes.h>
-}
+} // extern "C"
 
 namespace MTP {
 

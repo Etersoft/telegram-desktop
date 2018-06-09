@@ -1,3 +1,23 @@
+1.3.5 alpha (08.06.18)
+
+- Bug fixes and other minor improvements.
+
+1.3.4 alpha (07.06.18)
+
+- Bug fixes and other minor improvements.
+
+1.3.3 alpha (07.06.18)
+
+- Bug fixes and other minor improvements.
+
+1.3.2 alpha (07.06.18)
+
+- Bug fixes and other minor improvements.
+
+1.3.1 alpha (04.06.18)
+
+- Bug fixes and other minor improvements.
+
 1.3.0 (01.06.18)
 
 - Improved censorship circumvention.

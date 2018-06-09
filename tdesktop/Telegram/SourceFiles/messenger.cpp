@@ -7,11 +7,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "messenger.h"
 
-#include <rpl/complete.h>
 #include "data/data_photo.h"
 #include "data/data_document.h"
 #include "data/data_session.h"
 #include "base/timer.h"
+#include "core/update_checker.h"
 #include "storage/localstorage.h"
 #include "platform/platform_specific.h"
 #include "mainwindow.h"
@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_cloud_manager.h"
 #include "lang/lang_hardcoded.h"
 #include "core/update_checker.h"
+#include "passport/passport_form_controller.h"
 #include "observer_peer.h"
 #include "storage/file_upload.h"
 #include "mainwidget.h"
@@ -34,9 +35,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/dc_options.h"
 #include "mtproto/mtp_instance.h"
 #include "media/player/media_player_instance.h"
+#include "media/media_audio.h"
 #include "media/media_audio_track.h"
 #include "window/notifications_manager.h"
 #include "window/themes/window_theme.h"
+#include "window/window_lock_widgets.h"
 #include "history/history_location_manager.h"
 #include "ui/widgets/tooltip.h"
 #include "ui/text_options.h"
@@ -148,24 +151,19 @@ Messenger::Messenger(not_null<Core::Launcher*> launcher)
 	if (state == Local::ReadMapPassNeeded) {
 		Global::SetLocalPasscode(true);
 		Global::RefLocalPasscodeChanged().notify();
+		lockByPasscode();
 		DEBUG_LOG(("Application Info: passcode needed..."));
 	} else {
 		DEBUG_LOG(("Application Info: local map read..."));
 		startMtp();
-	}
-
-	DEBUG_LOG(("Application Info: MTP started..."));
-
-	DEBUG_LOG(("Application Info: showing."));
-	if (state == Local::ReadMapPassNeeded) {
-		setupPasscode();
-	} else {
+		DEBUG_LOG(("Application Info: MTP started..."));
 		if (AuthSession::Exists()) {
 			_window->setupMain();
 		} else {
 			_window->setupIntro();
 		}
 	}
+	DEBUG_LOG(("Application Info: showing."));
 	_window->firstShow();
 
 	if (cStartToSettings()) {
@@ -273,7 +271,9 @@ bool Messenger::eventFilter(QObject *object, QEvent *e) {
 				cSetStartUrl(url.mid(0, 8192));
 				checkStartUrl();
 			}
-			_window->activate();
+			if (StartUrlRequiresActivate(url)) {
+				_window->activate();
+			}
 		}
 	} break;
 	}
@@ -505,18 +505,22 @@ void Messenger::suggestMainDcId(MTP::DcId mainDcId) {
 void Messenger::destroyStaleAuthorizationKeys() {
 	Assert(_mtproto != nullptr);
 
-	auto keys = _mtproto->getKeysForWrite();
-	for (auto &key : keys) {
+	for (const auto &key : _mtproto->getKeysForWrite()) {
 		// Disable this for now.
 		if (key->type() == MTP::AuthKey::Type::ReadFromFile) {
 			_private->mtpKeysToDestroy = _mtproto->getKeysForWrite();
-			_mtproto.reset();
-			LOG(("MTP Info: destroying stale keys, count: %1").arg(_private->mtpKeysToDestroy.size()));
-			startMtp();
-			Local::writeMtpData();
+			LOG(("MTP Info: destroying stale keys, count: %1"
+				).arg(_private->mtpKeysToDestroy.size()));
+			resetAuthorizationKeys();
 			return;
 		}
 	}
+}
+
+void Messenger::resetAuthorizationKeys() {
+	_mtproto.reset();
+	startMtp();
+	Local::writeMtpData();
 }
 
 void Messenger::startLocalStorage() {
@@ -647,6 +651,22 @@ void Messenger::killDownloadSessionsStop(MTP::DcId dcId) {
 	}
 }
 
+void Messenger::forceLogOut(const TextWithEntities &explanation) {
+	const auto box = Ui::show(Box<InformBox>(
+		explanation,
+		lang(lng_passcode_logout)));
+	box->setCloseByEscape(false);
+	box->setCloseByOutsideClick(false);
+	connect(box, &QObject::destroyed, [=] {
+		crl::on_main(this, [=] {
+			if (AuthSession::Exists()) {
+				resetAuthorizationKeys();
+				loggedOut();
+			}
+		});
+	});
+}
+
 void Messenger::checkLocalTime() {
 	if (App::main()) App::main()->checkLastUpdate(checkms());
 }
@@ -705,8 +725,8 @@ void Messenger::killDownloadSessions() {
 	}
 }
 
-void Messenger::photoUpdated(const FullMsgId &msgId, bool silent, const MTPInputFile &file) {
-	if (!AuthSession::Exists()) return;
+void Messenger::photoUpdated(const FullMsgId &msgId, const MTPInputFile &file) {
+	Expects(AuthSession::Exists());
 
 	auto i = photoUpdates.find(msgId);
 	if (i != photoUpdates.end()) {
@@ -724,12 +744,12 @@ void Messenger::photoUpdated(const FullMsgId &msgId, bool silent, const MTPInput
 }
 
 void Messenger::onSwitchDebugMode() {
-	if (cDebug()) {
+	if (Logs::DebugEnabled()) {
 		QFile(cWorkingDir() + qsl("tdata/withdebug")).remove();
-		cSetDebug(false);
+		Logs::SetDebugEnabled(false);
 		App::restart();
 	} else {
-		cSetDebug(true);
+		Logs::SetDebugEnabled(true);
 		DEBUG_LOG(("Debug logs started."));
 		QFile f(cWorkingDir() + qsl("tdata/withdebug"));
 		if (f.open(QIODevice::WriteOnly)) {
@@ -764,17 +784,19 @@ void Messenger::onSwitchTestMode() {
 
 void Messenger::authSessionCreate(UserId userId) {
 	Expects(_mtproto != nullptr);
+
 	_authSession = std::make_unique<AuthSession>(userId);
 	authSessionChanged().notify(true);
 }
 
 void Messenger::authSessionDestroy() {
+	unlockTerms();
+
+	_uploaderSubscription = rpl::lifetime();
 	_authSession.reset();
 	_private->storedAuthSession.reset();
 	_private->authSessionUserId = 0;
 	authSessionChanged().notify(true);
-
-	loggedOut();
 }
 
 void Messenger::setInternalLinkDomain(const QString &domain) const {
@@ -816,7 +838,7 @@ QString Messenger::createInternalLinkFull(const QString &query) const {
 }
 
 void Messenger::checkStartUrl() {
-	if (!cStartUrl().isEmpty() && !App::passcoded()) {
+	if (!cStartUrl().isEmpty() && !locked()) {
 		auto url = cStartUrl();
 		cSetStartUrl(QString());
 		if (!openLocalUrl(url)) {
@@ -829,10 +851,33 @@ bool Messenger::openLocalUrl(const QString &url) {
 	auto urlTrimmed = url.trimmed();
 	if (urlTrimmed.size() > 8192) urlTrimmed = urlTrimmed.mid(0, 8192);
 
-	if (!urlTrimmed.startsWith(qstr("tg://"), Qt::CaseInsensitive) || App::passcoded()) {
+	const auto protocol = qstr("tg://");
+	if (!urlTrimmed.startsWith(protocol, Qt::CaseInsensitive) || locked()) {
 		return false;
 	}
-	auto command = urlTrimmed.midRef(qstr("tg://").size());
+	auto command = urlTrimmed.midRef(protocol.size());
+
+	const auto showPassportForm = [](const QMap<QString, QString> &params) {
+		const auto botId = params.value("bot_id", QString()).toInt();
+		const auto scope = params.value("scope", QString());
+		const auto callback = params.value("callback_url", QString());
+		const auto publicKey = params.value("public_key", QString());
+		const auto payload = params.value("payload", QString());
+		const auto errors = params.value("errors", QString());
+		if (const auto window = App::wnd()) {
+			if (const auto controller = window->controller()) {
+				controller->showPassportForm(Passport::FormRequest(
+					botId,
+					scope,
+					callback,
+					publicKey,
+					payload,
+					errors));
+				return true;
+			}
+		}
+		return false;
+	};
 
 	using namespace qthelp;
 	auto matchOptions = RegExOption::CaseInsensitive;
@@ -869,7 +914,9 @@ bool Messenger::openLocalUrl(const QString &url) {
 		if (auto main = App::main()) {
 			auto params = url_parse_params(usernameMatch->captured(1), UrlParamNameTransform::ToLower);
 			auto domain = params.value(qsl("domain"));
-			if (regex_match(qsl("^[a-zA-Z0-9\\.\\_]+$"), domain, matchOptions)) {
+			if (domain == qsl("telegrampassport")) {
+				return showPassportForm(params);
+			} else if (regex_match(qsl("^[a-zA-Z0-9\\.\\_]+$"), domain, matchOptions)) {
 				auto start = qsl("start");
 				auto startToken = params.value(start);
 				if (startToken.isEmpty()) {
@@ -907,6 +954,32 @@ bool Messenger::openLocalUrl(const QString &url) {
 		auto params = url_parse_params(proxyMatch->captured(1), UrlParamNameTransform::ToLower);
 		ProxiesBoxController::ShowApplyConfirmation(ProxyData::Type::Mtproto, params);
 		return true;
+	} else if (auto authMatch = regex_match(qsl("^passport/?\\?(.+)(#|$)"), command, matchOptions)) {
+		return showPassportForm(url_parse_params(
+			authMatch->captured(1),
+			UrlParamNameTransform::ToLower));
+	} else if (auto unknownMatch = regex_match(qsl("^([^\\?]+)(\\?|#|$)"), command, matchOptions)) {
+		if (_authSession) {
+			const auto request = unknownMatch->captured(1);
+			const auto callback = [=](const MTPDhelp_deepLinkInfo &result) {
+				const auto text = TextWithEntities{
+					qs(result.vmessage),
+					(result.has_entities()
+						? TextUtilities::EntitiesFromMTP(result.ventities.v)
+						: EntitiesInText())
+				};
+				if (result.is_update_app()) {
+					const auto box = std::make_shared<QPointer<BoxContent>>();
+					*box = Ui::show(Box<ConfirmBox>(
+						text,
+						lang(lng_menu_update),
+						[=] { Core::UpdateApplication(); if (*box) (*box)->closeBox(); }));
+				} else {
+					Ui::show(Box<InformBox>(text));
+				}
+			};
+			_authSession->api().requestDeepLinkInfo(request, callback);
+		}
 	}
 	return false;
 }
@@ -941,22 +1014,91 @@ void Messenger::uploadProfilePhoto(QImage &&tosend, const PeerId &peerId) {
 
 	SendMediaReady ready(SendMediaType::Photo, file, filename, filesize, data, id, id, qsl("jpg"), peerId, photo, photoThumbs, MTP_documentEmpty(MTP_long(0)), jpeg, 0);
 
-	connect(&Auth().uploader(), SIGNAL(photoReady(const FullMsgId&, bool, const MTPInputFile&)), this, SLOT(photoUpdated(const FullMsgId&, bool, const MTPInputFile&)), Qt::UniqueConnection);
+	if (!_uploaderSubscription) {
+		_uploaderSubscription = Auth().uploader().photoReady(
+		) | rpl::start_with_next([=](const Storage::UploadedPhoto &data) {
+			photoUpdated(data.fullId, data.file);
+		});
+	}
 
 	FullMsgId newId(peerToChannel(peerId), clientMsgId());
 	regPhotoUpdate(peerId, newId);
 	Auth().uploader().uploadMedia(newId, ready);
 }
 
-void Messenger::setupPasscode() {
-	_window->setupPasscode();
-	_passcodedChanged.notify();
+void Messenger::lockByPasscode() {
+	_passcodeLock = true;
+	_window->setupPasscodeLock();
 }
 
-void Messenger::clearPasscode() {
+void Messenger::unlockPasscode() {
+	clearPasscodeLock();
+	_window->clearPasscodeLock();
+}
+
+void Messenger::clearPasscodeLock() {
 	cSetPasscodeBadTries(0);
-	_window->clearPasscode();
-	_passcodedChanged.notify();
+	_passcodeLock = false;
+}
+
+bool Messenger::passcodeLocked() const {
+	return _passcodeLock.current();
+}
+
+rpl::producer<bool> Messenger::passcodeLockChanges() const {
+	return _passcodeLock.changes();
+}
+
+rpl::producer<bool> Messenger::passcodeLockValue() const {
+	return _passcodeLock.value();
+}
+
+void Messenger::lockByTerms(const Window::TermsLock &data) {
+	if (!_termsLock || *_termsLock != data) {
+		_termsLock = std::make_unique<Window::TermsLock>(data);
+		_termsLockChanges.fire(true);
+	}
+}
+
+void Messenger::unlockTerms() {
+	if (_termsLock) {
+		_termsLock = nullptr;
+		_termsLockChanges.fire(false);
+	}
+}
+
+base::optional<Window::TermsLock> Messenger::termsLocked() const {
+	return _termsLock ? base::make_optional(*_termsLock) : base::none;
+}
+
+rpl::producer<bool> Messenger::termsLockChanges() const {
+	return _termsLockChanges.events();
+}
+
+rpl::producer<bool> Messenger::termsLockValue() const {
+	return rpl::single(
+		_termsLock != nullptr
+	) | rpl::then(termsLockChanges());
+}
+
+void Messenger::termsDeleteNow() {
+	MTP::send(MTPaccount_DeleteAccount(MTP_string("Decline ToS update")));
+}
+
+bool Messenger::locked() const {
+	return passcodeLocked() || termsLocked();
+}
+
+rpl::producer<bool> Messenger::lockChanges() const {
+	return lockValue() | rpl::skip(1);
+}
+
+rpl::producer<bool> Messenger::lockValue() const {
+	using namespace rpl::mappers;
+	return rpl::combine(
+		passcodeLockValue(),
+		termsLockValue(),
+		_1 || _2);
 }
 
 Messenger::~Messenger() {
@@ -1038,11 +1180,44 @@ void Messenger::checkMediaViewActivation() {
 	}
 }
 
+void Messenger::logOut() {
+	if (_mtproto) {
+		_mtproto->logout(::rpcDone([=] {
+			loggedOut();
+		}), ::rpcFail([=] {
+			loggedOut();
+			return true;
+		}));
+	} else {
+		// We log out because we've forgotten passcode.
+		// So we just start mtproto from scratch.
+		startMtp();
+		loggedOut();
+	}
+}
+
 void Messenger::loggedOut() {
+	if (Global::LocalPasscode()) {
+		Global::SetLocalPasscode(false);
+		Global::RefLocalPasscodeChanged().notify();
+	}
+	clearPasscodeLock();
+	Media::Player::mixer()->stopAndClear();
+	if (const auto w = getActiveWindow()) {
+		w->tempDirDelete(Local::ClearManagerAll);
+		w->setupIntro();
+	}
+	App::histories().clear();
+	authSessionDestroy();
 	if (_mediaView) {
 		hideMediaView();
 		_mediaView->clearData();
 	}
+	Local::reset();
+	Window::Theme::Background()->reset();
+
+	cSetOtherOnline(0);
+	clearStorageImages();
 }
 
 QPoint Messenger::getPointForCallPanelCenter() const {

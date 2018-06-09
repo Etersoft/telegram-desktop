@@ -57,7 +57,7 @@ public:
 		QWidget*,
 		const QString &text,
 		const QString &link,
-		base::lambda<void(QString, QString)> callback);
+		Fn<void(QString, QString)> callback);
 
 	void setInnerFocus() override;
 
@@ -67,8 +67,8 @@ protected:
 private:
 	QString _startText;
 	QString _startLink;
-	base::lambda<void(QString, QString)> _callback;
-	base::lambda<void()> _setInnerFocus;
+	Fn<void(QString, QString)> _callback;
+	Fn<void()> _setInnerFocus;
 
 };
 
@@ -120,7 +120,7 @@ EditLinkBox::EditLinkBox(
 	QWidget*,
 	const QString &text,
 	const QString &link,
-	base::lambda<void(QString, QString)> callback)
+	Fn<void(QString, QString)> callback)
 : _startText(text)
 , _startLink(link)
 , _callback(std::move(callback)) {
@@ -307,7 +307,7 @@ void SetClipboardWithEntities(
 	}
 }
 
-base::lambda<bool(
+Fn<bool(
 	Ui::InputField::EditLinkSelection selection,
 	QString text,
 	QString link,
@@ -609,19 +609,21 @@ void MessageLinksParser::parse() {
 	const auto markdownTagsEnd = markdownTags.end();
 	const auto markdownTagsAllow = [&](int from, int length) {
 		while (markdownTag != markdownTagsEnd
-			&& (markdownTag->start + markdownTag->length <= from
+			&& (markdownTag->adjustedStart
+				+ markdownTag->adjustedLength <= from
 				|| !markdownTag->closed)) {
 			++markdownTag;
 			continue;
 		}
 		if (markdownTag == markdownTagsEnd
-			|| markdownTag->start >= from + length) {
+			|| markdownTag->adjustedStart >= from + length) {
 			return true;
 		}
 		// Ignore http-links that are completely inside some tags.
 		// This will allow sending http://test.com/__test__/test correctly.
-		return (markdownTag->start > from
-			|| markdownTag->start + markdownTag->length < from + length);
+		return (markdownTag->adjustedStart > from)
+			|| (markdownTag->adjustedStart
+				+ markdownTag->adjustedLength < from + length);
 	};
 
 	const auto len = text.size();

@@ -140,7 +140,7 @@ DialogsWidget::DialogsWidget(QWidget *parent, not_null<Window::Controller*> cont
 	subscribe(Global::RefLocalPasscodeChanged(), [this] { updateLockUnlockVisibility(); });
 	_lockUnlock->setClickedCallback([this] {
 		_lockUnlock->setIconOverride(&st::dialogsUnlockIcon, &st::dialogsUnlockIconOver);
-		Messenger::Instance().setupPasscode();
+		Messenger::Instance().lockByPasscode();
 		_lockUnlock->setIconOverride(nullptr);
 	});
 	_mainMenuToggle->setClickedCallback([this] { showMainMenu(); });
@@ -999,7 +999,7 @@ void DialogsWidget::onFilterUpdate(bool force) {
 
 	auto filterText = _filter->getLastText();
 	_inner->onFilterUpdate(filterText, force);
-	if (filterText.isEmpty()) {
+	if (filterText.isEmpty() && !_searchFromUser) {
 		clearSearchCache();
 	}
 	_cancelSearch->toggle(!filterText.isEmpty(), anim::type::normal);
@@ -1078,13 +1078,13 @@ void DialogsWidget::showSearchFrom() {
 		Dialogs::ShowSearchFromBox(
 			controller(),
 			peer,
-			base::lambda_guarded(this, [=](
+			crl::guard(this, [=](
 					not_null<UserData*> user) {
 				Ui::hideLayer();
 				setSearchInChat(chat, user);
 				onFilterUpdate(true);
 			}),
-			base::lambda_guarded(this, [this] { _filter->setFocus(); }));
+			crl::guard(this, [this] { _filter->setFocus(); }));
 	}
 }
 

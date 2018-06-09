@@ -35,6 +35,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "auth_session.h"
 #include "boxes/confirm_box.h"
 #include "window/notifications_manager.h"
+#include "window/window_lock_widgets.h"
 #include "window/window_controller.h"
 #include "chat_helpers/message_field.h"
 #include "chat_helpers/stickers.h"
@@ -149,7 +150,7 @@ ApiWrap::ApiWrap(not_null<AuthSession*> session)
 
 void ApiWrap::requestChangelog(
 		const QString &sinceVersion,
-		base::lambda<void(const MTPUpdates &result)> callback) {
+		Fn<void(const MTPUpdates &result)> callback) {
 	request(MTPhelp_GetAppChangelog(
 		MTP_string(sinceVersion)
 	)).done(
@@ -233,6 +234,78 @@ void ApiWrap::proxyPromotionDone(const MTPhelp_ProxyData &proxy) {
 	}
 }
 
+void ApiWrap::requestDeepLinkInfo(
+		const QString &path,
+		Fn<void(const MTPDhelp_deepLinkInfo &result)> callback) {
+	request(_deepLinkInfoRequestId).cancel();
+	_deepLinkInfoRequestId = request(MTPhelp_GetDeepLinkInfo(
+		MTP_string(path)
+	)).done([=](const MTPhelp_DeepLinkInfo &result) {
+		_deepLinkInfoRequestId = 0;
+		if (result.type() == mtpc_help_deepLinkInfo) {
+			callback(result.c_help_deepLinkInfo());
+		}
+	}).fail([=](const RPCError &error) {
+		_deepLinkInfoRequestId = 0;
+	}).send();
+}
+
+void ApiWrap::requestTermsUpdate() {
+	if (_termsUpdateRequestId) {
+		return;
+	}
+	const auto now = getms(true);
+	if (_termsUpdateSendAt && now < _termsUpdateSendAt) {
+		App::CallDelayed(_termsUpdateSendAt - now, _session, [=] {
+			requestTermsUpdate();
+		});
+		return;
+	}
+
+	constexpr auto kTermsUpdateTimeoutMin = 10 * TimeMs(1000);
+	constexpr auto kTermsUpdateTimeoutMax = 86400 * TimeMs(1000);
+
+	_termsUpdateRequestId = request(MTPhelp_GetTermsOfServiceUpdate(
+	)).done([=](const MTPhelp_TermsOfServiceUpdate &result) {
+		_termsUpdateRequestId = 0;
+
+		const auto requestNext = [&](auto &&data) {
+			_termsUpdateSendAt = getms(true) + snap(
+				TimeMs(data.vexpires.v - unixtime()),
+				kTermsUpdateTimeoutMin,
+				kTermsUpdateTimeoutMax);
+			requestTermsUpdate();
+		};
+		switch (result.type()) {
+		case mtpc_help_termsOfServiceUpdateEmpty: {
+			const auto &data = result.c_help_termsOfServiceUpdateEmpty();
+			requestNext(data);
+		} break;
+		case mtpc_help_termsOfServiceUpdate: {
+			const auto &data = result.c_help_termsOfServiceUpdate();
+			const auto &terms = data.vterms_of_service;
+			const auto &fields = terms.c_help_termsOfService();
+			Messenger::Instance().lockByTerms(
+				Window::TermsLock::FromMTP(fields));
+			requestNext(data);
+		} break;
+		default: Unexpected("Type in requestTermsUpdate().");
+		}
+	}).fail([=](const RPCError &error) {
+		_termsUpdateRequestId = 0;
+		_termsUpdateSendAt = getms(true) + kTermsUpdateTimeoutMin;
+		requestTermsUpdate();
+	}).send();
+}
+
+void ApiWrap::acceptTerms(bytes::const_span id) {
+	request(MTPhelp_AcceptTermsOfService(
+		MTP_dataJSON(MTP_bytes(id))
+	)).done([=](const MTPBool &result) {
+		requestTermsUpdate();
+	}).send();
+}
+
 void ApiWrap::applyUpdates(
 		const MTPUpdates &updates,
 		uint64 sentMessageRandomId) {
@@ -260,7 +333,7 @@ void ApiWrap::savePinnedOrder() {
 //void ApiWrap::toggleChannelGrouping(
 //		not_null<ChannelData*> channel,
 //		bool group,
-//		base::lambda<void()> callback) {
+//		Fn<void()> callback) {
 //	if (const auto already = _channelGroupingRequests.take(channel)) {
 //		request(already->first).cancel();
 //	}
@@ -1403,7 +1476,7 @@ void ApiWrap::deleteAllFromUserSend(
 
 void ApiWrap::requestChannelMembersForAdd(
 		not_null<ChannelData*> channel,
-		base::lambda<void(const MTPchannels_ChannelParticipants&)> callback) {
+		Fn<void(const MTPchannels_ChannelParticipants&)> callback) {
 	_channelMembersForAddCallback = std::move(callback);
 	if (_channelMembersForAdd == channel) {
 		return;
@@ -1982,10 +2055,21 @@ void ApiWrap::saveDraftsToCloud() {
 		if (!textWithTags.tags.isEmpty()) {
 			flags |= MTPmessages_SaveDraft::Flag::f_entities;
 		}
-		auto entities = TextUtilities::EntitiesToMTP(ConvertTextTagsToEntities(textWithTags.tags), TextUtilities::ConvertOption::SkipLocal);
+		auto entities = TextUtilities::EntitiesToMTP(
+			ConvertTextTagsToEntities(textWithTags.tags),
+			TextUtilities::ConvertOption::SkipLocal);
 
-		cloudDraft->saveRequestId = request(MTPmessages_SaveDraft(MTP_flags(flags), MTP_int(cloudDraft->msgId), history->peer->input, MTP_string(textWithTags.text), entities)).done([this, history](const MTPBool &result, mtpRequestId requestId) {
-			if (auto cloudDraft = history->cloudDraft()) {
+		history->setSentDraftText(textWithTags.text);
+		cloudDraft->saveRequestId = request(MTPmessages_SaveDraft(
+			MTP_flags(flags),
+			MTP_int(cloudDraft->msgId),
+			history->peer->input,
+			MTP_string(textWithTags.text),
+			entities
+		)).done([=](const MTPBool &result, mtpRequestId requestId) {
+			history->clearSentDraftText();
+
+			if (const auto cloudDraft = history->cloudDraft()) {
 				if (cloudDraft->saveRequestId == requestId) {
 					cloudDraft->saveRequestId = 0;
 					history->draftSavedToCloud();
@@ -1996,8 +2080,10 @@ void ApiWrap::saveDraftsToCloud() {
 				_draftsSaveRequestIds.erase(history);
 				checkQuitPreventFinished();
 			}
-		}).fail([this, history](const RPCError &error, mtpRequestId requestId) {
-			if (auto cloudDraft = history->cloudDraft()) {
+		}).fail([=](const RPCError &error, mtpRequestId requestId) {
+			history->clearSentDraftText();
+
+			if (const auto cloudDraft = history->cloudDraft()) {
 				if (cloudDraft->saveRequestId == requestId) {
 					history->clearCloudDraft();
 				}
@@ -2397,12 +2483,6 @@ std::vector<not_null<DocumentData*>> *ApiWrap::stickersByEmoji(
 			auto &entry = _stickersByEmoji[emoji];
 			entry.list.clear();
 			entry.list.reserve(data.vstickers.v.size());
-			for (const auto &sticker : data.vstickers.v) {
-				const auto document = _session->data().document(sticker);
-				if (document->sticker()) {
-					entry.list.push_back(document);
-				}
-			}
 			entry.hash = data.vhash.v;
 			entry.received = getms(true);
 			_session->data().notifyStickersUpdated();
@@ -2607,10 +2687,10 @@ void ApiWrap::readFeaturedSets() {
 void ApiWrap::parseChannelParticipants(
 		not_null<ChannelData*> channel,
 		const MTPchannels_ChannelParticipants &result,
-		base::lambda<void(
+		Fn<void(
 			int availableCount,
 			const QVector<MTPChannelParticipant> &list)> callbackList,
-		base::lambda<void()> callbackNotModified) {
+		Fn<void()> callbackNotModified) {
 	TLHelp::VisitChannelParticipants(result, base::overload([&](
 			const MTPDchannels_channelParticipants &data) {
 		App::feedUsers(data.vusers);
@@ -2644,10 +2724,10 @@ void ApiWrap::refreshChannelAdmins(
 void ApiWrap::parseRecentChannelParticipants(
 		not_null<ChannelData*> channel,
 		const MTPchannels_ChannelParticipants &result,
-		base::lambda<void(
+		Fn<void(
 			int availableCount,
 			const QVector<MTPChannelParticipant> &list)> callbackList,
-		base::lambda<void()> callbackNotModified) {
+		Fn<void()> callbackNotModified) {
 	parseChannelParticipants(channel, result, [&](
 			int availableCount,
 			const QVector<MTPChannelParticipant> &list) {
@@ -3526,12 +3606,12 @@ void ApiWrap::sendAction(const SendOptions &options) {
 void ApiWrap::forwardMessages(
 		HistoryItemsList &&items,
 		const SendOptions &options,
-		base::lambda_once<void()> &&successCallback) {
+		FnMut<void()> &&successCallback) {
 	Expects(!items.empty());
 
 	struct SharedCallback {
 		int requestsLeft = 0;
-		base::lambda_once<void()> callback;
+		FnMut<void()> callback;
 	};
 	const auto shared = successCallback
 		? std::make_shared<SharedCallback>()

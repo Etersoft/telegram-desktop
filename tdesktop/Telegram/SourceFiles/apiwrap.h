@@ -63,10 +63,10 @@ public:
 	//void toggleChannelGrouping( // #feed
 	//	not_null<ChannelData*> channel,
 	//	bool group,
-	//	base::lambda<void()> callback);
+	//	Fn<void()> callback);
 	//void ungroupAllFromFeed(not_null<Data::Feed*> feed);
 
-	using RequestMessageDataCallback = base::lambda<void(ChannelData*, MsgId)>;
+	using RequestMessageDataCallback = Fn<void(ChannelData*, MsgId)>;
 	void requestMessageData(
 		ChannelData *channel,
 		MsgId msgId,
@@ -92,12 +92,17 @@ public:
 
 	void requestChangelog(
 		const QString &sinceVersion,
-		base::lambda<void(const MTPUpdates &result)> callback);
+		Fn<void(const MTPUpdates &result)> callback);
 	void refreshProxyPromotion();
+	void requestDeepLinkInfo(
+		const QString &path,
+		Fn<void(const MTPDhelp_deepLinkInfo &result)> callback);
+	void requestTermsUpdate();
+	void acceptTerms(bytes::const_span termsId);
 
 	void requestChannelMembersForAdd(
 		not_null<ChannelData*> channel,
-		base::lambda<void(const MTPchannels_ChannelParticipants&)> callback);
+		Fn<void(const MTPchannels_ChannelParticipants&)> callback);
 	void processFullPeer(PeerData *peer, const MTPmessages_ChatFull &result);
 	void processFullPeer(UserData *user, const MTPUserFull &result);
 
@@ -203,17 +208,17 @@ public:
 	void parseChannelParticipants(
 		not_null<ChannelData*> channel,
 		const MTPchannels_ChannelParticipants &result,
-		base::lambda<void(
+		Fn<void(
 			int availableCount,
 			const QVector<MTPChannelParticipant> &list)> callbackList,
-		base::lambda<void()> callbackNotModified = nullptr);
+		Fn<void()> callbackNotModified = nullptr);
 	void parseRecentChannelParticipants(
 		not_null<ChannelData*> channel,
 		const MTPchannels_ChannelParticipants &result,
-		base::lambda<void(
+		Fn<void(
 			int availableCount,
 			const QVector<MTPChannelParticipant> &list)> callbackList,
-		base::lambda<void()> callbackNotModified = nullptr);
+		Fn<void()> callbackNotModified = nullptr);
 
 	struct SendOptions {
 		SendOptions(not_null<History*> history) : history(history) {
@@ -232,7 +237,7 @@ public:
 	void forwardMessages(
 		HistoryItemsList &&items,
 		const SendOptions &options,
-		base::lambda_once<void()> &&successCallback = nullptr);
+		FnMut<void()> &&successCallback = nullptr);
 	void shareContact(
 		const QString &phone,
 		const QString &firstName,
@@ -459,11 +464,11 @@ private:
 
 	ChannelData *_channelMembersForAdd = nullptr;
 	mtpRequestId _channelMembersForAddRequestId = 0;
-	base::lambda<void(
+	Fn<void(
 		const MTPchannels_ChannelParticipants&)> _channelMembersForAddCallback;
 	base::flat_map<
 		not_null<ChannelData*>,
-		std::pair<mtpRequestId,base::lambda<void()>>> _channelGroupingRequests;
+		std::pair<mtpRequestId,Fn<void()>>> _channelGroupingRequests;
 
 	using KickRequest = std::pair<
 		not_null<ChannelData*>,
@@ -482,10 +487,10 @@ private:
 	QMap<uint64, QPair<uint64, mtpRequestId> > _stickerSetRequests;
 
 	QMap<ChannelData*, mtpRequestId> _channelAmInRequests;
-	std::map<not_null<UserData*>, mtpRequestId> _blockRequests;
-	std::map<not_null<PeerData*>, mtpRequestId> _exportInviteRequests;
-	std::map<PeerId, mtpRequestId> _notifySettingRequests;
-	std::map<not_null<History*>, mtpRequestId> _draftsSaveRequestIds;
+	base::flat_map<not_null<UserData*>, mtpRequestId> _blockRequests;
+	base::flat_map<not_null<PeerData*>, mtpRequestId> _exportInviteRequests;
+	base::flat_map<PeerId, mtpRequestId> _notifySettingRequests;
+	base::flat_map<not_null<History*>, mtpRequestId> _draftsSaveRequestIds;
 	base::Timer _draftsSaveTimer;
 
 	base::flat_set<mtpRequestId> _stickerSetDisenableRequests;
@@ -577,5 +582,10 @@ private:
 
 	base::flat_set<not_null<const PeerData*>> _updateNotifySettingsPeers;
 	base::Timer _updateNotifySettingsTimer;
+
+	mtpRequestId _deepLinkInfoRequestId = 0;
+
+	TimeMs _termsUpdateSendAt = 0;
+	mtpRequestId _termsUpdateRequestId = 0;
 
 };

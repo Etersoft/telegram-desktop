@@ -54,8 +54,6 @@ enum {
 
 	AVBlockSize = 4096, // 4Kb for ffmpeg blocksize
 
-	SaveWindowPositionTimeout = 1000, // 1 sec
-
 	AutoSearchTimeout = 900, // 0.9 secs
 	SearchPerPage = 50,
 	SearchManyPerPage = 100,
@@ -84,9 +82,6 @@ enum {
 	MaxMessageSize = 4096,
 
 	WriteMapTimeout = 1000,
-	SaveDraftTimeout = 1000, // save draft after 1 secs of not changing text
-	SaveDraftAnywayTimeout = 5000, // or save anyway each 5 secs
-	SaveCloudDraftIdleTimeout = 14000, // save draft to the cloud after 14 more seconds
 
 	SetOnlineAfterActivity = 30, // user with hidden last seen stays online for such amount of seconds in the interface
 
@@ -221,25 +216,6 @@ static const char *ApiHash = "344583e45741c457fe1862106095a5eb";
 #else
 static const char *BetaPrivateKey = "";
 #endif
-
-inline const char *cApiDeviceModel() {
-#ifdef Q_OS_WIN
-	return "PC";
-#elif defined Q_OS_MAC
-	return "Mac";
-#elif defined Q_OS_LINUX
-	return "PC";
-#endif
-}
-inline const char *cApiSystemVersion() {
-#ifdef Q_OS_WIN
-	return "Windows";
-#elif defined Q_OS_MAC
-	return "OS X";
-#elif defined Q_OS_LINUX
-	return "Linux";
-#endif
-}
 
 extern QString gKeyFile;
 inline const QString &cDataFile() {

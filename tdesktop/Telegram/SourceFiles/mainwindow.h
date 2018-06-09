@@ -11,7 +11,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/platform_main_window.h"
 #include "core/single_timer.h"
 
-class PasscodeWidget;
 class MainWidget;
 class BoxContent;
 
@@ -28,6 +27,7 @@ class LayerWidget;
 class LayerStackWidget;
 class SectionMemento;
 struct SectionShow;
+class PasscodeLockWidget;
 namespace Theme {
 struct BackgroundUpdate;
 class WarningWidget;
@@ -49,8 +49,8 @@ public:
 
 	void firstShow();
 
-	void setupPasscode();
-	void clearPasscode();
+	void setupPasscodeLock();
+	void clearPasscodeLock();
 	void setupIntro();
 	void setupMain(const MTPUser *user = nullptr);
 	void serviceNotification(const TextWithEntities &message, const MTPMessageMedia &media = MTP_messageMediaEmpty(), int32 date = 0, bool force = false);
@@ -62,7 +62,6 @@ public:
 	}
 
 	MainWidget *mainWidget();
-	PasscodeWidget *passcodeWidget();
 
 	bool doWeReadServerHistory();
 	bool doWeReadMentions();
@@ -70,8 +69,7 @@ public:
 	void activate();
 
 	void noIntro(Intro::Widget *was);
-	void noLayerStack(Window::LayerStackWidget *was);
-	void layerFinishedHide(Window::LayerStackWidget *was);
+	void layerHidden(not_null<Window::LayerStackWidget*> layer);
 	bool takeThirdSectionFromLayer();
 
 	void checkHistoryActivation();
@@ -174,10 +172,10 @@ private:
 	mtpRequestId _serviceHistoryRequest = 0;
 	TimeMs _lastTrayClickTime = 0;
 
-	object_ptr<PasscodeWidget> _passcode = { nullptr };
+	object_ptr<Window::PasscodeLockWidget> _passcodeLock = { nullptr };
 	object_ptr<Intro::Widget> _intro = { nullptr };
 	object_ptr<MainWidget> _main = { nullptr };
-	object_ptr<Window::LayerStackWidget> _layerBg = { nullptr };
+	object_ptr<Window::LayerStackWidget> _layer = { nullptr };
 	object_ptr<MediaPreviewWidget> _mediaPreview = { nullptr };
 
 	object_ptr<Window::Theme::WarningWidget> _testingThemeWarning = { nullptr };

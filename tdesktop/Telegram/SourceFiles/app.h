@@ -66,9 +66,6 @@ enum RoundCorners {
 namespace App {
 	MainWindow *wnd();
 	MainWidget *main();
-	bool passcoded();
-
-	void logOut();
 
 	QString formatPhone(QString phone);
 
@@ -135,9 +132,9 @@ namespace App {
 	inline ChannelData *channelLoaded(ChannelId channelId) {
 		return channel(channelId, PeerData::FullLoaded);
 	}
-	void enumerateUsers(base::lambda<void(not_null<UserData*>)> action);
+	void enumerateUsers(Fn<void(not_null<UserData*>)> action);
 	void enumerateChatsChannels(
-		base::lambda<void(not_null<PeerData*>)> action);
+		Fn<void(not_null<PeerData*>)> action);
 
 	UserData *self();
 	PeerData *peerByName(const QString &username);
