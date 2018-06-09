@@ -107,6 +107,7 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/media/*.cpp SourceFiles/media/*.h
     SourceFiles/mtproto/*.cpp SourceFiles/mtproto/*.h
     SourceFiles/overview/*.cpp SourceFiles/overview/*.h
+    SourceFiles/passport/*.cpp SourceFiles/passport/*.h
     SourceFiles/platform/linux/*.cpp SourceFiles/platform/linux/*.h
     SourceFiles/rpl/*.cpp SourceFiles/rpl/*.h
     SourceFiles/profile/*.cpp SourceFiles/profile/*.h
@@ -120,8 +121,9 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
 file(GLOB_RECURSE NO_TESTS SourceFiles/*/*tests*.cpp)
 list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${NO_TESTS})
 
-# drop unused sources (https://github.com/telegramdesktop/tdesktop/issues/4776)
-list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/ui/effects/widget_slide_wrap.cpp)
+# drop unused sources
+list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/passport/passport_form_row.cpp)
+list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/passport/passport_edit_identity_box.cpp)
 
 add_executable(Telegram WIN32 ${QRC_FILES} ${FLAT_SOURCE_FILES} ${SUBDIRS_SOURCE_FILES})
 
