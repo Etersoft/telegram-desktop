@@ -1136,7 +1136,8 @@ void MainWidget::addParticipants(
 				0,
 				5);
 		}
-	} else if (auto channel = chatOrChannel->asChannel()) {
+	} else if (auto tchannel = chatOrChannel->asChannel()) {
+		gsl::not_null<ChannelData*> channel = tchannel;
 		QVector<MTPInputUser> inputUsers;
 		inputUsers.reserve(qMin(int(users.size()), int(MaxUsersPerInvite)));
 		for (auto i = users.cbegin(), e = users.cend(); i != e; ++i) {
