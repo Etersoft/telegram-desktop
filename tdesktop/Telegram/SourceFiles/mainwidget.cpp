@@ -1128,6 +1128,7 @@ void MainWidget::addParticipants(
 				5);
 		}
 	} else if (auto channel = chatOrChannel->asChannel()) {
+		gsl::not_null<ChannelData*> nnChannel = channel;
 		QVector<MTPInputUser> inputUsers;
 		inputUsers.reserve(qMin(int(users.size()), int(MaxUsersPerInvite)));
 		for (auto i = users.cbegin(), e = users.cend(); i != e; ++i) {
@@ -1137,8 +1138,8 @@ void MainWidget::addParticipants(
 					MTPchannels_InviteToChannel(
 						channel->inputChannel,
 						MTP_vector<MTPInputUser>(inputUsers)),
-					rpcDone(&MainWidget::inviteToChannelDone, { channel }),
-					rpcFail(&MainWidget::addParticipantsFail, { channel }),
+					rpcDone(&MainWidget::inviteToChannelDone, { nnChannel }),
+					rpcFail(&MainWidget::addParticipantsFail, { nnChannel }),
 					0,
 					5);
 				inputUsers.clear();
@@ -1149,8 +1150,8 @@ void MainWidget::addParticipants(
 				MTPchannels_InviteToChannel(
 					channel->inputChannel,
 					MTP_vector<MTPInputUser>(inputUsers)),
-				rpcDone(&MainWidget::inviteToChannelDone, { channel }),
-				rpcFail(&MainWidget::addParticipantsFail, { channel }),
+				rpcDone(&MainWidget::inviteToChannelDone, { nnChannel }),
+				rpcFail(&MainWidget::addParticipantsFail, { nnChannel }),
 				0,
 				5);
 		}
