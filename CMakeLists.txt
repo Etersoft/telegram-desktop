@@ -98,6 +98,7 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/chat_helpers/*.cpp SourceFiles/chat_helpers/*.h
     SourceFiles/core/*.cpp SourceFiles/core/*.h
     SourceFiles/data/*.cpp SourceFiles/data/*.h
+    SourceFiles/export/*.cpp SourceFiles/export/*.h
     SourceFiles/dialogs/*.cpp SourceFiles/dialogs/*.h
     SourceFiles/history/*.cpp SourceFiles/history/*.h
     SourceFiles/info/*.cpp SourceFiles/info/*.h
