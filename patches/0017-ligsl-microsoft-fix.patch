@@ -1,0 +1,20 @@
+commit 667fbc9845dd9e513fbe79caa6c9eef0131168e9
+Author: Vitaly Lipatov <lav@etersoft.ru>
+Date:   Tue Jun 19 21:44:04 2018 +0300
+
+    fix to build with libmicrosoft-gsl-devel 20180615
+
+diff --git a/tdesktop/Telegram/SourceFiles/mainwidget.cpp b/tdesktop/Telegram/SourceFiles/mainwidget.cpp
+index d25c868..2cfe024 100644
+--- a/tdesktop/Telegram/SourceFiles/mainwidget.cpp
++++ b/tdesktop/Telegram/SourceFiles/mainwidget.cpp
+@@ -1136,7 +1136,8 @@ void MainWidget::addParticipants(
+ 				0,
+ 				5);
+ 		}
+-	} else if (auto channel = chatOrChannel->asChannel()) {
++	} else if (auto tchannel = chatOrChannel->asChannel()) {
++		gsl::not_null<ChannelData*> channel = tchannel;
+ 		QVector<MTPInputUser> inputUsers;
+ 		inputUsers.reserve(qMin(int(users.size()), int(MaxUsersPerInvite)));
+ 		for (auto i = users.cbegin(), e = users.cend(); i != e; ++i) {

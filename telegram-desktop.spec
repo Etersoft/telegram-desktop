@@ -13,8 +13,8 @@ BuildRequires(pre): rpm-build-ubt
 %def_without libcxx
 
 Name: telegram-desktop
-Version: 1.3.9
-Release: alt2
+Version: 1.3.10
+Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
 
@@ -38,13 +38,15 @@ Patch8: 0008_add_locales.patch
 Patch14: 0014-get-language-name-and-country-name-from-QLocale.patch
 Patch15: 0015-disable-resource-fonts.patch
 Patch16: 0016-fix-lzma.patch
+Patch17: 0017-ligsl-microsoft-fix.patch
 
 #ExclusiveArch: %ix86 x86_64
 
 BuildRequires(pre): rpm-build-licenses rpm-macros-qt5 rpm-macros-cmake
 BuildRequires(pre): rpm-macros-kde-common-devel
 
-BuildRequires: rpm-build-intro >= 2.1.5
+BuildRequires(pre): rpm-build-compat >= 2.1.5
+BuildRequires(pre): rpm-build-intro >= 2.1.5
 # use no more than system_memory/1700 build procs (see https://bugzilla.altlinux.org/show_bug.cgi?id=35112)
 %_tune_parallel_build_by_procsize 1700
 
@@ -139,7 +141,7 @@ $ XDG_CURRENT_DESKTOP=NONE tdesktop
 #patch9 -p1
 %patch14 -p1
 %patch15 -p1
-#patch16 -p1
+%patch17 -p2
 
 cp %SOURCE2 Telegram/
 # MacOS things will conflicts with binary name, so delete Telegram dir
@@ -204,6 +206,9 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Sat Jul 14 2018 Vitaly Lipatov <lav@altlinux.ru> 1.3.10-alt1
+- new version 1.3.10 (with rpmrb script)
+
 * Sat Jul 14 2018 Vitaly Lipatov <lav@altlinux.ru> 1.3.9-alt2
 - restrict __nprocs with _tune_parallel_build_by_procsize
 - drop libpixman-devel buildreq

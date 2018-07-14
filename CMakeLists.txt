@@ -50,7 +50,7 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 find_package(OpenAL REQUIRED)
 find_package(OpenSSL REQUIRED)
-#find_package(LibLZMA REQUIRED)
+find_package(LibLZMA REQUIRED)
 find_package(X11 REQUIRED)
 
 set(GSL_INCLUDE_DIR /usr/include/libmicrosoft-gsl)
@@ -153,7 +153,7 @@ target_link_libraries(Telegram
     ${MINIZIP_LIBRARIES}
     ${OPENAL_LIBRARY}
     ${APPINDICATOR_LIBRARIES}
-#    ${LIBLZMA_LIBRARIES}
+    ${LIBLZMA_LIBRARIES}
     ${X11_X11_LIB}
     )
 target_include_directories(Telegram PUBLIC
@@ -172,7 +172,7 @@ target_include_directories(Telegram PUBLIC
     ${MINIZIP_INCLUDE_DIRS}
     ${OPENAL_INCLUDE_DIR}
     ${APPINDICATOR_INCLUDE_DIRS}
-#    ${LIBLZMA_INCLUDE_DIRS}
+    ${LIBLZMA_INCLUDE_DIRS}
     ${GENERATED_DIR})
 
 target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
