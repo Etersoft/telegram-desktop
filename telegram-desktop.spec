@@ -14,7 +14,7 @@ BuildRequires(pre): rpm-build-ubt
 
 Name: telegram-desktop
 Version: 1.3.9
-Release: alt1
+Release: alt2
 
 Summary: Telegram is a messaging app with a focus on speed and security
 
@@ -44,6 +44,10 @@ Patch16: 0016-fix-lzma.patch
 BuildRequires(pre): rpm-build-licenses rpm-macros-qt5 rpm-macros-cmake
 BuildRequires(pre): rpm-macros-kde-common-devel
 
+BuildRequires: rpm-build-intro >= 2.1.5
+# use no more than system_memory/1700 build procs (see https://bugzilla.altlinux.org/show_bug.cgi?id=35112)
+%_tune_parallel_build_by_procsize 1700
+
 BuildRequires: gcc-c++ libstdc++-devel gyp cmake
 
 BuildRequires: qt5-base-devel libqt5-network libqt5-gui qt5-imageformats
@@ -62,8 +66,6 @@ BuildRequires: libzip-devel
 BuildRequires: zlib-devel >= 1.2.8
 
 BuildRequires: libminizip-devel libpcre-devel libexpat-devel libssl-devel bison
-BuildRequires: libpixman-devel
-#BuildRequires:  libpixman-devel libz3-devel 
 #BuildRequires: libxkbcommon-devel libxkbcommon-x11-devel
 #BuildRequires: libXi-devel libSM-devel libICE-devel libdbus-devel libXfixes-devel
 BuildRequires: libX11-devel
@@ -202,6 +204,10 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Sat Jul 14 2018 Vitaly Lipatov <lav@altlinux.ru> 1.3.9-alt2
+- restrict __nprocs with _tune_parallel_build_by_procsize
+- drop libpixman-devel buildreq
+
 * Tue Jul 10 2018 Vitaly Lipatov <lav@altlinux.ru> 1.3.9-alt1
 - new version 1.3.9 (with rpmrb script)
 
