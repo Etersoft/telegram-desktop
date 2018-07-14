@@ -3546,12 +3546,12 @@ void HistoryWidget::botCallbackDone(
 			auto url = qs(answerData.vurl);
 			if (info.game) {
 				url = AppendShareGameScoreUrl(url, info.msgId);
-				BotGameUrlClickHandler(info.bot, url).onClick(Qt::LeftButton);
+				BotGameUrlClickHandler(info.bot, url).onClick({});
 				if (item) {
 					updateSendAction(item->history(), SendAction::Type::PlayGame);
 				}
 			} else {
-				UrlClickHandler(url).onClick(Qt::LeftButton);
+				UrlClickHandler(url).onClick({});
 			}
 		}
 	}
@@ -5784,10 +5784,8 @@ void HistoryWidget::setFieldText(
 	_textUpdateEvents = TextUpdateEvent::SaveDraft
 		| TextUpdateEvent::SendTyping;
 
+	previewCancel();
 	_previewCancelled = false;
-	_previewData = nullptr;
-	MTP::cancel(base::take(_previewRequest));
-	_previewLinks.clear();
 }
 
 void HistoryWidget::clearFieldText(
@@ -6126,10 +6124,6 @@ void HistoryWidget::previewCancel() {
 	_previewData = nullptr;
 	_previewLinks.clear();
 	updatePreview();
-	if (!_editMsgId && !_replyToId && !readyToForward() && !_kbReplyTo) {
-		_fieldBarCancel->hide();
-		updateMouseTracking();
-	}
 }
 
 void HistoryWidget::checkPreview() {
@@ -6142,10 +6136,7 @@ void HistoryWidget::checkPreview() {
 		return false;
 	};
 	if (_previewCancelled || previewRestricted()) {
-		MTP::cancel(base::take(_previewRequest));
-		_previewData = nullptr;
-		_previewLinks.clear();
-		update();
+		previewCancel();
 		return;
 	}
 	const auto newLinks = _parsedLinks.join(' ');
@@ -6210,7 +6201,7 @@ void HistoryWidget::gotPreview(QString links, const MTPMessageMedia &result, mtp
 	} else if (result.type() == mtpc_messageMediaEmpty) {
 		_previewCache.insert(links, 0);
 		if (links == _previewLinks && !_previewCancelled) {
-			_previewData = 0;
+			_previewData = nullptr;
 			updatePreview();
 		}
 	}

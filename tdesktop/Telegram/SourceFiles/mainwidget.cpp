@@ -368,10 +368,10 @@ MainWidget::MainWidget(
 
 	orderWidgets();
 
-#ifndef TDESKTOP_DISABLE_AUTOUPDATE
-	Core::UpdateChecker checker;
-	checker.start();
-#endif // !TDESKTOP_DISABLE_AUTOUPDATE
+	if (!Core::UpdaterDisabled()) {
+		Core::UpdateChecker checker;
+		checker.start();
+	}
 }
 
 void MainWidget::setupConnectingWidget() {
@@ -1136,8 +1136,7 @@ void MainWidget::addParticipants(
 				0,
 				5);
 		}
-	} else if (auto tchannel = chatOrChannel->asChannel()) {
-		gsl::not_null<ChannelData*> channel = tchannel;
+	} else if (auto channel = chatOrChannel->asChannel()) {
 		QVector<MTPInputUser> inputUsers;
 		inputUsers.reserve(qMin(int(users.size()), int(MaxUsersPerInvite)));
 		for (auto i = users.cbegin(), e = users.cend(); i != e; ++i) {
@@ -3683,7 +3682,11 @@ bool MainWidget::started() {
 	return _started;
 }
 
-void MainWidget::openPeerByName(const QString &username, MsgId msgId, const QString &startToken) {
+void MainWidget::openPeerByName(
+		const QString &username,
+		MsgId msgId,
+		const QString &startToken,
+		FullMsgId clickFromMessageId) {
 	Messenger::Instance().hideMediaView();
 
 	PeerData *peer = App::peerByName(username);
@@ -3724,7 +3727,13 @@ void MainWidget::openPeerByName(const QString &username, MsgId msgId, const QStr
 					_history->updateControlsGeometry();
 				}
 			}
-			InvokeQueued(this, [this, peer, msgId] {
+			const auto returnToId = clickFromMessageId;
+			InvokeQueued(this, [=] {
+				if (const auto returnTo = App::histItemById(returnToId)) {
+					if (returnTo->history()->peer == peer) {
+						pushReplyReturn(returnTo);
+					}
+				}
 				_controller->showPeerHistory(
 					peer->id,
 					SectionShow::Way::Forward,
