@@ -1559,12 +1559,6 @@ void MainWidget::createExportTopBar(Export::View::Content &&data) {
 	_exportTopBar.create(
 		this,
 		object_ptr<Export::View::TopBar>(this, std::move(data)));
-	rpl::merge(
-		_exportTopBar->heightValue() | rpl::map([] { return true; }),
-		_exportTopBar->shownValue()
-	) | rpl::start_with_next([=] {
-		exportTopBarHeightUpdated();
-	}, _exportTopBar->lifetime());
 	_exportTopBar->entity()->clicks(
 	) | rpl::start_with_next([=] {
 		if (_currentExportView) {
@@ -1581,6 +1575,12 @@ void MainWidget::createExportTopBar(Export::View::Content &&data) {
 		_exportTopBarHeight = _contentScrollAddToY = _exportTopBar->contentHeight();
 		updateControlsGeometry();
 	}
+	rpl::merge(
+		_exportTopBar->heightValue() | rpl::map([] { return true; }),
+		_exportTopBar->shownValue()
+	) | rpl::start_with_next([=] {
+		exportTopBarHeightUpdated();
+	}, _exportTopBar->lifetime());
 }
 
 void MainWidget::destroyExportTopBar() {
@@ -1636,12 +1636,15 @@ void MainWidget::documentLoadFailed(FileLoader *loader, bool started) {
 			if (document) document->save(failedFileName);
 		})));
 	} else {
-		Ui::show(Box<ConfirmBox>(lang(lng_download_path_failed), lang(lng_download_path_settings), crl::guard(this, [=] {
-			Global::SetDownloadPath(QString());
-			Global::SetDownloadPathBookmark(QByteArray());
-			Ui::show(Box<DownloadPathBox>());
-			Global::RefDownloadPathChanged().notify();
-		})));
+		// Sometimes we have LOCATION_INVALID error in documents / stickers.
+		// Sometimes FILE_REFERENCE_EXPIRED could not be handled.
+		//
+		//Ui::show(Box<ConfirmBox>(lang(lng_download_path_failed), lang(lng_download_path_settings), crl::guard(this, [=] {
+		//	Global::SetDownloadPath(QString());
+		//	Global::SetDownloadPathBookmark(QByteArray());
+		//	Ui::show(Box<DownloadPathBox>());
+		//	Global::RefDownloadPathChanged().notify();
+		//})));
 	}
 
 	if (document) {
@@ -2245,8 +2248,14 @@ Window::SectionSlideParams MainWidget::prepareShowAnimation(
 			height() - sectionTop));
 	} else if (_mainSection) {
 		result.oldContentCache = _mainSection->grabForShowAnimation(result);
-	} else {
+	} else if (!Adaptive::OneColumn() || !_history->isHidden()) {
 		result.oldContentCache = _history->grabForShowAnimation(result);
+	} else {
+		result.oldContentCache = Ui::GrabWidget(this, QRect(
+			0,
+			sectionTop,
+			_dialogsWidth,
+			height() - sectionTop));
 	}
 
 	if (playerVolumeVisible) {

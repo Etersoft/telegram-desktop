@@ -117,7 +117,7 @@ MediaView::MediaView()
 	});
 	handleAuthSessionChange();
 
-	setWindowFlags(Qt::FramelessWindowHint | Qt::BypassWindowManagerHint | Qt::Tool | Qt::NoDropShadowWindowHint);
+	setWindowFlags(Qt::FramelessWindowHint);
 	moveToScreen();
 	setAttribute(Qt::WA_NoSystemBackground, true);
 	setAttribute(Qt::WA_TranslucentBackground, true);
@@ -125,7 +125,11 @@ MediaView::MediaView()
 
 	hide();
 	createWinId();
-	if (cPlatform() == dbipWindows) {
+	if (cPlatform() == dbipLinux32 || cPlatform() == dbipLinux64) {
+		windowHandle()->setTransientParent(App::wnd()->windowHandle());
+		setWindowModality(Qt::WindowModal);
+	}
+	if (cPlatform() != dbipMac && cPlatform() != dbipMacOld) {
 		setWindowState(Qt::WindowFullScreen);
 	}
 
@@ -165,7 +169,8 @@ void MediaView::moveToScreen() {
 	if (activeWindowScreen && myScreen && myScreen != activeWindowScreen) {
 		windowHandle()->setScreen(activeWindowScreen);
 	}
-	auto available = activeWindow ? Sandbox::screenGeometry(activeWindow->geometry().center()) : QApplication::desktop()->screenGeometry();
+	const auto screen = activeWindowScreen ? activeWindowScreen : QApplication::primaryScreen();
+	const auto available = screen->geometry();
 	if (geometry() != available) {
 		setGeometry(available);
 	}
@@ -2847,7 +2852,7 @@ void MediaView::contextMenuEvent(QContextMenuEvent *e) {
 			_menu->deleteLater();
 			_menu = 0;
 		}
-		_menu = new Ui::PopupMenu(nullptr, st::mediaviewPopupMenu);
+		_menu = new Ui::PopupMenu(this, st::mediaviewPopupMenu);
 		updateActions();
 		for_const (auto &action, _actions) {
 			_menu->addAction(action.text, this, action.member);

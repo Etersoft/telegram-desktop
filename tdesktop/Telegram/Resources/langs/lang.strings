@@ -672,6 +672,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_profile_delete_conversation" = "Delete conversation";
 "lng_profile_block_user" = "Block user";
 "lng_profile_unblock_user" = "Unblock user";
+"lng_profile_export_chat" = "Export chat history";
+"lng_profile_export_channel" = "Export channel history";
 "lng_media_selected_photo#one" = "{count} Photo";
 "lng_media_selected_photo#other" = "{count} Photos";
 "lng_media_selected_video#one" = "{count} Video";
@@ -1041,6 +1043,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 "lng_open_this_link" = "Open this link?";
 "lng_open_link" = "Open";
+"lng_open_passport_link" = "Open this Telegram Passport authorization?";
 "lng_allow_bot_pass" = "Allow {bot_name} to pass your Telegram name and ID to the web pages you open via this bot?";
 "lng_allow_bot" = "Allow";
 

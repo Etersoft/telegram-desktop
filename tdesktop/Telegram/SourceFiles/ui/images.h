@@ -362,22 +362,22 @@ inline StorageKey storageKey(const WebFileLocation &location) {
 
 class RemoteImage : public Image {
 public:
-	void automaticLoad(const HistoryItem *item); // auto load photo
-	void automaticLoadSettingsChanged();
+	void automaticLoad(const HistoryItem *item) override; // auto load photo
+	void automaticLoadSettingsChanged() override;
 
-	bool loaded() const;
-	bool loading() const {
+	bool loaded() const override;
+	bool loading() const override {
 		return amLoading();
 	}
-	bool displayLoading() const;
-	void cancel();
-	float64 progress() const;
-	int32 loadOffset() const;
+	bool displayLoading() const override;
+	void cancel() override;
+	float64 progress() const override;
+	int32 loadOffset() const override;
 
 	void setData(QByteArray &bytes, const QByteArray &format = QByteArray());
 
-	void load(bool loadFirst = false, bool prior = true);
-	void loadEvenCancelled(bool loadFirst = false, bool prior = true);
+	void load(bool loadFirst = false, bool prior = true) override;
+	void loadEvenCancelled(bool loadFirst = false, bool prior = true) override;
 
 	~RemoteImage();
 
@@ -390,7 +390,7 @@ protected:
 	virtual void setInformation(int32 size, int32 width, int32 height) = 0;
 	virtual FileLoader *createLoader(LoadFromCloudSetting fromCloud, bool autoLoading) = 0;
 
-	void checkload() const {
+	void checkload() const override {
 		doCheckload();
 	}
 	void loadLocal();
@@ -462,24 +462,24 @@ public:
 
 	void setStorageLocation(const StorageImageLocation location);
 
-	virtual DelayedStorageImage *toDelayedStorageImage() {
+	virtual DelayedStorageImage *toDelayedStorageImage() override {
 		return this;
 	}
-	virtual const DelayedStorageImage *toDelayedStorageImage() const {
+	virtual const DelayedStorageImage *toDelayedStorageImage() const override {
 		return this;
 	}
 
-	void automaticLoad(const HistoryItem *item); // auto load photo
-	void automaticLoadSettingsChanged();
+	void automaticLoad(const HistoryItem *item) override; // auto load photo
+	void automaticLoadSettingsChanged() override;
 
-	bool loading() const {
+	bool loading() const override {
 		return _location.isNull() ? _loadRequested : StorageImage::loading();
 	}
-	bool displayLoading() const;
-	void cancel();
+	bool displayLoading() const override;
+	void cancel() override;
 
-	void load(bool loadFirst = false, bool prior = true);
-	void loadEvenCancelled(bool loadFirst = false, bool prior = true);
+	void load(bool loadFirst = false, bool prior = true) override;
+	void loadEvenCancelled(bool loadFirst = false, bool prior = true) override;
 
 private:
 	bool _loadRequested, _loadCancelled, _loadFromCloud;

@@ -72,12 +72,16 @@ Session::Session(not_null<AuthSession*> session)
 	setupChannelLeavingViewer();
 }
 
-void Session::startExport() {
+void Session::startExport(PeerData *peer) {
+	startExport(peer ? peer->input : MTP_inputPeerEmpty());
+}
+
+void Session::startExport(const MTPInputPeer &singlePeer) {
 	if (_exportPanel) {
 		_exportPanel->activatePanel();
 		return;
 	}
-	_export = std::make_unique<Export::ControllerWrap>();
+	_export = std::make_unique<Export::ControllerWrap>(singlePeer);
 	_exportPanel = std::make_unique<Export::View::PanelController>(
 		_export.get());
 
@@ -700,7 +704,7 @@ void Session::updateNotifySettingsLocal(not_null<PeerData*> peer) {
 }
 
 void Session::unmuteByFinishedDelayed(TimeMs delay) {
-	accumulate_max(delay, kMaxNotifyCheckDelay);
+	accumulate_min(delay, kMaxNotifyCheckDelay);
 	if (!_unmuteByFinishedTimer.isActive()
 		|| _unmuteByFinishedTimer.remainingTime() > delay) {
 		_unmuteByFinishedTimer.callOnce(delay);
@@ -1349,9 +1353,7 @@ void Session::webpageApplyFields(
 		int duration,
 		const QString &author,
 		TimeId pendingTill) {
-	if (!page->pendingTill && pendingTill > 0) {
-		_session->api().requestWebPageDelayed(page);
-	}
+	const auto requestPending = (!page->pendingTill && pendingTill > 0);
 	const auto changed = page->applyChanges(
 		type,
 		url,
@@ -1364,6 +1366,9 @@ void Session::webpageApplyFields(
 		duration,
 		author,
 		pendingTill);
+	if (requestPending) {
+		_session->api().requestWebPageDelayed(page);
+	}
 	if (changed) {
 		notifyWebPageUpdateDelayed(page);
 	}
