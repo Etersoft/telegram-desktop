@@ -57,7 +57,7 @@ void UpdateImage(ImagePtr &old, ImagePtr now) {
 	} else if (const auto delayed = old->toDelayedStorageImage()) {
 		const auto location = now->location();
 		if (!location.isNull()) {
-			delayed->setStorageLocation(location);
+			delayed->setStorageLocation(Data::FileOrigin(), location);
 		}
 	}
 }
@@ -799,6 +799,7 @@ not_null<PhotoData*> Session::photo(
 		return photo(
 			data.c_photo().vid.v,
 			data.c_photo().vaccess_hash.v,
+			data.c_photo().vfile_reference.v,
 			data.c_photo().vdate.v,
 			ImagePtr(*thumb, "JPG"),
 			ImagePtr(*medium, "JPG"),
@@ -813,6 +814,7 @@ not_null<PhotoData*> Session::photo(
 not_null<PhotoData*> Session::photo(
 		PhotoId id,
 		const uint64 &access,
+		const QByteArray &fileReference,
 		TimeId date,
 		const ImagePtr &thumb,
 		const ImagePtr &medium,
@@ -821,6 +823,7 @@ not_null<PhotoData*> Session::photo(
 	photoApplyFields(
 		result,
 		access,
+		fileReference,
 		date,
 		thumb,
 		medium,
@@ -878,6 +881,7 @@ PhotoData *Session::photoFromWeb(
 	return photo(
 		rand_value<PhotoId>(),
 		uint64(0),
+		QByteArray(),
 		unixtime(),
 		thumb,
 		medium,
@@ -941,6 +945,7 @@ void Session::photoApplyFields(
 		photoApplyFields(
 			photo,
 			data.vaccess_hash.v,
+			data.vfile_reference.v,
 			data.vdate.v,
 			App::image(*thumb),
 			App::image(*medium),
@@ -951,6 +956,7 @@ void Session::photoApplyFields(
 void Session::photoApplyFields(
 		not_null<PhotoData*> photo,
 		const uint64 &access,
+		const QByteArray &fileReference,
 		TimeId date,
 		const ImagePtr &thumb,
 		const ImagePtr &medium,
@@ -959,6 +965,7 @@ void Session::photoApplyFields(
 		return;
 	}
 	photo->access = access;
+	photo->fileReference = fileReference;
 	photo->date = date;
 	UpdateImage(photo->thumb, thumb);
 	UpdateImage(photo->medium, medium);
@@ -1004,7 +1011,7 @@ not_null<DocumentData*> Session::document(
 		return document(
 			fields.vid.v,
 			fields.vaccess_hash.v,
-			fields.vversion.v,
+			fields.vfile_reference.v,
 			fields.vdate.v,
 			fields.vattributes.v,
 			qs(fields.vmime_type),
@@ -1020,7 +1027,7 @@ not_null<DocumentData*> Session::document(
 not_null<DocumentData*> Session::document(
 		DocumentId id,
 		const uint64 &access,
-		int32 version,
+		const QByteArray &fileReference,
 		TimeId date,
 		const QVector<MTPDocumentAttribute> &attributes,
 		const QString &mime,
@@ -1032,7 +1039,7 @@ not_null<DocumentData*> Session::document(
 	documentApplyFields(
 		result,
 		access,
-		version,
+		fileReference,
 		date,
 		attributes,
 		mime,
@@ -1110,7 +1117,7 @@ DocumentData *Session::documentFromWeb(
 	const auto result = document(
 		rand_value<DocumentId>(),
 		uint64(0),
-		int32(0),
+		QByteArray(),
 		unixtime(),
 		data.vattributes.v,
 		data.vmime_type.v,
@@ -1131,7 +1138,7 @@ DocumentData *Session::documentFromWeb(
 	const auto result = document(
 		rand_value<DocumentId>(),
 		uint64(0),
-		int32(0),
+		QByteArray(),
 		unixtime(),
 		data.vattributes.v,
 		data.vmime_type.v,
@@ -1157,7 +1164,7 @@ void Session::documentApplyFields(
 	documentApplyFields(
 		document,
 		data.vaccess_hash.v,
-		data.vversion.v,
+		data.vfile_reference.v,
 		data.vdate.v,
 		data.vattributes.v,
 		qs(data.vmime_type),
@@ -1170,7 +1177,7 @@ void Session::documentApplyFields(
 void Session::documentApplyFields(
 		not_null<DocumentData*> document,
 		const uint64 &access,
-		int32 version,
+		const QByteArray &fileReference,
 		TimeId date,
 		const QVector<MTPDocumentAttribute> &attributes,
 		const QString &mime,
@@ -1182,9 +1189,8 @@ void Session::documentApplyFields(
 		return;
 	}
 	document->setattributes(attributes);
-	document->setRemoteVersion(version);
 	if (dc != 0 && access != 0) {
-		document->setRemoteLocation(dc, access);
+		document->setRemoteLocation(dc, access, fileReference);
 	}
 	document->date = date;
 	document->setMimeString(mime);
