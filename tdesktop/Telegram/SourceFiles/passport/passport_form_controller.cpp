@@ -1732,7 +1732,8 @@ void FormController::loadFile(File &file) {
 			file.size,
 			LoadToCacheAsWell,
 			LoadFromCloudOrLocal,
-			false));
+			false,
+			Data::kImageCacheTag));
 	const auto loader = j->second.get();
 	loader->connect(loader, &mtpFileLoader::progress, [=] {
 		if (loader->finished()) {
@@ -2338,16 +2339,17 @@ void FormController::fillDownloadedFile(
 	if (!i->uploadData) {
 		return;
 	}
-	Local::writeImage(
-		StorageKey(
-			storageMix32To64(
-				SecureFileLocation,
-				destination.dcId),
-			destination.id),
-		StorageImageSaved(QByteArray::fromRawData(
-			reinterpret_cast<const char*>(
-				i->uploadData->bytes.data()),
-			i->uploadData->bytes.size())));
+	const auto &bytes = i->uploadData->bytes;
+	if (bytes.size() > Storage::kMaxFileInMemory) {
+		return;
+	}
+	Auth().data().cache().put(
+		Data::DocumentCacheKey(destination.dcId, destination.id),
+		Storage::Cache::Database::TaggedValue(
+			QByteArray(
+				reinterpret_cast<const char*>(bytes.data()),
+				bytes.size()),
+			Data::kImageCacheTag));
 }
 
 auto FormController::parseValue(

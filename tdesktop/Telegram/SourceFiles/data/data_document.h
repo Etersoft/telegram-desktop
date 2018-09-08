@@ -9,6 +9,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "data/data_types.h"
 
+namespace Storage {
+namespace Cache {
+struct Key;
+} // namespace Cache
+} // namespace Storage
+
 class AuthSession;
 class mtpFileLoader;
 
@@ -173,6 +179,8 @@ public:
 	void setMimeString(const QString &mime);
 
 	MediaKey mediaKey() const;
+	Storage::Cache::Key cacheKey() const;
+	uint8 cacheTag() const;
 
 	static QString ComposeNameString(
 		const QString &filename,

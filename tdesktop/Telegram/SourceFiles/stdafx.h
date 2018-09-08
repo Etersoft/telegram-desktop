@@ -6,7 +6,6 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 
-#define NOMINMAX // no min() and max() macro declarations
 #define __HUGE
 
 // Fix Google Breakpad build for Mac App Store version
@@ -79,7 +78,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/flat_map.h"
 #include "base/weak_ptr.h"
 
-#include "core/basic_types.h"
+#include "base/basic_types.h"
 #include "logs.h"
 #include "core/utils.h"
 #include "config.h"

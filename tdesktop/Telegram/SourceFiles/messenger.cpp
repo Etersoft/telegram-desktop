@@ -30,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "passport/passport_form_controller.h"
 #include "observer_peer.h"
 #include "storage/file_upload.h"
+#include "storage/storage_databases.h"
 #include "mainwidget.h"
 #include "mediaview.h"
 #include "mtproto/dc_options.h"
@@ -76,6 +77,7 @@ Messenger::Messenger(not_null<Core::Launcher*> launcher)
 : QObject()
 , _launcher(launcher)
 , _private(std::make_unique<Private>())
+, _databases(std::make_unique<Storage::Databases>())
 , _langpack(std::make_unique<Lang::Instance>())
 , _audio(std::make_unique<Media::Audio::Instance>())
 , _logo(Window::LoadLogo())
@@ -668,7 +670,8 @@ void Messenger::forceLogOut(const TextWithEntities &explanation) {
 }
 
 void Messenger::checkLocalTime() {
-	if (App::main()) App::main()->checkLastUpdate(checkms());
+	const auto updated = checkms();
+	if (App::main()) App::main()->checkLastUpdate(updated);
 }
 
 void Messenger::onAppStateChanged(Qt::ApplicationState state) {
@@ -1225,6 +1228,10 @@ void Messenger::loggedOut() {
 		w->setupIntro();
 	}
 	App::histories().clear();
+	if (const auto session = authSession()) {
+		session->data().cache().close();
+		session->data().cache().clear();
+	}
 	authSessionDestroy();
 	if (_mediaView) {
 		hideMediaView();
