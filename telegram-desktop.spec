@@ -9,11 +9,12 @@ BuildRequires(pre): rpm-build-ubt
 %def_without ffmpeg_static
 %endif
 
-%def_without clang
+# xxhash.h only in llvm support
+%def_with clang
 %def_without libcxx
 
 Name: telegram-desktop
-Version: 1.3.14
+Version: 1.3.16
 Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
@@ -80,11 +81,11 @@ BuildRequires: libgtk+3-devel libappindicator-gtk3-devel
 # libappindicator-devel
 BuildRequires: libopenal-devel >= 1.17.2
 # libportaudio2-devel libxcb-devel 
-# used by qt imageformats: libwebp-devel 
+# used by qt imageformats: libwebp-devel
 BuildRequires: libva-devel libdrm-devel
 
-BuildRequires: libtgvoip-devel >= 2.2.2
-BuildRequires: libcrl-devel >= 0.3
+BuildRequires: libtgvoip-devel >= 2.2.4
+BuildRequires: libcrl-devel >= 0.4
 # C++ sugar
 BuildRequires: libmicrosoft-gsl-devel >= 20180615
 BuildRequires: libvariant-devel librange-v3-devel
@@ -206,6 +207,13 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Sat Sep 08 2018 Vitaly Lipatov <lav@altlinux.ru> 1.3.16-alt1
+- new version (1.3.16) with rpmgs script
+ + Update libtgvoip, fix crash in calls.
+ + Improved local caching for images and GIF animations.
+ + Control how much disk space is used by the cache
+   and for how long the cached files are stored.
+
 * Tue Aug 28 2018 Vitaly Lipatov <lav@altlinux.ru> 1.3.14-alt1
 - new version 1.3.14 (with rpmrb script)
 
