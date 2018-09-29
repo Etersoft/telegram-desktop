@@ -9,12 +9,12 @@ BuildRequires(pre): rpm-build-ubt
 %def_without ffmpeg_static
 %endif
 
-# xxhash.h only in llvm support
-%def_with clang
+# Precompiled supports only for gcc
+%def_without clang
 %def_without libcxx
 
 Name: telegram-desktop
-Version: 1.3.16
+Version: 1.4.0
 Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
@@ -48,8 +48,8 @@ BuildRequires(pre): rpm-macros-kde-common-devel
 
 BuildRequires(pre): rpm-build-compat >= 2.1.5
 BuildRequires(pre): rpm-build-intro >= 2.1.5
-# use no more than system_memory/1700 build procs (see https://bugzilla.altlinux.org/show_bug.cgi?id=35112)
-%_tune_parallel_build_by_procsize 1700
+# use no more than system_memory/3000 build procs (see https://bugzilla.altlinux.org/show_bug.cgi?id=35112)
+#_tune_parallel_build_by_procsize 3000
 
 BuildRequires: gcc-c++ libstdc++-devel gyp cmake
 
@@ -74,7 +74,7 @@ BuildRequires: libminizip-devel libpcre-devel libexpat-devel libssl-devel bison
 BuildRequires: libX11-devel
 
 # GTK 3.0 integration
-BuildRequires: libgtk+3-devel libappindicator-gtk3-devel
+BuildRequires: libgtk+3-devel libappindicator-gtk3-devel libdee-devel
 # makes pkg-config happy
 #BuildRequires: libpixman-devel libXdmcp-devel
 
@@ -86,6 +86,9 @@ BuildRequires: libva-devel libdrm-devel
 
 BuildRequires: libtgvoip-devel >= 2.2.4
 BuildRequires: libcrl-devel >= 0.4
+
+BuildRequires: libxxhash-devel
+
 # C++ sugar
 BuildRequires: libmicrosoft-gsl-devel >= 20180615
 BuildRequires: libvariant-devel librange-v3-devel
@@ -207,6 +210,9 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Sat Sep 29 2018 Vitaly Lipatov <lav@altlinux.ru> 1.4.0-alt1
+- new version (1.4.0) with rpmgs script
+
 * Sat Sep 08 2018 Vitaly Lipatov <lav@altlinux.ru> 1.3.16-alt1
 - new version (1.3.16) with rpmgs script
  + Update libtgvoip, fix crash in calls.

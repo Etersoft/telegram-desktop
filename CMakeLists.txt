@@ -40,6 +40,7 @@ pkg_check_modules(MINIZIP REQUIRED minizip)
 
 if(GTK)
   pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
+  #pkg_check_modules(DEE REQUIRED dee-1.0)
   pkg_check_modules(APPINDICATOR REQUIRED appindicator3-0.1)
 else()
   set(GTK_INTEGRATION TDESKTOP_DISABLE_GTK_INTEGRATION)
@@ -70,11 +71,19 @@ include(ExternalProject)
 
 #find_package(Breakpad REQUIRED)
 
+include(PrecompiledHeader)
+
 include(TelegramCodegenTools)
 include(TelegramCodegen)
 
 # add precompiled header after tool build
 set(CMAKE_AUTOMOC_MOC_OPTIONS ${CMAKE_AUTOMOC_MOC_OPTIONS} "-b" "Telegram_pch/stdafx.h")
+
+add_compile_definitions(
+    Q_OS_LINUX64
+    __STDC_FORMAT_MACROS
+)
+
 
 set(QRC_FILES
     Resources/qrc/telegram.qrc
@@ -91,7 +100,7 @@ file(GLOB FLAT_SOURCE_FILES SourceFiles/*.cpp SourceFiles/*.h)
 list(REMOVE_ITEM FLAT_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/qt_static_plugins.cpp)
 
 file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
-    SourceFiles/qt_functions.cpp
+    #SourceFiles/qt_functions.cpp
     SourceFiles/base/*.cpp SourceFiles/base/*.h
     SourceFiles/boxes/*.cpp SourceFiles/boxes/*h
     SourceFiles/calls/*.cpp SourceFiles/calls/*.h
@@ -126,6 +135,11 @@ list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${NO_TESTS})
 list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/passport/passport_form_row.cpp)
 list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/passport/passport_edit_identity_box.cpp)
 
+list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/storage/storage_clear_legacy_win.cpp)
+list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/storage/storage_file_lock_win.cpp)
+
+#list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/stdafx.cpp)
+
 add_executable(Telegram WIN32 ${QRC_FILES} ${FLAT_SOURCE_FILES} ${SUBDIRS_SOURCE_FILES})
 
 # TODO: improve (need just pkg-config --static)
@@ -144,6 +158,7 @@ target_link_libraries(Telegram
     ${FFMPEG_LIBRARIES}
 # was missed in libavutil.pc, but links only when here
     -lvdpau
+    -lxxhash
     ${LIBVA_LIBRARIES}
     ${LIBDRM_LIBRARIES}
     ${ZLIB_LIBRARY_RELEASE}
@@ -153,9 +168,11 @@ target_link_libraries(Telegram
     ${MINIZIP_LIBRARIES}
     ${OPENAL_LIBRARY}
     ${APPINDICATOR_LIBRARIES}
+    ${DEE_LIBRARIES}
     ${LIBLZMA_LIBRARIES}
     ${X11_X11_LIB}
     )
+
 target_include_directories(Telegram PUBLIC
     ${QT_PRIVATE_INCLUDE_DIRS}
     ${FFMPEG_INCLUDE_DIRS}
@@ -172,17 +189,16 @@ target_include_directories(Telegram PUBLIC
     ${MINIZIP_INCLUDE_DIRS}
     ${OPENAL_INCLUDE_DIR}
     ${APPINDICATOR_INCLUDE_DIRS}
+    ${DEE_INCLUDE_DIRS}
     ${LIBLZMA_INCLUDE_DIRS}
     ${GENERATED_DIR})
 
 target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
-add_dependencies(Telegram telegram_codegen)
+#add_dependencies(Telegram telegram_codegen)
 
-include(PrecompiledHeader)
 add_precompiled_header(Telegram SourceFiles/stdafx.h)
 
 target_compile_definitions(Telegram PUBLIC
-    Q_OS_LINUX64
     CUSTOM_API_ID
     TDESKTOP_DISABLE_UNITY_INTEGRATION
     TDESKTOP_DISABLE_DESKTOP_FILE_GENERATION
@@ -190,7 +206,7 @@ target_compile_definitions(Telegram PUBLIC
     TDESKTOP_DISABLE_CRASH_REPORTS
     TDESKTOP_DISABLE_AUTOUPDATE
     TDESKTOP_DISABLE_GTK_INTEGRATION
-    __STDC_FORMAT_MACROS)
+)
 
 # TODO: does not work yet
 # https://cmake.org/cmake/help/v3.4/prop_tgt/AUTOMOC_MOC_OPTIONS.html
