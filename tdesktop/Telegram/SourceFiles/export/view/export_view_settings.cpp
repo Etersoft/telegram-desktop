@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "export/view/export_view_settings.h"
 
 #include "export/output/export_output_abstract.h"
+#include "export/view/export_view_panel_controller.h"
 #include "lang/lang_keys.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/widgets/buttons.h"
@@ -76,6 +77,7 @@ SettingsWidget::SettingsWidget(QWidget *parent, Settings data)
 : RpWidget(parent)
 , _singlePeerId(ReadPeerId(data.singlePeer))
 , _internal_data(std::move(data)) {
+	ResolveSettings(_internal_data);
 	setupContent();
 }
 
@@ -93,9 +95,10 @@ void SettingsWidget::setupContent() {
 	const auto scroll = Ui::CreateChild<Ui::ScrollArea>(
 		this,
 		st::boxLayerScroll);
-	const auto wrap = scroll->setOwnedWidget(object_ptr<Ui::IgnoreMargins>(
-		scroll,
-		object_ptr<Ui::VerticalLayout>(scroll)));
+	const auto wrap = scroll->setOwnedWidget(
+		object_ptr<Ui::OverrideMargins>(
+			scroll,
+			object_ptr<Ui::VerticalLayout>(scroll)));
 	const auto content = static_cast<Ui::VerticalLayout*>(wrap->entity());
 
 	const auto buttons = setupButtons(scroll, wrap);
@@ -239,13 +242,7 @@ void SettingsWidget::addLocationLabel(
 		return data.path;
 	}) | rpl::distinct_until_changed(
 	) | rpl::map([](const QString &path) {
-		const auto check = [](const QString &value) {
-			const auto result = value.endsWith('/')
-				? value.mid(0, value.size() - 1)
-				: value;
-			return (cPlatform() == dbipWindows) ? result.toLower() : result;
-		};
-		const auto text = (check(path) == check(psDownloadPath()))
+		const auto text = IsDefaultPath(path)
 			? QString("Downloads/Telegram Desktop")
 			: path;
 		auto pathLink = TextWithEntities{
@@ -300,7 +297,7 @@ not_null<Ui::RpWidget*> SettingsWidget::setupButtons(
 	}));
 
 	value() | rpl::map([](const Settings &data) {
-		return data.types != Types(0);
+		return (data.types != Types(0)) || data.onlySinglePeer();
 	}) | rpl::distinct_until_changed(
 	) | rpl::start_with_next([=](bool canStart) {
 		refreshButtons(buttons, canStart);
@@ -523,7 +520,10 @@ void SettingsWidget::refreshButtons(
 		: nullptr;
 	if (start) {
 		start->show();
-		_startClicks = start->clicks();
+		_startClicks = start->clicks(
+		) | rpl::map([] {
+			return rpl::empty_value();
+		});
 
 		container->sizeValue(
 		) | rpl::start_with_next([=](QSize size) {
@@ -538,7 +538,10 @@ void SettingsWidget::refreshButtons(
 		langFactory(lng_cancel),
 		st::defaultBoxButton);
 	cancel->show();
-	_cancelClicks = cancel->clicks();
+	_cancelClicks = cancel->clicks(
+	) | rpl::map([] {
+		return rpl::empty_value();
+	});
 
 	rpl::combine(
 		container->sizeValue(),
@@ -555,6 +558,7 @@ void SettingsWidget::chooseFolder() {
 	const auto callback = [=](QString &&result) {
 		changeData([&](Settings &data) {
 			data.path = std::move(result);
+			data.forceSubPath = IsDefaultPath(data.path);
 		});
 	};
 	FileDialog::GetFolder(

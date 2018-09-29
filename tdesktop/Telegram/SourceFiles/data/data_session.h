@@ -396,8 +396,8 @@ public:
 		const MTPPeerNotifySettings &settings);
 	void updateNotifySettings(
 		not_null<PeerData*> peer,
-		base::optional<int> muteForSeconds,
-		base::optional<bool> silentPosts = base::none);
+		std::optional<int> muteForSeconds,
+		std::optional<bool> silentPosts = std::nullopt);
 	bool notifyIsMuted(
 		not_null<const PeerData*> peer,
 		TimeMs *changesIn = nullptr) const;
@@ -409,6 +409,10 @@ public:
 	rpl::producer<> defaultChatNotifyUpdates() const;
 	rpl::producer<> defaultNotifyUpdates(
 		not_null<const PeerData*> peer) const;
+
+	void serviceNotification(
+		const TextWithEntities &message,
+		const MTPMessageMedia &media);
 
 	void forgetMedia();
 
@@ -520,6 +524,11 @@ private:
 	void enumerateItemViews(
 		not_null<const HistoryItem*> item,
 		Method method);
+
+	void insertCheckedServiceNotification(
+		const TextWithEntities &message,
+		const MTPMessageMedia &media,
+		TimeId date);
 
 	not_null<AuthSession*> _session;
 

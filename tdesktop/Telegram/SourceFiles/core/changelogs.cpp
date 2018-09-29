@@ -16,7 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Core {
 namespace {
 
-std::map<int, const char*> AlphaLogs() {
+std::map<int, const char*> BetaLogs() {
 	return {
 	{
 		1002024,
@@ -48,7 +48,17 @@ std::map<int, const char*> AlphaLogs() {
 
 		"\xE2\x80\x94 Control how much disk space is used by the cache "
 		"and for how long the cached files are stored."
-	}
+	},
+	{
+		1003017,
+		"\xE2\x80\x94 Fully redisigned Settings section.\n"
+
+		"\xE2\x80\x94 New theme selector in Chat Settings.\n"
+		"\xE2\x80\x94 New settings: Peer-to-Peer settings for calls, "
+		"disable animations for low performance computers.\n"
+
+		"\xE2\x80\x94 Various other improvements."
+	},
 	};
 }
 
@@ -118,8 +128,8 @@ void Changelogs::requestCloudLogs() {
 }
 
 void Changelogs::addLocalLogs() {
-	if (cAlphaVersion() || cBetaVersion()) {
-		addAlphaLogs();
+	if (AppBetaVersion || cAlphaVersion()) {
+		addBetaLogs();
 	}
 	if (!_addedSomeLocal) {
 		const auto text = lng_new_version_wrap(
@@ -136,20 +146,19 @@ void Changelogs::addLocalLogs() {
 void Changelogs::addLocalLog(const QString &text) {
 	auto textWithEntities = TextWithEntities{ text };
 	TextUtilities::ParseEntities(textWithEntities, TextParseLinks);
-	App::wnd()->serviceNotification(
+	_session->data().serviceNotification(
 		textWithEntities,
-		MTP_messageMediaEmpty(),
-		unixtime());
+		MTP_messageMediaEmpty());
 	_addedSomeLocal = true;
 };
 
-void Changelogs::addAlphaLogs() {
-	for (const auto[version, changes] : AlphaLogs()) {
-		addAlphaLog(version, changes);
+void Changelogs::addBetaLogs() {
+	for (const auto[version, changes] : BetaLogs()) {
+		addBetaLog(version, changes);
 	}
 }
 
-void Changelogs::addAlphaLog(int changeVersion, const char *changes) {
+void Changelogs::addBetaLog(int changeVersion, const char *changes) {
 	if (_oldVersion >= changeVersion) {
 		return;
 	}

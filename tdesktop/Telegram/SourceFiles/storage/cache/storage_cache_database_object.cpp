@@ -797,7 +797,7 @@ void DatabaseObject::put(
 
 	case File::Result::Success: {
 		const auto success = data.writeWithPadding(
-			bytes::make_span(value.bytes));
+			bytes::make_detached_span(value.bytes));
 		if (!success) {
 			data.close();
 			remove(key, nullptr);
@@ -814,7 +814,7 @@ void DatabaseObject::put(
 }
 
 template <typename StoreRecord>
-base::optional<QString> DatabaseObject::writeKeyPlaceGeneric(
+std::optional<QString> DatabaseObject::writeKeyPlaceGeneric(
 		StoreRecord &&record,
 		const Key &key,
 		const TaggedValue &value,
@@ -856,7 +856,7 @@ base::optional<QString> DatabaseObject::writeKeyPlaceGeneric(
 	return result;
 }
 
-base::optional<QString> DatabaseObject::writeKeyPlace(
+std::optional<QString> DatabaseObject::writeKeyPlace(
 		const Key &key,
 		const TaggedValue &data,
 		uint32 checksum) {
@@ -964,7 +964,7 @@ QByteArray DatabaseObject::readValueData(PlaceId place, size_type size) const {
 	case File::Result::WrongKey: return QByteArray();
 	case File::Result::Success: {
 		auto result = QByteArray(size, Qt::Uninitialized);
-		const auto bytes = bytes::make_span(result);
+		const auto bytes = bytes::make_detached_span(result);
 		const auto read = data.readWithPadding(bytes);
 		if (read != size) {
 			return QByteArray();

@@ -29,7 +29,7 @@ namespace {
 
 constexpr auto kIgnoreActivationTimeoutMs = 500;
 
-base::optional<bool> ApplicationIsActive;
+std::optional<bool> ApplicationIsActive;
 
 } // namespace
 
@@ -121,7 +121,16 @@ ApplicationDelegate *_sharedDelegate = nil;
 	});
 #ifndef OS_MAC_STORE
 	if ([SPMediaKeyTap usesGlobalMediaKeyTap]) {
-		_keyTap = [[SPMediaKeyTap alloc] initWithDelegate:self];
+#ifndef OS_MAC_OLD
+		if (QSysInfo::macVersion() < Q_MV_OSX(10, 14)) {
+#else // OS_MAC_OLD
+		if (true) {
+#endif // OS_MAC_OLD
+			_keyTap = [[SPMediaKeyTap alloc] initWithDelegate:self];
+		} else {
+			// In macOS Mojave it requires accessibility features.
+			LOG(("Media key monitoring disabled in Mojave."));
+		}
 	} else {
 		LOG(("Media key monitoring disabled"));
 	}

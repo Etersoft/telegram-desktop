@@ -186,13 +186,13 @@ void LocalStorageBox::Row::toggleProgress(bool shown) {
 }
 
 void LocalStorageBox::Row::step_radial(TimeMs ms, bool timer) {
-	if (timer) {
+	if (timer && !anim::Disabled()) {
 		RpWidget::update();
 	}
 }
 
 rpl::producer<> LocalStorageBox::Row::clearRequests() const {
-	return _clear->clicks();
+	return _clear->clicks() | rpl::map([] { return rpl::empty_value(); });
 }
 
 int LocalStorageBox::Row::resizeGetHeight(int newWidth) {
