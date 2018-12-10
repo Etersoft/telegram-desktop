@@ -82,13 +82,20 @@ set(CMAKE_AUTOMOC_MOC_OPTIONS ${CMAKE_AUTOMOC_MOC_OPTIONS} "-b" "Telegram_pch/st
 add_compile_definitions(
     Q_OS_LINUX64
     __STDC_FORMAT_MACROS
+    # AppID for Basealt build
+    # got from https://core.telegram.org/api/obtaining_api_id
+    TDESKTOP_API_ID="182015"
+    TDESKTOP_API_HASH="bb6c3f8fffd8fe6804fc5131a08e1c44"
 )
 
 
 set(QRC_FILES
     Resources/qrc/telegram.qrc
-    Resources/qrc/telegram_emoji.qrc
-    Resources/qrc/telegram_emoji_large.qrc
+    Resources/qrc/telegram_emoji_1.qrc
+    Resources/qrc/telegram_emoji_2.qrc
+    Resources/qrc/telegram_emoji_3.qrc
+    Resources/qrc/telegram_emoji_4.qrc
+    Resources/qrc/telegram_emoji_5.qrc
     Resources/qrc/telegram_sounds.qrc
     # This only disables system plugin search path
     # We do not want this behavior for system build
@@ -123,6 +130,7 @@ file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
     SourceFiles/profile/*.cpp SourceFiles/profile/*.h
     SourceFiles/settings/*.cpp SourceFiles/settings/*.h
     SourceFiles/storage/*.cpp SourceFiles/storage/*.h
+    SourceFiles/support/*.cpp SourceFiles/support/*.h
     SourceFiles/ui/*.cpp SourceFiles/ui/*.h
     SourceFiles/window/*.cpp SourceFiles/window/*.h
     ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.cpp ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.h
@@ -199,8 +207,9 @@ target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
 add_precompiled_header(Telegram SourceFiles/stdafx.h)
 
 target_compile_definitions(Telegram PUBLIC
-    CUSTOM_API_ID
     TDESKTOP_DISABLE_UNITY_INTEGRATION
+    ## Win only openal ext:
+    TDESKTOP_DISABLE_OPENAL_EFFECTS
     TDESKTOP_DISABLE_DESKTOP_FILE_GENERATION
     TDESKTOP_DISABLE_REGISTER_CUSTOM_SCHEME
     TDESKTOP_DISABLE_CRASH_REPORTS

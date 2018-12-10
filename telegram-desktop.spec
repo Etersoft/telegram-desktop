@@ -14,7 +14,7 @@ BuildRequires(pre): rpm-build-ubt
 %def_without libcxx
 
 Name: telegram-desktop
-Version: 1.4.8
+Version: 1.5.0
 Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
@@ -31,7 +31,6 @@ Source2: CMakeLists.txt
 
 Patch1: 0001_add-cmake.patch
 Patch3: 0003_qt-plugins.patch
-Patch4: 0004_API-ID.patch
 Patch5: 0005_Downgrade-Qt-version.patch
 Patch6: 0006_fix-static-qt-functions.patch
 Patch8: 0008_add_locales.patch
@@ -49,7 +48,7 @@ BuildRequires(pre): rpm-macros-kde-common-devel
 BuildRequires(pre): rpm-build-compat >= 2.1.5
 BuildRequires(pre): rpm-build-intro >= 2.1.5
 # use no more than system_memory/3000 build procs (see https://bugzilla.altlinux.org/show_bug.cgi?id=35112)
-#_tune_parallel_build_by_procsize 3000
+%_tune_parallel_build_by_procsize 3000
 
 BuildRequires: gcc-c++ libstdc++-devel gyp cmake
 
@@ -74,18 +73,17 @@ BuildRequires: libminizip-devel libpcre-devel libexpat-devel libssl-devel bison
 BuildRequires: libX11-devel
 
 # GTK 3.0 integration
-BuildRequires: libgtk+3-devel libappindicator-gtk3-devel libdee-devel
-# makes pkg-config happy
-#BuildRequires: libpixman-devel libXdmcp-devel
+BuildRequires: libgtk+3-devel libappindicator-gtk3-devel
+# TODO:
+# libdee-devel
 
-# libappindicator-devel
 BuildRequires: libopenal-devel >= 1.17.2
 # libportaudio2-devel libxcb-devel 
 # used by qt imageformats: libwebp-devel
 BuildRequires: libva-devel libdrm-devel
 
-BuildRequires: libtgvoip-devel >= 2.2.4
-BuildRequires: libcrl-devel >= 0.4
+BuildRequires: libtgvoip-devel >= 2.4
+BuildRequires: libcrl-devel >= 0.5
 
 BuildRequires: libxxhash-devel
 
@@ -120,7 +118,6 @@ Requires: dbus
 # disable some warnings
 %add_optflags -Wno-strict-aliasing -Wno-unused-variable -Wno-sign-compare -Wno-switch
 
-
 %description
 Telegram is a messaging app with a focus on speed and security, it's super-fast, simple and free.
 You can use Telegram on all your devices at the same time - your messages
@@ -132,8 +129,6 @@ You can write to your phone contacts and find people by their usernames.
 As a result, Telegram is like SMS and email combined - and can take care of all your personal
 or business messaging needs.
 
-Workround for error cannot register existing type 'GdkDisplayManager':
-$ XDG_CURRENT_DESKTOP=NONE tdesktop
 
 %prep
 %setup -a1
@@ -151,14 +146,6 @@ cp %SOURCE2 Telegram/
 # MacOS things will conflicts with binary name, so delete Telegram dir
 rm -rf Telegram/Telegram/
 
-# set App ID
-subst "s|../../../TelegramPrivate/|../../|" Telegram/SourceFiles/config.h
-cat <<EOF >custom_api_id.h
-// Telegram Desktop - altdesktop
-// got from https://core.telegram.org/api/obtaining_api_id
-static const int32 ApiId = 182015;
-static const char *ApiHash = "bb6c3f8fffd8fe6804fc5131a08e1c44";
-EOF
 
 %build
 %if_with ffmpeg_static
@@ -210,6 +197,9 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Mon Dec 10 2018 Vitaly Lipatov <lav@altlinux.ru> 1.5.0-alt1
+- new version 1.5.0 (with rpmrb script)
+
 * Mon Dec 10 2018 Vitaly Lipatov <lav@altlinux.ru> 1.4.8-alt1
 - new version 1.4.8 (with rpmrb script)
 
