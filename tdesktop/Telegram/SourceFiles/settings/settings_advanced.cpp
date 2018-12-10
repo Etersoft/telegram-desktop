@@ -43,7 +43,7 @@ void SetupConnectionType(not_null<Ui::VerticalLayout*> container) {
 #ifndef TDESKTOP_DISABLE_NETWORK_PROXY
 	const auto connectionType = [] {
 		const auto transport = MTP::dctransport();
-		if (!Global::UseProxy()) {
+		if (Global::ProxySettings() != ProxyData::Settings::Enabled) {
 			return transport.isEmpty()
 				? lang(lng_connection_auto_connecting)
 				: lng_connection_auto(lt_transport, transport);
@@ -77,12 +77,10 @@ void SetupUpdate(not_null<Ui::VerticalLayout*> container) {
 		return;
 	}
 
-	const auto texts = Ui::AttachAsChild(
-		container,
-		rpl::event_stream<QString>());
-	const auto downloading = Ui::AttachAsChild(
-		container,
-		rpl::event_stream<bool>());
+	const auto texts = Ui::CreateChild<rpl::event_stream<QString>>(
+		container.get());
+	const auto downloading = Ui::CreateChild<rpl::event_stream<bool>>(
+		container.get());
 	const auto version = lng_settings_current_version(
 		lt_version,
 		currentVersionText());
