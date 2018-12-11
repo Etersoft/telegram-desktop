@@ -14,7 +14,7 @@ BuildRequires(pre): rpm-build-ubt
 %def_without libcxx
 
 Name: telegram-desktop
-Version: 1.5.0
+Version: 1.5.1
 Release: alt1
 
 Summary: Telegram is a messaging app with a focus on speed and security
@@ -39,8 +39,10 @@ Patch14: 0014-get-language-name-and-country-name-from-QLocale.patch
 Patch15: 0015-disable-resource-fonts.patch
 Patch16: 0016-fix-lzma.patch
 Patch17: 0017-ligsl-microsoft-fix.patch
+Patch18: 0018-fix-linking.patch
 
 #ExclusiveArch: %ix86 x86_64
+ExclusiveArch: %arm x86_64
 
 BuildRequires(pre): rpm-build-licenses rpm-macros-qt5 rpm-macros-cmake
 BuildRequires(pre): rpm-macros-kde-common-devel
@@ -50,7 +52,10 @@ BuildRequires(pre): rpm-build-intro >= 2.1.5
 # use no more than system_memory/3000 build procs (see https://bugzilla.altlinux.org/show_bug.cgi?id=35112)
 %_tune_parallel_build_by_procsize 3000
 
-BuildRequires: gcc-c++ libstdc++-devel gyp cmake
+BuildRequires: gcc-c++ libstdc++-devel gyp
+
+# 3.13 due add_compiler_definitions
+BuildRequires: cmake >= 3.13
 
 BuildRequires: qt5-base-devel libqt5-core libqt5-network libqt5-gui qt5-imageformats
 # needs for smiles and emojicons
@@ -141,6 +146,7 @@ or business messaging needs.
 %patch14 -p1
 %patch15 -p1
 %patch17 -p2
+%patch18 -p2
 
 cp %SOURCE2 Telegram/
 # MacOS things will conflicts with binary name, so delete Telegram dir
@@ -197,6 +203,10 @@ ln -s %name %buildroot%_bindir/telegram
 %doc README.md
 
 %changelog
+* Tue Dec 11 2018 Vitaly Lipatov <lav@altlinux.ru> 1.5.1-alt1
+- new version (1.5.1) with rpmgs script
+- disable build on i586
+
 * Mon Dec 10 2018 Vitaly Lipatov <lav@altlinux.ru> 1.5.0-alt1
 - new version 1.5.0 (with rpmrb script)
 

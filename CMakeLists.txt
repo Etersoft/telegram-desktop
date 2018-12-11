@@ -202,7 +202,8 @@ target_include_directories(Telegram PUBLIC
     ${GENERATED_DIR})
 
 target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
-#add_dependencies(Telegram telegram_codegen)
+# we need codegenerators' output for precompiled headers needed for Telegram target
+add_dependencies(Telegram telegram_codegen)
 
 add_precompiled_header(Telegram SourceFiles/stdafx.h)
 
