@@ -12,7 +12,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/binary_guard.h"
 #include "base/concurrent_timer.h"
 #include "base/bytes.h"
-#include "base/openssl_help.h"
 #include "base/flat_set.h"
 #include <set>
 #include <rpl/event_stream.h>
