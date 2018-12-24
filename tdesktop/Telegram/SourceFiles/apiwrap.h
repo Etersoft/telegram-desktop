@@ -377,6 +377,16 @@ public:
 	rpl::producer<int> selfDestructValue() const;
 	void saveSelfDestruct(int days);
 
+	void createPoll(
+		const PollData &data,
+		const SendOptions &options,
+		FnMut<void()> done,
+		FnMut<void(const RPCError &error)> fail);
+	void sendPollVotes(
+		FullMsgId itemId,
+		const std::vector<QByteArray> &options);
+	void closePoll(FullMsgId itemId);
+
 	~ApiWrap();
 
 private:
@@ -738,5 +748,8 @@ private:
 	mtpRequestId _selfDestructRequestId = 0;
 	std::optional<int> _selfDestructDays;
 	rpl::event_stream<int> _selfDestructChanges;
+
+	base::flat_map<FullMsgId, mtpRequestId> _pollVotesRequestIds;
+	base::flat_map<FullMsgId, mtpRequestId> _pollCloseRequestIds;
 
 };
