@@ -84,8 +84,8 @@ add_compile_definitions(
     __STDC_FORMAT_MACROS
     # AppID for Basealt build
     # got from https://core.telegram.org/api/obtaining_api_id
-    TDESKTOP_API_ID="182015"
-    TDESKTOP_API_HASH="bb6c3f8fffd8fe6804fc5131a08e1c44"
+    TDESKTOP_API_ID=182015
+    TDESKTOP_API_HASH=bb6c3f8fffd8fe6804fc5131a08e1c44
 )
 
 
