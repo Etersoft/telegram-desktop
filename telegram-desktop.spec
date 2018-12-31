@@ -88,7 +88,7 @@ BuildRequires: libopenal-devel >= 1.17.2
 BuildRequires: libva-devel libdrm-devel
 
 BuildRequires: libtgvoip-devel >= 2.4
-BuildRequires: libcrl-devel >= 0.5
+BuildRequires: libcrl-devel >= 0.6
 
 BuildRequires: libxxhash-devel
 
