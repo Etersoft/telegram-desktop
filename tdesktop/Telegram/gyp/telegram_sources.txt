@@ -62,6 +62,8 @@
 <(src_loc)/boxes/sessions_box.h
 <(src_loc)/boxes/share_box.cpp
 <(src_loc)/boxes/share_box.h
+<(src_loc)/boxes/single_choice_box.cpp
+<(src_loc)/boxes/single_choice_box.h
 <(src_loc)/boxes/sticker_set_box.cpp
 <(src_loc)/boxes/sticker_set_box.h
 <(src_loc)/boxes/stickers_box.cpp
@@ -84,6 +86,8 @@
 <(src_loc)/chat_helpers/bot_keyboard.h
 <(src_loc)/chat_helpers/emoji_list_widget.cpp
 <(src_loc)/chat_helpers/emoji_list_widget.h
+<(src_loc)/chat_helpers/emoji_sets_manager.cpp
+<(src_loc)/chat_helpers/emoji_sets_manager.h
 <(src_loc)/chat_helpers/emoji_suggestions_helper.h
 <(src_loc)/chat_helpers/emoji_suggestions_widget.cpp
 <(src_loc)/chat_helpers/emoji_suggestions_widget.h
@@ -459,6 +463,8 @@
 <(src_loc)/mtproto/dcenter.h
 <(src_loc)/mtproto/dc_options.cpp
 <(src_loc)/mtproto/dc_options.h
+<(src_loc)/mtproto/dedicated_file_loader.cpp
+<(src_loc)/mtproto/dedicated_file_loader.h
 <(src_loc)/mtproto/facade.cpp
 <(src_loc)/mtproto/facade.h
 <(src_loc)/mtproto/mtp_instance.cpp
@@ -576,6 +582,8 @@
 <(src_loc)/settings/settings_advanced.h
 <(src_loc)/settings/settings_chat.cpp
 <(src_loc)/settings/settings_chat.h
+<(src_loc)/settings/settings_calls.cpp
+<(src_loc)/settings/settings_calls.h
 <(src_loc)/settings/settings_codes.cpp
 <(src_loc)/settings/settings_codes.h
 <(src_loc)/settings/settings_common.cpp
@@ -688,6 +696,8 @@
 <(src_loc)/ui/widgets/input_fields.h
 <(src_loc)/ui/widgets/labels.cpp
 <(src_loc)/ui/widgets/labels.h
+<(src_loc)/ui/widgets/level_meter.cpp
+<(src_loc)/ui/widgets/level_meter.h
 <(src_loc)/ui/widgets/menu.cpp
 <(src_loc)/ui/widgets/menu.h
 <(src_loc)/ui/widgets/multi_select.cpp
