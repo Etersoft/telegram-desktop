@@ -26,14 +26,12 @@ Url: https://telegram.org/
 # Source-url: https://github.com/telegramdesktop/tdesktop/archive/v%version.tar.gz
 Source: %name-%version.tar
 
-Source1: %name-locales-%version.tar
 Source2: CMakeLists.txt
 
 Patch1: 0001_add-cmake.patch
 Patch3: 0003_qt-plugins.patch
 Patch5: 0005_Downgrade-Qt-version.patch
 Patch6: 0006_fix-static-qt-functions.patch
-Patch8: 0008_add_locales.patch
 #Patch9: 0001-use-correct-executable-path.patch
 Patch14: 0014-get-language-name-and-country-name-from-QLocale.patch
 Patch15: 0015-disable-resource-fonts.patch
@@ -136,7 +134,7 @@ or business messaging needs.
 
 
 %prep
-%setup -a1
+%setup
 %patch1 -p1
 %patch3 -p1
 %patch5 -p1

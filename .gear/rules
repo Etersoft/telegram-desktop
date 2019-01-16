@@ -1,4 +1,3 @@
 tar: tdesktop name=@name@-@version@
-tar: locales name=@name@-locales-@version@ base=Telegram/Resources/langs
 copy: patches/*.patch
 copy: CMakeLists.txt
