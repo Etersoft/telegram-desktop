@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/openssl_help.h"
 #include "base/qthelp_url.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "mainwindow.h"
 #include "window/window_controller.h"
 #include "core/click_handler_types.h"
@@ -1715,7 +1716,7 @@ void FormController::loadFile(File &file) {
 			file.id,
 			file.accessHash,
 			QByteArray(), // file_reference
-			std::nullopt, // origin
+			Data::FileOrigin(),
 			SecureFileLocation,
 			QString(),
 			file.size,
@@ -2081,9 +2082,10 @@ QString FormController::getPlainTextFromValue(
 
 void FormController::startPhoneVerification(not_null<Value*> value) {
 	value->verification.requestId = request(MTPaccount_SendVerifyPhoneCode(
-		MTP_flags(MTPaccount_SendVerifyPhoneCode::Flag(0)),
 		MTP_string(getPhoneFromValue(value)),
-		MTPBool()
+		MTP_codeSettings(
+			MTP_flags(0),
+			MTPstring())
 	)).done([=](const MTPauth_SentCode &result) {
 		Expects(result.type() == mtpc_auth_sentCode);
 
@@ -2490,7 +2492,7 @@ bool FormController::parseForm(const MTPaccount_AuthorizationForm &result) {
 
 	const auto &data = result.c_account_authorizationForm();
 
-	App::feedUsers(data.vusers);
+	Auth().data().processUsers(data.vusers);
 
 	for (const auto &value : data.vvalues.v) {
 		auto parsed = parseValue(value);
@@ -2524,7 +2526,7 @@ bool FormController::parseForm(const MTPaccount_AuthorizationForm &result) {
 	if (!ValidateForm(_form)) {
 		return false;
 	}
-	_bot = App::userLoaded(_request.botId);
+	_bot = Auth().data().userLoaded(_request.botId);
 	_form.pendingErrors = data.verrors.v;
 	return true;
 }

@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/confirm_box.h"
 #include "auth_session.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "mainwidget.h"
 #include "lang/lang_keys.h"
 #include "styles/style_info.h"
@@ -198,7 +199,7 @@ Key WrapWidget::key() const {
 
 Dialogs::RowDescriptor WrapWidget::activeChat() const {
 	if (const auto peer = key().peer()) {
-		return Dialogs::RowDescriptor(App::history(peer), FullMsgId());
+		return Dialogs::RowDescriptor(peer->owner().history(peer), FullMsgId());
 	} else if (const auto feed = key().feed()) {
 		return Dialogs::RowDescriptor(feed, FullMsgId());
 	} else if (key().settingsSelf()) {
@@ -619,7 +620,16 @@ not_null<Ui::RpWidget*> WrapWidget::topWidget() const {
 }
 
 void WrapWidget::showContent(object_ptr<ContentWidget> content) {
-	_content = std::move(content);
+	if (auto old = std::exchange(_content, std::move(content))) {
+		old->hide();
+
+		// Content destructor may invoke closeBox() that will try to
+		// start layer animation. If we won't detach old content from
+		// its parent WrapWidget layer animation will be started with a
+		// partially destructed grand-child widget and result in a crash.
+		old->setParent(nullptr);
+		old.destroy();
+	}
 	_content->show();
 	_additionalScroll = 0;
 	//_anotherTabMemento = nullptr;

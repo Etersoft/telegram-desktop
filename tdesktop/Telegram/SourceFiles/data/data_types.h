@@ -23,6 +23,11 @@ namespace Ui {
 class InputField;
 } // namespace Ui
 
+namespace Images {
+enum class Option;
+using Options = base::flags<Option>;
+} // namespace Images
+
 class StorageImageLocation;
 class WebFileLocation;
 struct GeoPointLocation;
@@ -49,6 +54,35 @@ constexpr auto kStickerCacheTag = uint8(0x02);
 constexpr auto kVoiceMessageCacheTag = uint8(0x03);
 constexpr auto kVideoMessageCacheTag = uint8(0x04);
 constexpr auto kAnimationCacheTag = uint8(0x05);
+
+struct FileOrigin;
+
+class ReplyPreview {
+public:
+	ReplyPreview();
+	ReplyPreview(ReplyPreview &&other);
+	ReplyPreview &operator=(ReplyPreview &&other);
+	~ReplyPreview();
+
+	void prepare(
+		not_null<Image*> image,
+		FileOrigin origin,
+		Images::Options options);
+	void clear();
+
+	[[nodiscard]] Image *image() const;
+	[[nodiscard]] bool good() const;
+	[[nodiscard]] bool empty() const;
+
+	[[nodiscard]] explicit operator bool() const {
+		return !empty();
+	}
+
+private:
+	struct Data;
+	std::unique_ptr<Data> _data;
+
+};
 
 } // namespace Data
 
@@ -82,6 +116,12 @@ class PeerData;
 class UserData;
 class ChatData;
 class ChannelData;
+class BotCommand;
+struct BotInfo;
+
+namespace Data {
+class Feed;
+} // namespace Data
 
 using UserId = int32;
 using ChatId = int32;
@@ -254,6 +294,7 @@ class DocumentClickHandler;
 class DocumentSaveClickHandler;
 class DocumentOpenClickHandler;
 class DocumentCancelClickHandler;
+class DocumentWrappedClickHandler;
 class GifOpenClickHandler;
 class VoiceSeekClickHandler;
 
@@ -264,9 +305,10 @@ using DocumentId = uint64;
 using WebPageId = uint64;
 using GameId = uint64;
 using PollId = uint64;
+using WallPaperId = uint64;
 constexpr auto CancelledWebPageId = WebPageId(0xFFFFFFFFFFFFFFFFULL);
 
-using PreparedPhotoThumbs = QMap<char, QImage>;
+using PreparedPhotoThumbs = base::flat_map<char, QImage>;
 
 // [0] == -1 -- counting, [0] == -2 -- could not count
 using VoiceWaveform = QVector<signed char>;
@@ -303,6 +345,7 @@ enum DocumentType {
 	AnimatedDocument = 4,
 	VoiceDocument = 5,
 	RoundVideoDocument = 6,
+	WallPaperDocument = 7,
 };
 
 using MediaKey = QPair<uint64, uint64>;

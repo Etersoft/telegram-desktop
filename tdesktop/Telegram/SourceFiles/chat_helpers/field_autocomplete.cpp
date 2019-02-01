@@ -8,17 +8,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/field_autocomplete.h"
 
 #include "data/data_document.h"
+#include "data/data_channel.h"
+#include "data/data_chat.h"
+#include "data/data_user.h"
 #include "data/data_peer_values.h"
 #include "mainwindow.h"
 #include "apiwrap.h"
 #include "storage/localstorage.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/image/image.h"
+#include "auth_session.h"
+#include "chat_helpers/stickers.h"
 #include "styles/style_history.h"
 #include "styles/style_widgets.h"
 #include "styles/style_chat_helpers.h"
-#include "auth_session.h"
-#include "chat_helpers/stickers.h"
 
 FieldAutocomplete::FieldAutocomplete(QWidget *parent) : TWidget(parent)
 , _scroll(this, st::mentionScroll) {
@@ -191,7 +194,7 @@ void FieldAutocomplete::updateFiltered(bool resetScroll) {
 			if (_chat->noParticipantInfo()) {
 				Auth().api().requestFullPeer(_chat);
 			} else if (!_chat->participants.empty()) {
-				for (const auto [user, v] : _chat->participants) {
+				for (const auto user : _chat->participants) {
 					if (user->isInaccessible()) continue;
 					if (!listAllSuggestions && filterNotPassedByName(user)) continue;
 					if (indexOfInFirstN(mrows, user, recentInlineBots) >= 0) continue;
@@ -250,7 +253,7 @@ void FieldAutocomplete::updateFiltered(bool resetScroll) {
 			if (_chat->noParticipantInfo()) {
 				Auth().api().requestFullPeer(_chat);
 			} else if (!_chat->participants.empty()) {
-				for (const auto [user, version] : _chat->participants) {
+				for (const auto user : _chat->participants) {
 					if (!user->botInfo) continue;
 					if (!user->botInfo->inited) {
 						Auth().api().requestFullPeer(user);
@@ -558,7 +561,7 @@ void FieldAutocompleteInner::paintEvent(QPaintEvent *e) {
 					App::roundRect(p, QRect(tl, st::stickerPanSize), st::emojiPanHover, StickerHoverCorners);
 				}
 
-				document->checkStickerThumb();
+				document->checkStickerSmall();
 
 				float64 coef = qMin((st::stickerPanSize.width() - st::buttonRadius * 2) / float64(document->dimensions.width()), (st::stickerPanSize.height() - st::buttonRadius * 2) / float64(document->dimensions.height()));
 				if (coef > 1) coef = 1;
@@ -566,7 +569,7 @@ void FieldAutocompleteInner::paintEvent(QPaintEvent *e) {
 				if (w < 1) w = 1;
 				if (h < 1) h = 1;
 				QPoint ppos = pos + QPoint((st::stickerPanSize.width() - w) / 2, (st::stickerPanSize.height() - h) / 2);
-				if (const auto image = document->getStickerThumb()) {
+				if (const auto image = document->getStickerSmall()) {
 					p.drawPixmapLeft(ppos, width(), image->pix(document->stickerSetOrigin(), w, h));
 				}
 			}

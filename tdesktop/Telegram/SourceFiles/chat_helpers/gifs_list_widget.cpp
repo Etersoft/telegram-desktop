@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_photo.h"
 #include "data/data_document.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "styles/style_chat_helpers.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/input_fields.h"
@@ -222,7 +223,7 @@ void GifsListWidget::inlineResultsDone(const MTPmessages_BotResults &result) {
 	auto adding = (it != _inlineCache.cend());
 	if (result.type() == mtpc_messages_botResults) {
 		auto &d = result.c_messages_botResults();
-		App::feedUsers(d.vusers);
+		Auth().data().processUsers(d.vusers);
 
 		auto &v = d.vresults.v;
 		auto queryId = d.vquery_id.v;
@@ -351,11 +352,10 @@ void GifsListWidget::selectInlineResult(int row, int column) {
 
 	auto item = _rows[row].items[column];
 	if (const auto photo = item->getPhoto()) {
-		if (photo->medium->loaded() || photo->thumb->loaded()) {
+		if (photo->thumbnail()->loaded()) {
 			_photoChosen.fire_copy(photo);
-		} else if (!photo->medium->loading()) {
-			photo->thumb->loadEvenCancelled(Data::FileOrigin());
-			photo->medium->loadEvenCancelled(Data::FileOrigin());
+		} else if (!photo->thumbnail()->loading()) {
+			photo->thumbnail()->loadEvenCancelled(Data::FileOrigin());
 		}
 	} else if (const auto document = item->getDocument()) {
 		if (document->loaded()) {
@@ -841,12 +841,15 @@ void GifsListWidget::searchForGifs(const QString &query) {
 
 	if (!_searchBot && !_searchBotRequestId) {
 		auto username = str_const_toString(kSearchBotUsername);
-		_searchBotRequestId = request(MTPcontacts_ResolveUsername(MTP_string(username))).done([this](const MTPcontacts_ResolvedPeer &result) {
+		_searchBotRequestId = request(MTPcontacts_ResolveUsername(
+			MTP_string(username)
+		)).done([=](const MTPcontacts_ResolvedPeer &result) {
 			Expects(result.type() == mtpc_contacts_resolvedPeer);
+
 			auto &data = result.c_contacts_resolvedPeer();
-			App::feedUsers(data.vusers);
-			App::feedChats(data.vchats);
-			if (auto peer = App::peerLoaded(peerFromMTP(data.vpeer))) {
+			Auth().data().processUsers(data.vusers);
+			Auth().data().processChats(data.vchats);
+			if (auto peer = Auth().data().peerLoaded(peerFromMTP(data.vpeer))) {
 				if (auto user = peer->asUser()) {
 					_searchBot = user;
 				}

@@ -8,18 +8,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_instance.h"
 
 #include "mtproto/connection.h"
-#include "messenger.h"
+#include "core/application.h"
 #include "auth_session.h"
 #include "apiwrap.h"
 #include "lang/lang_keys.h"
 #include "boxes/confirm_box.h"
 #include "calls/calls_call.h"
 #include "calls/calls_panel.h"
+#include "data/data_user.h"
+#include "data/data_session.h"
 #include "media/media_audio_track.h"
 #include "platform/platform_specific.h"
 #include "mainwidget.h"
-
 #include "boxes/rate_call_box.h"
+
 namespace Calls {
 namespace {
 
@@ -99,7 +101,7 @@ void Instance::destroyCall(not_null<Call*> call) {
 		if (App::quitting()) {
 			LOG(("Calls::Instance doesn't prevent quit any more."));
 		}
-		Messenger::Instance().quitPreventFinished();
+		Core::App().quitPreventFinished();
 	}
 }
 
@@ -221,7 +223,7 @@ bool Instance::isQuitPrevent() {
 void Instance::handleCallUpdate(const MTPPhoneCall &call) {
 	if (call.type() == mtpc_phoneCallRequested) {
 		auto &phoneCall = call.c_phoneCallRequested();
-		auto user = App::userLoaded(phoneCall.vadmin_id.v);
+		auto user = Auth().data().userLoaded(phoneCall.vadmin_id.v);
 		if (!user) {
 			LOG(("API Error: User not loaded for phoneCallRequested."));
 		} else if (user->isSelf()) {

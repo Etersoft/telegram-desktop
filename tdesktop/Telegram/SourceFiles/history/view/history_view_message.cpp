@@ -14,11 +14,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/media/history_media_web_page.h"
 #include "history/history.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "lang/lang_keys.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "window/window_controller.h"
-#include "auth_session.h"
 #include "layout.h"
 #include "styles/style_widgets.h"
 #include "styles/style_history.h"
@@ -57,7 +57,7 @@ const style::TextStyle &KeyboardStyle::textStyle() const {
 }
 
 void KeyboardStyle::repaint(not_null<const HistoryItem*> item) const {
-	Auth().data().requestItemRepaint(item);
+	item->history()->owner().requestItemRepaint(item);
 }
 
 int KeyboardStyle::buttonRadius() const {
@@ -272,7 +272,15 @@ QSize Message::performCountOptimalSize() {
 		}
 		if (mediaDisplayed) {
 			// Parts don't participate in maxWidth() in case of media message.
-			accumulate_max(maxWidth, media->maxWidth());
+			if (media->enforceBubbleWidth()) {
+				maxWidth = media->maxWidth();
+				if (hasVisibleText() && maxWidth < plainMaxWidth()) {
+					minHeight -= item->_text.minHeight();
+					minHeight += item->_text.countHeight(maxWidth - st::msgPadding.left() - st::msgPadding.right());
+				}
+			} else {
+				accumulate_max(maxWidth, media->maxWidth());
+			}
 			minHeight += media->minHeight();
 		} else {
 			// Count parts in maxWidth(), don't count them in minHeight().
@@ -1558,7 +1566,8 @@ QRect Message::countGeometry() const {
 	accumulate_min(contentWidth, st::msgMaxWidth);
 	if (mediaWidth < contentWidth) {
 		const auto textualWidth = plainMaxWidth();
-		if (mediaWidth < textualWidth) {
+		if (mediaWidth < textualWidth
+			&& (!media || !media->enforceBubbleWidth())) {
 			accumulate_min(contentWidth, textualWidth);
 		} else {
 			contentWidth = mediaWidth;
@@ -1601,7 +1610,8 @@ int Message::resizeContentGetHeight(int newWidth) {
 		media->resizeGetHeight(contentWidth);
 		if (media->width() < contentWidth) {
 			const auto textualWidth = plainMaxWidth();
-			if (media->width() < textualWidth) {
+			if (media->width() < textualWidth
+				&& !media->enforceBubbleWidth()) {
 				accumulate_min(contentWidth, textualWidth);
 			} else {
 				contentWidth = media->width();

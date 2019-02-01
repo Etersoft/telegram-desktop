@@ -10,9 +10,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/shadow.h"
 #include "ui/image/image_prepare.h"
 #include "platform/platform_specific.h"
-#include "application.h"
 #include "mainwindow.h"
-#include "messenger.h"
+#include "core/application.h"
 #include "lang/lang_keys.h"
 
 namespace Ui {
@@ -50,8 +49,8 @@ void PopupMenu::init() {
 	using namespace rpl::mappers;
 
 	rpl::merge(
-		Messenger::Instance().passcodeLockChanges(),
-		Messenger::Instance().termsLockChanges()
+		Core::App().passcodeLockChanges(),
+		Core::App().termsLockChanges()
 	) | rpl::start_with_next([=] {
 		hideMenu(true);
 	}, lifetime());
@@ -447,7 +446,7 @@ void PopupMenu::showMenu(const QPoint &p, PopupMenu *parent, TriggeredSource sou
 
 	auto origin = PanelAnimation::Origin::TopLeft;
 	auto w = p - QPoint(0, _padding.top());
-	auto r = Sandbox::screenGeometry(p);
+	auto r = QApplication::desktop()->screenGeometry(p);
 	_useTransparency = Platform::TranslucentWindowsSupported(p);
 	setAttribute(Qt::WA_OpaquePaintEvent, !_useTransparency);
 	handleCompositingUpdate();
@@ -499,11 +498,11 @@ void PopupMenu::showMenu(const QPoint &p, PopupMenu *parent, TriggeredSource sou
 }
 
 PopupMenu::~PopupMenu() {
-	for (const auto submenu : base::take(_submenus)) {
+	for (const auto &submenu : base::take(_submenus)) {
 		delete submenu;
 	}
 	if (const auto parent = parentWidget()) {
-		if (Core::App().focusWidget() != nullptr) {
+		if (QApplication::focusWidget() != nullptr) {
 			Core::App().activateWindowDelayed(parent);
 		}
 	}

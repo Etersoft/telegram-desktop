@@ -11,7 +11,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "chat_helpers/field_autocomplete.h"
 #include "window/section_widget.h"
-#include "core/single_timer.h"
 #include "ui/widgets/input_fields.h"
 #include "ui/rp_widget.h"
 #include "base/flags.h"
@@ -23,6 +22,7 @@ struct SendingAlbum;
 enum class SendMediaType;
 enum class CompressConfirm;
 class MessageLinksParser;
+enum LangKey : int;
 
 namespace InlineBots {
 namespace Layout {
@@ -288,7 +288,6 @@ public:
 	void notify_inlineKeyboardMoved(const HistoryItem *item, int oldKeyboardTop, int newKeyboardTop);
 	bool notify_switchInlineBotButtonReceived(const QString &query, UserData *samePeerBot, MsgId samePeerReplyTo);
 	void notify_userIsBotChanged(UserData *user);
-	void notify_migrateUpdated(PeerData *peer);
 
 	~HistoryWidget();
 
@@ -358,14 +357,13 @@ private slots:
 
 	void onModerateKeyActivate(int index, bool *outHandled);
 
-	void updateField();
-
 private:
 	using TabbedPanel = ChatHelpers::TabbedPanel;
 	using TabbedSelector = ChatHelpers::TabbedSelector;
 	using DragState = Storage::MimeDataState;
 
 	void initTabbedSelector();
+	void updateField();
 
 	void send(Qt::KeyboardModifiers modifiers = Qt::KeyboardModifiers());
 	void handlePendingHistoryUpdate();
@@ -387,7 +385,6 @@ private:
 	void supportShareContact(Support::Contact contact);
 
 	void highlightMessage(MsgId universalMessageId);
-	void adjustHighlightedMessageToMigrated();
 	void checkNextHighlight();
 	void updateHighlightedMessage();
 	void clearHighlightMessages();
@@ -473,7 +470,7 @@ private:
 	void checkTabbedSelectorToggleTooltip();
 
 	bool canWriteMessage() const;
-	bool isRestrictedWrite() const;
+	std::optional<LangKey> writeRestrictionKey() const;
 	void orderWidgets();
 
 	void clearInlineBot();
@@ -503,6 +500,8 @@ private:
 	bool showNextChat();
 	bool showPreviousChat();
 
+	void handlePeerMigration();
+
 	MsgId _replyToId = 0;
 	Text _replyToName;
 	int _replyToNameVersion = 0;
@@ -515,7 +514,7 @@ private:
 
 	HistoryItem *_replyEditMsg = nullptr;
 	Text _replyEditMsgText;
-	mutable SingleTimer _updateEditTimeLeftDisplay;
+	mutable base::Timer _updateEditTimeLeftDisplay;
 
 	object_ptr<Ui::IconButton> _fieldBarCancel;
 	void updateReplyEditTexts(bool force = false);
@@ -542,10 +541,14 @@ private:
 		not_null<UserData*> bot);
 
 	void drawField(Painter &p, const QRect &rect);
-	void paintEditHeader(Painter &p, const QRect &rect, int left, int top) const;
+	void paintEditHeader(
+		Painter &p,
+		const QRect &rect,
+		int left,
+		int top) const;
 	void drawRecording(Painter &p, float64 recordActive);
 	void drawPinnedBar(Painter &p);
-	void drawRestrictedWrite(Painter &p);
+	void drawRestrictedWrite(Painter &p, const QString &error);
 	bool paintShowAnimationFrame(TimeMs ms);
 
 	void updateMouseTracking();

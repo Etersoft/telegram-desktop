@@ -18,25 +18,30 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/fade_wrap.h"
 #include "ui/effects/radial_animation.h"
 #include "lang/lang_keys.h"
-#include "application.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "core/update_checker.h"
 #include "auth_session.h"
 #include "apiwrap.h"
-#include "messenger.h"
+#include "core/application.h"
 #include "boxes/peer_list_box.h"
+#include "boxes/peers/edit_participants_box.h"
 #include "window/window_controller.h"
 #include "window/window_slide_animation.h"
 #include "window/window_connecting_widget.h"
-#include "profile/profile_channel_controllers.h"
 #include "storage/storage_media_prepare.h"
 #include "storage/localstorage.h"
 #include "data/data_session.h"
+#include "data/data_channel.h"
+#include "data/data_chat.h"
+#include "data/data_user.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_window.h"
 
 namespace {
+
+constexpr auto kDialogsFirstLoad = 20;
+constexpr auto kDialogsPerPage = 500;
 
 QString SwitchToChooseFromQuery() {
 	return qsl("from:");
@@ -201,7 +206,7 @@ DialogsWidget::DialogsWidget(QWidget *parent, not_null<Window::Controller*> cont
 	subscribe(Global::RefLocalPasscodeChanged(), [this] { updateLockUnlockVisibility(); });
 	_lockUnlock->setClickedCallback([this] {
 		_lockUnlock->setIconOverride(&st::dialogsUnlockIcon, &st::dialogsUnlockIconOver);
-		Messenger::Instance().lockByPasscode();
+		Core::App().lockByPasscode();
 		_lockUnlock->setIconOverride(nullptr);
 	});
 	_mainMenuToggle->setClickedCallback([this] { showMainMenu(); });
@@ -304,10 +309,10 @@ void DialogsWidget::createDialog(Dialogs::Key key) {
 	_inner->createDialog(key);
 	const auto history = key.history();
 	if (creating && history && history->peer->migrateFrom()) {
-		if (const auto migrated = App::historyLoaded(
+		if (const auto migrated = history->owner().historyLoaded(
 				history->peer->migrateFrom())) {
 			if (migrated->inChatList(Dialogs::Mode::All)) {
-				removeDialog(migrated);
+				_inner->removeDialog(migrated);
 			}
 		}
 	}
@@ -439,8 +444,8 @@ void DialogsWidget::dialogsReceived(
 
 	const auto [dialogsList, messagesList] = [&] {
 		const auto process = [&](const auto &data) {
-			App::feedUsers(data.vusers);
-			App::feedChats(data.vchats);
+			Auth().data().processUsers(data.vusers);
+			Auth().data().processChats(data.vchats);
 			return std::make_tuple(&data.vdialogs.v, &data.vmessages.v);
 		};
 		switch (dialogs.type()) {
@@ -478,36 +483,29 @@ void DialogsWidget::updateDialogsOffset(
 	auto lastDate = TimeId(0);
 	auto lastPeer = PeerId(0);
 	auto lastMsgId = MsgId(0);
-	const auto fillFromDialog = [&](const auto &dialog) {
-		const auto peer = peerFromMTP(dialog.vpeer);
-		const auto msgId = dialog.vtop_message.v;
-		if (!peer || !msgId) {
-			return;
-		}
-		if (!lastPeer) {
-			lastPeer = peer;
-		}
-		if (!lastMsgId) {
-			lastMsgId = msgId;
-		}
-		for (auto j = messages.size(); j != 0;) {
-			const auto &message = messages[--j];
-			if (IdFromMessage(message) == msgId
-				&& PeerFromMessage(message) == peer) {
-				if (const auto date = DateFromMessage(message)) {
-					lastDate = date;
-				}
+	for (const auto &dialog : ranges::view::reverse(dialogs)) {
+		dialog.match([&](const auto &dialog) {
+			const auto peer = peerFromMTP(dialog.vpeer);
+			const auto messageId = dialog.vtop_message.v;
+			if (!peer || !messageId) {
 				return;
 			}
-		}
-	};
-	for (auto i = dialogs.size(); i != 0;) {
-		const auto &dialog = dialogs[--i];
-		switch (dialog.type()) {
-		case mtpc_dialog: fillFromDialog(dialog.c_dialog()); break;
-//		case mtpc_dialogFeed: fillFromDialog(dialog.c_dialogFeed()); break; // #feed
-		default: Unexpected("Type in DialogsWidget::updateDialogsOffset");
-		}
+			if (!lastPeer) {
+				lastPeer = peer;
+			}
+			if (!lastMsgId) {
+				lastMsgId = messageId;
+			}
+			for (const auto &message : ranges::view::reverse(messages)) {
+				if (IdFromMessage(message) == messageId
+					&& PeerFromMessage(message) == peer) {
+					if (const auto date = DateFromMessage(message)) {
+						lastDate = date;
+					}
+					return;
+				}
+			}
+		});
 		if (lastDate) {
 			break;
 		}
@@ -515,7 +513,7 @@ void DialogsWidget::updateDialogsOffset(
 	if (lastDate) {
 		_dialogsOffsetDate = lastDate;
 		_dialogsOffsetId = lastMsgId;
-		_dialogsOffsetPeer = App::peer(lastPeer);
+		_dialogsOffsetPeer = Auth().data().peer(lastPeer);
 	} else {
 		_dialogsFull = true;
 	}
@@ -565,8 +563,8 @@ void DialogsWidget::pinnedDialogsReceived(
 	if (_pinnedDialogsRequestId != requestId) return;
 
 	auto &data = result.c_messages_peerDialogs();
-	App::feedUsers(data.vusers);
-	App::feedChats(data.vchats);
+	Auth().data().processUsers(data.vusers);
+	Auth().data().processChats(data.vchats);
 
 	Auth().data().applyPinnedDialogs(data.vdialogs.v);
 	applyReceivedDialogs(data.vdialogs.v, data.vmessages.v);
@@ -881,7 +879,7 @@ void DialogsWidget::loadDialogs() {
 	}
 
 	const auto firstLoad = !_dialogsOffsetDate;
-	const auto loadCount = firstLoad ? DialogsFirstLoad : DialogsPerPage;
+	const auto loadCount = firstLoad ? kDialogsFirstLoad : kDialogsPerPage;
 	const auto flags = MTPmessages_GetDialogs::Flag::f_exclude_pinned;
 	const auto feedId = 0;
 	const auto hash = 0;
@@ -933,8 +931,8 @@ void DialogsWidget::searchReceived(
 			auto &d = result.c_messages_messages();
 			if (_searchRequest != 0) {
 				// Don't apply cached data!
-				App::feedUsers(d.vusers);
-				App::feedChats(d.vchats);
+				Auth().data().processUsers(d.vusers);
+				Auth().data().processChats(d.vchats);
 			}
 			auto &msgs = d.vmessages.v;
 			if (!_inner->searchReceived(msgs, type, msgs.size())) {
@@ -950,8 +948,8 @@ void DialogsWidget::searchReceived(
 			auto &d = result.c_messages_messagesSlice();
 			if (_searchRequest != 0) {
 				// Don't apply cached data!
-				App::feedUsers(d.vusers);
-				App::feedChats(d.vchats);
+				Auth().data().processUsers(d.vusers);
+				Auth().data().processChats(d.vchats);
 			}
 			auto &msgs = d.vmessages.v;
 			if (!_inner->searchReceived(msgs, type, d.vcount.v)) {
@@ -980,8 +978,8 @@ void DialogsWidget::searchReceived(
 			}
 			if (_searchRequest != 0) {
 				// Don't apply cached data!
-				App::feedUsers(d.vusers);
-				App::feedChats(d.vchats);
+				Auth().data().processUsers(d.vusers);
+				Auth().data().processChats(d.vchats);
 			}
 			auto &msgs = d.vmessages.v;
 			if (!_inner->searchReceived(msgs, type, d.vcount.v)) {
@@ -1027,8 +1025,8 @@ void DialogsWidget::peerSearchReceived(
 		switch (result.type()) {
 		case mtpc_contacts_found: {
 			auto &d = result.c_contacts_found();
-			App::feedUsers(d.vusers);
-			App::feedChats(d.vchats);
+			Auth().data().processUsers(d.vusers);
+			Auth().data().processChats(d.vchats);
 			_inner->peerSearchReceived(q, d.vmy_results.v, d.vresults.v);
 		} break;
 		}
@@ -1187,9 +1185,9 @@ void DialogsWidget::setSearchInChat(Dialogs::Key chat, UserData *from) {
 	_searchInMigrated = nullptr;
 	if (const auto peer = chat.peer()) {
 		if (const auto migrateTo = peer->migrateTo()) {
-			return setSearchInChat(App::history(migrateTo), from);
+			return setSearchInChat(peer->owner().history(migrateTo), from);
 		} else if (const auto migrateFrom = peer->migrateFrom()) {
-			_searchInMigrated = App::history(migrateFrom);
+			_searchInMigrated = peer->owner().history(migrateFrom);
 		}
 	}
 	const auto searchInPeerUpdated = (_searchInChat != chat);

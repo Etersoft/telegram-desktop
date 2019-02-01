@@ -15,6 +15,8 @@ maxStickerSize: 256px;
 maxGifSize: 320px;
 maxVideoMessageSize: 240px;
 maxSignatureSize: 144px;
+maxWallPaperWidth: 160px;
+maxWallPaperHeight: 240px;
 
 historyMinimalWidth: 380px;
 
@@ -543,3 +545,10 @@ boxAttachEmoji: IconButton(historyAttachEmoji) {
 	rippleAreaSize: 0px;
 }
 boxAttachEmojiTop: 20px;
+
+historyGroupAboutMargin: 16px;
+historyGroupAboutPadding: margins(24px, 16px, 24px, 16px);
+historyGroupAboutBulletSkip: 16px;
+historyGroupAboutHeaderSkip: 10px;
+historyGroupAboutTextSkip: 10px;
+historyGroupAboutSkip: 8px;

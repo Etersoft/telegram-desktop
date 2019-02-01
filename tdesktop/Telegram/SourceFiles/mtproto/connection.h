@@ -15,6 +15,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace MTP {
 
+// How much time to wait for some more requests, when sending msg acks.
+constexpr auto kAckSendWaiting = TimeMs(10000);
+
 class Instance;
 
 bool IsPrimeAndGood(bytes::const_span primeBytes, int g);
@@ -37,6 +40,7 @@ class RSAPublicKey;
 struct ConnectionOptions;
 
 class Thread : public QThread {
+	// The Q_OBJECT meta info is used for qobject_cast!
 	Q_OBJECT
 
 public:

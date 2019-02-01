@@ -14,10 +14,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/emoji_suggestions_helper.h"
 #include "window/themes/window_theme.h"
 #include "lang/lang_keys.h"
+#include "data/data_user.h"
 #include "mainwindow.h"
 #include "numbers.h"
 #include "auth_session.h"
-#include "messenger.h"
+#include "core/application.h"
 
 namespace Ui {
 namespace {
@@ -527,12 +528,12 @@ public:
 		setParent(QCoreApplication::instance());
 	}
 
-	void drawPrimitive(PrimitiveElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget = 0) const {
+	void drawPrimitive(PrimitiveElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget = nullptr) const override {
 	}
-	QRect subElementRect(SubElement r, const QStyleOption *opt, const QWidget *widget = 0) const {
+	QRect subElementRect(SubElement r, const QStyleOption *opt, const QWidget *widget = nullptr) const override {
 		switch (r) {
 			case SE_LineEditContents:
-				const InputClass *w = widget ? qobject_cast<const InputClass*>(widget) : 0;
+				const auto w = widget ? qobject_cast<const InputClass*>(widget) : nullptr;
 				return w ? w->getTextRect() : QCommonStyle::subElementRect(r, opt, widget);
 			break;
 		}
@@ -2894,14 +2895,22 @@ void InputField::applyInstantReplace(
 	} else if (position < length) {
 		return;
 	}
-	commitInstantReplacement(position - length, position, with, what);
+	commitInstantReplacement(position - length, position, with, what, true);
+}
+
+void InputField::commitInstantReplacement(
+		int from,
+		int till,
+		const QString &with) {
+	commitInstantReplacement(from, till, with, std::nullopt, false);
 }
 
 void InputField::commitInstantReplacement(
 		int from,
 		int till,
 		const QString &with,
-		std::optional<QString> checkOriginal) {
+		std::optional<QString> checkOriginal,
+		bool checkIfInMonospace) {
 	const auto original = getTextWithTagsPart(from, till).text;
 	if (checkOriginal
 		&& checkOriginal->compare(original, Qt::CaseInsensitive) != 0) {
@@ -2909,9 +2918,11 @@ void InputField::commitInstantReplacement(
 	}
 
 	auto cursor = textCursor();
-	const auto currentTag = cursor.charFormat().property(kTagProperty);
-	if (currentTag == kTagPre || currentTag == kTagCode) {
-		return;
+	if (checkIfInMonospace) {
+		const auto currentTag = cursor.charFormat().property(kTagProperty);
+		if (currentTag == kTagPre || currentTag == kTagCode) {
+			return;
+		}
 	}
 	cursor.setPosition(from);
 	cursor.setPosition(till, QTextCursor::KeepAnchor);
@@ -4107,7 +4118,7 @@ void HexInput::correctValue(
 }
 
 UsernameInput::UsernameInput(QWidget *parent, const style::InputField &st, Fn<QString()> placeholderFactory, const QString &val, bool isLink) : MaskedInputField(parent, st, std::move(placeholderFactory), val) {
-	setLinkPlaceholder(isLink ? Messenger::Instance().createInternalLink(QString()) : QString());
+	setLinkPlaceholder(isLink ? Core::App().createInternalLink(QString()) : QString());
 }
 
 void UsernameInput::setLinkPlaceholder(const QString &placeholder) {

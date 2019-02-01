@@ -134,8 +134,11 @@ public:
 	bool hasTextLinks() const {
 		return _flags & MTPDmessage_ClientFlag::f_has_text_links;
 	}
+	bool isGroupEssential() const {
+		return _flags & MTPDmessage_ClientFlag::f_is_group_essential;
+	}
 	bool isGroupMigrate() const {
-		return _flags & MTPDmessage_ClientFlag::f_is_group_migrate;
+		return isGroupEssential() && isEmpty();
 	}
 	bool hasViews() const {
 		return _flags & MTPDmessage::Flag::f_views;
@@ -294,11 +297,11 @@ protected:
 	}
 	HistoryMessageReplyMarkup *inlineReplyMarkup();
 	ReplyKeyboard *inlineReplyKeyboard();
-	void invalidateChatsListEntry();
+	void invalidateChatListEntry();
 
 	void setGroupId(MessageGroupId groupId);
 
-	Text _text = { int(st::msgMinWidth) };
+	Text _text = { st::msgMinWidth };
 	int _textWidth = -1;
 	int _textHeight = 0;
 

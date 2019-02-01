@@ -8,8 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/notifications_manager_default.h"
 
 #include "platform/platform_notifications_manager.h"
-#include "application.h"
-#include "messenger.h"
+#include "core/application.h"
 #include "lang/lang_keys.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/input_fields.h"
@@ -53,7 +52,9 @@ std::unique_ptr<Manager> Create(System *system) {
 	return std::make_unique<Manager>(system);
 }
 
-Manager::Manager(System *system) : Notifications::Manager(system) {
+Manager::Manager(System *system)
+: Notifications::Manager(system)
+, _inputCheckTimer([=] { checkLastInput(); }) {
 	subscribe(system->authSession()->downloader().taskFinished(), [this] {
 		for_const (auto &notification, _notifications) {
 			notification->updatePeerPhoto();
@@ -62,7 +63,6 @@ Manager::Manager(System *system) : Notifications::Manager(system) {
 	subscribe(system->settingsChanged(), [this](ChangeType change) {
 		settingsChanged(change);
 	});
-	_inputCheckTimer.setTimeoutHandler([this] { checkLastInput(); });
 }
 
 Manager::QueuedNotification::QueuedNotification(
@@ -77,7 +77,7 @@ Manager::QueuedNotification::QueuedNotification(
 
 QPixmap Manager::hiddenUserpicPlaceholder() const {
 	if (_hiddenUserpicPlaceholder.isNull()) {
-		_hiddenUserpicPlaceholder = App::pixmapFromImageInPlace(Messenger::Instance().logoNoMargin().scaled(st::notifyPhotoSize, st::notifyPhotoSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+		_hiddenUserpicPlaceholder = App::pixmapFromImageInPlace(Core::App().logoNoMargin().scaled(st::notifyPhotoSize, st::notifyPhotoSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
 		_hiddenUserpicPlaceholder.setDevicePixelRatio(cRetinaFactor());
 	}
 	return _hiddenUserpicPlaceholder;
@@ -144,7 +144,7 @@ void Manager::checkLastInput() {
 		}
 	}
 	if (waiting) {
-		_inputCheckTimer.start(300);
+		_inputCheckTimer.callOnce(300);
 	}
 }
 
@@ -411,7 +411,7 @@ void Widget::hideSlow() {
 		auto [left, right] = base::make_binary_guard();
 		_hidingDelayed = std::move(left);
 		App::CallDelayed(st::notifySlowHide, this, [=, guard = std::move(right)] {
-			if (guard.alive() && _hiding) {
+			if (guard && _hiding) {
 				hideFast();
 			}
 		});
@@ -494,15 +494,25 @@ void Background::paintEvent(QPaintEvent *e) {
 	p.fillRect(st::notifyBorderWidth, height() - st::notifyBorderWidth, width() - 2 * st::notifyBorderWidth, st::notifyBorderWidth, st::notifyBorder);
 }
 
-Notification::Notification(Manager *manager, History *history, PeerData *peer, PeerData *author, HistoryItem *msg, int forwardedCount, QPoint startPosition, int shift, Direction shiftDirection) : Widget(manager, startPosition, shift, shiftDirection)
+Notification::Notification(
+	Manager *manager,
+	History *history,
+	PeerData *peer,
+	PeerData *author,
+	HistoryItem *msg,
+	int forwardedCount,
+	QPoint startPosition,
+	int shift,
+	Direction shiftDirection)
+: Widget(manager, startPosition, shift, shiftDirection)
+#ifdef Q_OS_WIN
+, _started(GetTickCount())
+#endif // Q_OS_WIN
 , _history(history)
 , _peer(peer)
 , _author(author)
 , _item(msg)
 , _forwardedCount(forwardedCount)
-#ifdef Q_OS_WIN
-, _started(GetTickCount())
-#endif // Q_OS_WIN
 , _close(this, st::notifyClose)
 , _reply(this, langFactory(lng_notification_reply), st::defaultBoxButton) {
 	subscribe(Lang::Current().updated(), [this] { refreshLang(); });
@@ -748,7 +758,7 @@ bool Notification::unlinkItem(HistoryItem *deleted) {
 bool Notification::canReply() const {
 	return !_hideReplyButton
 		&& (_item != nullptr)
-		&& !Messenger::Instance().locked()
+		&& !Core::App().locked()
 		&& (Global::NotifyView() <= dbinvShowPreview);
 }
 

@@ -8,7 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "auth_session.h"
 
 #include "apiwrap.h"
-#include "messenger.h"
+#include "core/application.h"
+#include "core/sandbox.h"
 #include "core/changelogs.h"
 #include "storage/file_download.h"
 #include "storage/file_upload.h"
@@ -16,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_facade.h"
 #include "storage/serialize_common.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "window/notifications_manager.h"
 #include "window/themes/window_theme.h"
 #include "platform/platform_specific.h"
@@ -371,14 +373,13 @@ rpl::producer<int> AuthSessionSettings::thirdColumnWidthChanges() const {
 }
 
 AuthSession &Auth() {
-	auto result = Messenger::Instance().authSession();
+	auto result = Core::App().authSession();
 	Assert(result != nullptr);
 	return *result;
 }
 
 AuthSession::AuthSession(const MTPUser &user)
-: _user(App::user(user.match([](const auto &data) { return data.vid.v; })))
-, _autoLockTimer([this] { checkAutoLock(); })
+: _autoLockTimer([this] { checkAutoLock(); })
 , _api(std::make_unique<ApiWrap>(this))
 , _calls(std::make_unique<Calls::Instance>())
 , _downloader(std::make_unique<Storage::Downloader>())
@@ -386,21 +387,17 @@ AuthSession::AuthSession(const MTPUser &user)
 , _storage(std::make_unique<Storage::Facade>())
 , _notifications(std::make_unique<Window::Notifications::System>(this))
 , _data(std::make_unique<Data::Session>(this))
+, _user(_data->processUser(user))
 , _changelogs(Core::Changelogs::Create(this))
-, _supportHelper(
-	(Support::ValidateAccount(user)
-		? std::make_unique<Support::Helper>(this)
-		: nullptr)) {
-	App::feedUser(user);
-
+, _supportHelper(Support::Helper::Create(this)) {
 	_saveDataTimer.setCallback([=] {
 		Local::writeUserSettings();
 	});
-	Messenger::Instance().passcodeLockChanges(
+	Core::App().passcodeLockChanges(
 	) | rpl::start_with_next([=] {
 		_shouldLockAt = 0;
 	}, _lifetime);
-	Messenger::Instance().lockChanges(
+	Core::App().lockChanges(
 	) | rpl::start_with_next([=] {
 		notifications().updateAll();
 	}, _lifetime);
@@ -433,14 +430,20 @@ AuthSession::AuthSession(const MTPUser &user)
 }
 
 bool AuthSession::Exists() {
-	if (const auto messenger = Messenger::InstancePointer()) {
-		return (messenger->authSession() != nullptr);
-	}
-	return false;
+	return Core::Sandbox::Instance().applicationLaunched()
+		&& (Core::App().authSession() != nullptr);
 }
 
 base::Observable<void> &AuthSession::downloaderTaskFinished() {
 	return downloader().taskFinished();
+}
+
+UserId AuthSession::userId() const {
+	return _user->bareId();
+}
+
+PeerId AuthSession::userPeerId() const {
+	return _user->id;
 }
 
 bool AuthSession::validateSelf(const MTPUser &user) {
@@ -449,7 +452,7 @@ bool AuthSession::validateSelf(const MTPUser &user) {
 		return false;
 	} else if (user.c_user().vid.v != userId()) {
 		LOG(("Auth Error: wrong self user received."));
-		crl::on_main(this, [] { Messenger::Instance().logOut(); });
+		crl::on_main(this, [] { Core::App().logOut(); });
 		return false;
 	}
 	return true;
@@ -475,18 +478,18 @@ void AuthSession::saveSettingsDelayed(TimeMs delay) {
 
 void AuthSession::checkAutoLock() {
 	if (!Global::LocalPasscode()
-		|| Messenger::Instance().passcodeLocked()) {
+		|| Core::App().passcodeLocked()) {
 		return;
 	}
 
-	Messenger::Instance().checkLocalTime();
+	Core::App().checkLocalTime();
 	auto now = getms(true);
 	auto shouldLockInMs = Global::AutoLock() * 1000LL;
 	auto idleForMs = psIdleTime();
 	auto notPlayingVideoForMs = now - settings().lastTimeVideoPlayedAt();
 	auto checkTimeMs = qMin(idleForMs, notPlayingVideoForMs);
 	if (checkTimeMs >= shouldLockInMs || (_shouldLockAt > 0 && now > _shouldLockAt + kAutoLockTimeoutLateMs)) {
-		Messenger::Instance().lockByPasscode();
+		Core::App().lockByPasscode();
 	} else {
 		_shouldLockAt = now + (shouldLockInMs - checkTimeMs);
 		_autoLockTimer.callOnce(shouldLockInMs - checkTimeMs);
@@ -515,4 +518,7 @@ Support::Templates& AuthSession::supportTemplates() const {
 	return supportHelper().templates();
 }
 
-AuthSession::~AuthSession() = default;
+AuthSession::~AuthSession() {
+	ClickHandler::clearActive();
+	ClickHandler::unpressed();
+}

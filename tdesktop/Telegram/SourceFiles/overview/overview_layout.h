@@ -208,6 +208,8 @@ public:
 		StateRequest request) const override;
 
 private:
+	void setPixFrom(not_null<Image*> image);
+
 	not_null<PhotoData*> _data;
 	ClickHandlerPtr _link;
 
@@ -241,7 +243,6 @@ private:
 
 	QString _duration;
 	QPixmap _pix;
-	bool _thumbLoaded = false;
 
 	void updateStatusText();
 
@@ -315,7 +316,7 @@ private:
 
 	const style::OverviewFileLayout &_st;
 
-	bool _thumbForLoaded = false;
+	bool _thumbLoaded = false;
 	QPixmap _thumb;
 
 	Text _name;
@@ -352,7 +353,7 @@ private:
 	WebPageData *_page = nullptr;
 	int _pixw = 0;
 	int _pixh = 0;
-	Text _text = { int(st::msgMinWidth) };
+	Text _text = { st::msgMinWidth };
 
 	struct LinkEntry {
 		LinkEntry() : width(0) {
