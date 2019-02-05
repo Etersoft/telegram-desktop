@@ -137,7 +137,11 @@ MediaView::MediaView()
 	});
 	handleAuthSessionChange();
 
+#ifdef Q_OS_LINUX
 	setWindowFlags(Qt::FramelessWindowHint | Qt::MaximizeUsingFullscreenGeometryHint);
+#else // Q_OS_LINUX
+	setWindowFlags(Qt::FramelessWindowHint);
+#endif // Q_OS_LINUX
 	moveToScreen();
 	setAttribute(Qt::WA_NoSystemBackground, true);
 	setAttribute(Qt::WA_TranslucentBackground, true);
@@ -1777,7 +1781,11 @@ void MediaView::displayFinished() {
 	updateControls();
 	if (isHidden()) {
 		psUpdateOverlayed(this);
+#ifdef Q_OS_LINUX
 		showFullScreen();
+#else // Q_OS_LINUX
+		show();
+#endif // Q_OS_LINUX
 		psShowOverAll(this);
 		activateWindow();
 		QApplication::setActiveWindow(this);
