@@ -383,7 +383,7 @@ void DocumentOpenClickHandler::Open(
 
 	QString filename;
 	if (!data->saveToCache()
-		|| (location.isEmpty() || (!data->data().isEmpty()))) {
+		|| (location.isEmpty() && (!data->data().isEmpty()))) {
 		filename = documentSaveFilename(data);
 		if (filename.isEmpty()) return;
 	}
@@ -722,14 +722,15 @@ void DocumentData::automaticLoad(
 	const auto filename = toCache
 		? QString()
 		: documentSaveFilename(this);
-	const auto shouldLoadFromCloud = item
-		? Data::AutoDownload::Should(
-			Auth().settings().autoDownload(),
-			item->history()->peer,
-			this)
-		: Data::AutoDownload::Should(
-			Auth().settings().autoDownload(),
-			this);
+	const auto shouldLoadFromCloud = !Data::IsExecutableName(filename)
+		&& (item
+			? Data::AutoDownload::Should(
+				Auth().settings().autoDownload(),
+				item->history()->peer,
+				this)
+			: Data::AutoDownload::Should(
+				Auth().settings().autoDownload(),
+				this));
 	const auto loadFromCloud = shouldLoadFromCloud
 		? LoadFromCloudOrLocal
 		: LoadFromLocalOnly;
@@ -845,6 +846,7 @@ bool DocumentData::loaded(FilePathResolveType type) const {
 			ActiveCache().decrement(that->_data.size());
 			that->_data = _loader->bytes();
 			ActiveCache().increment(that->_data.size());
+
 			if (that->sticker()
 				&& !that->sticker()->image
 				&& !_loader->imageData().isNull()) {
@@ -856,12 +858,13 @@ bool DocumentData::loaded(FilePathResolveType type) const {
 						_loader->imageData()));
 				ActiveCache().increment(ComputeUsage(that->sticker()));
 			}
-			if (!that->_data.isEmpty() || that->getStickerLarge()) {
-				ActiveCache().up(that);
-			}
 
 			that->refreshGoodThumbnail();
 			destroyLoader();
+
+			if (!that->_data.isEmpty() || that->getStickerLarge()) {
+				ActiveCache().up(that);
+			}
 		}
 		_owner->notifyDocumentLayoutChanged(this);
 	}
@@ -1597,11 +1600,13 @@ vst vstm vstx vsw vsx vtx website ws wsc wsf wsh xbap xll xnk");
 
 base::binary_guard ReadImageAsync(
 		not_null<DocumentData*> document,
+		FnMut<QImage(QImage)> postprocess,
 		FnMut<void(QImage&&)> done) {
 	auto [left, right] = base::make_binary_guard();
 	crl::async([
 		bytes = document->data(),
 		path = document->filepath(),
+		postprocess = std::move(postprocess),
 		guard = std::move(left),
 		callback = std::move(done)
 	]() mutable {
@@ -1616,6 +1621,9 @@ base::binary_guard ReadImageAsync(
 		auto image = bytes.isEmpty()
 			? QImage()
 			: App::readImage(bytes, &format, false, nullptr);
+		if (postprocess) {
+			image = postprocess(std::move(image));
+		}
 		crl::on_main([
 			guard = std::move(guard),
 			image = std::move(image),

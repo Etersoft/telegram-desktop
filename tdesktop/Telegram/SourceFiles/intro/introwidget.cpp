@@ -30,12 +30,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_connecting_widget.h"
 #include "window/window_lock_widgets.h"
 #include "data/data_user.h"
-#include "styles/style_boxes.h"
-#include "styles/style_intro.h"
-#include "styles/style_window.h"
 #include "window/themes/window_theme.h"
 #include "lang/lang_cloud_manager.h"
 #include "auth_session.h"
+#include "styles/style_boxes.h"
+#include "styles/style_intro.h"
+#include "styles/style_window.h"
 
 namespace Intro {
 namespace {
@@ -114,7 +114,7 @@ Widget::Widget(QWidget *parent) : RpWidget(parent)
 }
 
 void Widget::setupConnectingWidget() {
-	_connecting = Window::ConnectingWidget::CreateDefaultWidget(
+	_connecting = std::make_unique<Window::ConnectionState>(
 		this,
 		rpl::single(true));
 }

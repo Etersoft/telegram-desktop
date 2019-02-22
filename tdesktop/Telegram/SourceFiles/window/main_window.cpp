@@ -19,16 +19,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/sandbox.h"
 #include "lang/lang_keys.h"
 #include "data/data_session.h"
-#include "mediaview.h"
 #include "auth_session.h"
 #include "apiwrap.h"
 #include "mainwindow.h"
 #include "styles/style_window.h"
 #include "styles/style_boxes.h"
-
-#ifdef small
-#undef small
-#endif // small
 
 namespace Window {
 
