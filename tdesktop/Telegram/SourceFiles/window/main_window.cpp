@@ -16,7 +16,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/confirm_box.h"
 #include "core/click_handler_types.h"
 #include "core/application.h"
-#include "core/sandbox.h"
 #include "lang/lang_keys.h"
 #include "data/data_session.h"
 #include "auth_session.h"
@@ -27,8 +26,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Window {
 
-constexpr auto kInactivePressTimeout = TimeMs(200);
-constexpr auto kSaveWindowPositionTimeout = TimeMs(1000);
+constexpr auto kInactivePressTimeout = crl::time(200);
+constexpr auto kSaveWindowPositionTimeout = crl::time(1000);
 
 QImage LoadLogo() {
 	return QImage(qsl(":/gui/art/logo_256.png"));
@@ -87,12 +86,7 @@ void ConvertIconToBlack(QImage &image) {
 }
 
 QIcon CreateOfficialIcon() {
-	auto image = [&] {
-		if (Core::Sandbox::Instance().applicationLaunched()) {
-			return Core::App().logo();
-		}
-		return LoadLogo();
-	}();
+	auto image = Core::IsAppLaunched() ? Core::App().logo() : LoadLogo();
 	if (AuthSession::Exists() && Auth().supportMode()) {
 		ConvertIconToBlack(image);
 	}
@@ -288,7 +282,7 @@ void MainWindow::init() {
 void MainWindow::handleStateChanged(Qt::WindowState state) {
 	stateChangedHook(state);
 	updateIsActive((state == Qt::WindowMinimized) ? Global::OfflineBlurTimeout() : Global::OnlineFocusTimeout());
-	psUserActionDone();
+	Core::App().updateNonIdle();
 	if (state == Qt::WindowMinimized && Global::WorkMode().value() == dbiwmTrayOnly) {
 		minimizeToTray();
 	}

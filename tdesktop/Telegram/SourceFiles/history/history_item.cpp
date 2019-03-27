@@ -17,7 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_service.h"
 #include "history/history_message.h"
 #include "history/history.h"
-#include "media/media_clip_reader.h"
+#include "media/clip/media_clip_reader.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/text_options.h"
 #include "storage/file_upload.h"
@@ -26,7 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_feed_messages.h"
 #include "auth_session.h"
 #include "apiwrap.h"
-#include "media/media_audio.h"
+#include "media/audio/media_audio.h"
 #include "core/application.h"
 #include "mainwindow.h"
 #include "window/window_controller.h"
@@ -603,7 +603,7 @@ TimeId HistoryItem::dateOriginal() const {
 	return date();
 }
 
-not_null<PeerData*> HistoryItem::senderOriginal() const {
+PeerData *HistoryItem::senderOriginal() const {
 	if (const auto forwarded = Get<HistoryMessageForwarded>()) {
 		return forwarded->originalSender;
 	}
@@ -611,10 +611,19 @@ not_null<PeerData*> HistoryItem::senderOriginal() const {
 	return (peer->isChannel() && !peer->isMegagroup()) ? peer : from();
 }
 
+const HiddenSenderInfo *HistoryItem::hiddenForwardedInfo() const {
+	if (const auto forwarded = Get<HistoryMessageForwarded>()) {
+		return forwarded->hiddenSenderInfo.get();
+	}
+	return nullptr;
+}
+
 not_null<PeerData*> HistoryItem::fromOriginal() const {
 	if (const auto forwarded = Get<HistoryMessageForwarded>()) {
-		if (const auto user = forwarded->originalSender->asUser()) {
-			return user;
+		if (forwarded->originalSender) {
+			if (const auto user = forwarded->originalSender->asUser()) {
+				return user;
+			}
 		}
 	}
 	return from();
@@ -706,6 +715,9 @@ QString HistoryItem::notificationText() const {
 QString HistoryItem::inDialogsText(DrawInDialog way) const {
 	auto getText = [this]() {
 		if (_media) {
+			if (_groupId) {
+				return textcmdLink(1, TextUtilities::Clean(lang(lng_in_dlg_album)));
+			}
 			return _media->chatListText();
 		} else if (!emptyText()) {
 			return TextUtilities::Clean(_text.originalText());

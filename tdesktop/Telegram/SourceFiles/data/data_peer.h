@@ -31,6 +31,7 @@ class Session;
 int PeerColorIndex(PeerId peerId);
 int PeerColorIndex(int32 bareId);
 style::color PeerUserpicColor(PeerId peerId);
+PeerId FakePeerIdForJustName(const QString &name);
 
 } // namespace Data
 
@@ -107,6 +108,8 @@ protected:
 public:
 	virtual ~PeerData();
 
+	static constexpr auto kServiceNotificationsId = peerFromUser(777000);
+
 	[[nodiscard]] Data::Session &owner() const;
 	[[nodiscard]] AuthSession &session() const;
 
@@ -124,6 +127,14 @@ public:
 	}
 	[[nodiscard]] bool isVerified() const;
 	[[nodiscard]] bool isMegagroup() const;
+
+	[[nodiscard]] bool isNotificationsUser() const {
+		return (id == peerFromUser(333000))
+			|| (id == kServiceNotificationsId);
+	}
+	[[nodiscard]] bool isServiceUser() const {
+		return isUser() && !(id % 1000);
+	}
 
 	[[nodiscard]] std::optional<TimeId> notifyMuteUntil() const {
 		return _notify.muteUntil();
@@ -149,6 +160,7 @@ public:
 	[[nodiscard]] bool canWrite() const;
 	[[nodiscard]] Data::RestrictionCheckResult amRestricted(
 		ChatRestriction right) const;
+	[[nodiscard]] bool canRevokeFullHistory() const;
 
 	[[nodiscard]] UserData *asUser();
 	[[nodiscard]] const UserData *asUser() const;
@@ -264,6 +276,8 @@ public:
 		setPinnedMessageId(0);
 	}
 
+	[[nodiscard]] bool canExportChatHistory() const;
+
 	// Returns true if about text was changed.
 	bool setAbout(const QString &newAbout);
 	const QString &about() const {
@@ -317,7 +331,7 @@ private:
 	base::flat_set<QString> _nameWords; // for filtering
 	base::flat_set<QChar> _nameFirstLetters;
 
-	TimeMs _lastFullUpdate = 0;
+	crl::time _lastFullUpdate = 0;
 	MsgId _pinnedMessageId = 0;
 
 	QString _about;
@@ -325,6 +339,8 @@ private:
 };
 
 namespace Data {
+
+std::vector<ChatRestrictions> ListOfRestrictions();
 
 std::optional<LangKey> RestrictionErrorKey(
 	not_null<PeerData*> peer,

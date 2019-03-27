@@ -20,7 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_location_manager.h"
 #include "history/history_item_components.h"
 #include "history/view/history_view_service_message.h"
-#include "media/media_audio.h"
+#include "media/audio/media_audio.h"
 #include "ui/image/image.h"
 #include "inline_bots/inline_bot_layout_item.h"
 #include "core/crash_reports.h"
@@ -117,10 +117,9 @@ namespace App {
 	}
 
 	MainWindow *wnd() {
-		if (Core::Sandbox::Instance().applicationLaunched()) {
-			return Core::App().getActiveWindow();
-		}
-		return nullptr;
+		return Core::IsAppLaunched()
+			? Core::App().getActiveWindow()
+			: nullptr;
 	}
 
 	MainWidget *main() {
@@ -145,6 +144,9 @@ namespace App {
 			existing->updateSentMedia(m.has_media() ? &m.vmedia : nullptr);
 			existing->updateReplyMarkup(m.has_reply_markup()
 				? (&m.vreply_markup)
+				: nullptr);
+			existing->updateForwardedInfo(m.has_fwd_from()
+				? &m.vfwd_from
 				: nullptr);
 			existing->setViewsCount(m.has_views() ? m.vviews.v : -1);
 			existing->indexAsNewItem();
@@ -397,10 +399,10 @@ namespace App {
 				user->setContactStatus(UserData::ContactStatus::CanAdd);
 			}
 
-			const auto showPhone = !isServiceUser(user->id)
+			const auto showPhone = !user->isServiceUser()
 				&& !user->isSelf()
 				&& user->contactStatus() == UserData::ContactStatus::CanAdd;
-			const auto showPhoneChanged = !isServiceUser(user->id)
+			const auto showPhoneChanged = !user->isServiceUser()
 				&& !user->isSelf()
 				&& (showPhone != wasShowPhone);
 			if (showPhoneChanged) {
@@ -422,14 +424,11 @@ namespace App {
 	HistoryItem *histItemById(ChannelId channelId, MsgId itemId) {
 		if (!itemId) return nullptr;
 
-		auto data = fetchMsgsData(channelId, false);
+		const auto data = fetchMsgsData(channelId, false);
 		if (!data) return nullptr;
 
-		auto i = data->constFind(itemId);
-		if (i != data->cend()) {
-			return i.value();
-		}
-		return nullptr;
+		const auto i = data->constFind(itemId);
+		return (i != data->cend()) ? i.value() : nullptr;
 	}
 
 	HistoryItem *histItemById(const ChannelData *channel, MsgId itemId) {
@@ -617,6 +616,8 @@ namespace App {
 		prepareCorners(SelectedOverlayLargeCorners, st::historyMessageRadius, st::msgSelectOverlay);
 		prepareCorners(DateCorners, st::dateRadius, st::msgDateImgBg);
 		prepareCorners(DateSelectedCorners, st::dateRadius, st::msgDateImgBgSelected);
+		prepareCorners(OverviewVideoCorners, st::overviewVideoStatusRadius, st::msgDateImgBg);
+		prepareCorners(OverviewVideoSelectedCorners, st::overviewVideoStatusRadius, st::msgDateImgBgSelected);
 		prepareCorners(InShadowCorners, st::historyMessageRadius, st::msgInShadow);
 		prepareCorners(InSelectedShadowCorners, st::historyMessageRadius, st::msgInShadowSelected);
 		prepareCorners(ForwardCorners, st::historyMessageRadius, st::historyForwardChooseBg);
@@ -756,9 +757,6 @@ namespace App {
 			if (!Core::Sandbox::Instance().isSavingSession()) {
 				window->hide();
 			}
-		}
-		if (auto mainwidget = App::main()) {
-			mainwidget->saveDraftToCloud();
 		}
 		Core::Application::QuitAttempt();
 	}

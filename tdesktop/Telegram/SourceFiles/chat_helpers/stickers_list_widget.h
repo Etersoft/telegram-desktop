@@ -135,6 +135,7 @@ private:
 			MTPDstickerSet::Flags flags,
 			const QString &title,
 			const QString &shortName,
+			ImagePtr thumbnail,
 			bool externalLayout,
 			int count,
 			const Stickers::Pack &pack = Stickers::Pack());
@@ -146,6 +147,7 @@ private:
 		MTPDstickerSet::Flags flags = MTPDstickerSet::Flags();
 		QString title;
 		QString shortName;
+		ImagePtr thumbnail;
 		Stickers::Pack pack;
 		std::unique_ptr<Ui::RippleAnimation> ripple;
 		bool externalLayout = false;
@@ -199,7 +201,7 @@ private:
 
 	void paintFeaturedStickers(Painter &p, QRect clip);
 	void paintStickers(Painter &p, QRect clip);
-	void paintMegagroupEmptySet(Painter &p, int y, bool buttonSelected, TimeMs ms);
+	void paintMegagroupEmptySet(Painter &p, int y, bool buttonSelected, crl::time ms);
 	void paintSticker(Painter &p, Set &set, int y, int index, bool selected, bool deleteSelected);
 	void paintEmptySearchResults(Painter &p);
 

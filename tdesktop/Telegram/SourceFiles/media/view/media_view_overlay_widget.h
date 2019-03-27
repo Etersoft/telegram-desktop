@@ -9,10 +9,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "ui/rp_widget.h"
 #include "ui/widgets/dropdown_menu.h"
+#include "ui/effects/animations.h"
 #include "ui/effects/radial_animation.h"
 #include "data/data_shared_media.h"
 #include "data/data_user_photos.h"
 #include "data/data_web_page.h"
+#include "media/view/media_view_playback_controls.h"
 
 namespace Ui {
 class PopupMenu;
@@ -35,20 +37,33 @@ namespace Media {
 namespace Player {
 struct TrackState;
 } // namespace Player
-namespace Clip {
-class Controller;
-} // namespace Clip
+namespace Streaming {
+struct Information;
+struct Update;
+enum class Error;
+} // namespace Streaming
+} // namespace Media
+
+namespace Media {
 namespace View {
 
 class GroupThumbs;
 
 #if defined Q_OS_MAC && !defined OS_MAC_OLD
-using OverlayParent = Ui::RpWidgetWrap<QOpenGLWidget>;
-#else // Q_OS_MAC && !OS_MAC_OLD
-using OverlayParent = Ui::RpWidget;
+#define USE_OPENGL_OVERLAY_WIDGET
 #endif // Q_OS_MAC && !OS_MAC_OLD
 
-class OverlayWidget final : public OverlayParent, private base::Subscriber, public ClickHandlerHost {
+#ifdef USE_OPENGL_OVERLAY_WIDGET
+using OverlayParent = Ui::RpWidgetWrap<QOpenGLWidget>;
+#else // USE_OPENGL_OVERLAY_WIDGET
+using OverlayParent = Ui::RpWidget;
+#endif // USE_OPENGL_OVERLAY_WIDGET
+
+class OverlayWidget final
+	: public OverlayParent
+	, private base::Subscriber
+	, public ClickHandlerHost
+	, private PlaybackControls::Delegate {
 	Q_OBJECT
 
 public:
@@ -70,7 +85,6 @@ public:
 	void activateControls();
 	void onDocClick();
 
-	void clipCallback(Media::Clip::Notification notification);
 	PeerData *ui_getPeerForMouseAction();
 
 	void clearData();
@@ -97,6 +111,7 @@ private slots:
 	void onCopy();
 	void onMenuDestroy(QObject *obj);
 	void receiveMouse();
+	void onAttachedStickers();
 
 	void onDropdown();
 
@@ -104,14 +119,9 @@ private slots:
 
 	void updateImage();
 
-	void onVideoPauseResume();
-	void onVideoSeekProgress(TimeMs positionMs);
-	void onVideoSeekFinished(TimeMs positionMs);
-	void onVideoVolumeChanged(float64 volume);
-	void onVideoToggleFullScreen();
-	void onVideoPlayProgress(const AudioMsgId &audioId);
-
 private:
+	struct Streamed;
+
 	enum OverState {
 		OverNone,
 		OverLeftNav,
@@ -148,8 +158,23 @@ private:
 
 	void setVisibleHook(bool visible) override;
 
+	void playbackControlsPlay() override;
+	void playbackControlsPause() override;
+	void playbackControlsSeekProgress(crl::time position) override;
+	void playbackControlsSeekFinished(crl::time position) override;
+	void playbackControlsVolumeChanged(float64 volume) override;
+	float64 playbackControlsCurrentVolume() override;
+	void playbackControlsToFullScreen() override;
+	void playbackControlsFromFullScreen() override;
+	void playbackPauseResume();
+	void playbackToggleFullScreen();
+	void playbackPauseOnCall();
+	void playbackResumeOnCall();
+	void playbackPauseMusic();
+	void playbackWaitingChange(bool waiting);
+
 	void updateOver(QPoint mpos);
-	void moveToScreen();
+	void moveToScreen(bool force = false);
 	bool moveToNext(int delta);
 	void preloadData(int delta);
 
@@ -192,6 +217,7 @@ private:
 
 	Data::FileOrigin fileOrigin() const;
 
+	void refreshFromLabel(HistoryItem *item);
 	void refreshCaption(HistoryItem *item);
 	void refreshMediaViewer();
 	void refreshNavVisibility();
@@ -202,26 +228,31 @@ private:
 	void updateControls();
 	void updateActions();
 	void resizeCenteredControls();
+	void resizeContentByScreenSize();
+	void checkLoadingWhileStreaming();
 
 	void displayPhoto(not_null<PhotoData*> photo, HistoryItem *item);
 	void displayDocument(DocumentData *document, HistoryItem *item);
 	void displayFinished();
+	void redisplayContent();
 	void findCurrent();
 
 	void updateCursor();
 	void setZoomLevel(int newZoom);
 
-	void updateVideoPlaybackState(const Media::Player::TrackState &state);
-	void updateSilentVideoPlaybackState();
-	void restartVideoAtSeekPosition(TimeMs positionMs);
-	void toggleVideoPaused();
+	void updatePlaybackState();
+	void restartAtSeekPosition(crl::time position);
 
-	void createClipController();
 	void refreshClipControllerGeometry();
 	void refreshCaptionGeometry();
 
-	void initAnimation();
-	void createClipReader();
+	void initStreaming();
+	void initStreamingThumbnail();
+	void streamingReady(Streaming::Information &&info);
+	void createStreamingObjects();
+	void handleStreamingUpdate(Streaming::Update &&update);
+	void handleStreamingError(Streaming::Error &&error);
+	void validateStreamedGoodThumbnail();
 
 	void initThemePreview();
 	void destroyThemePreview();
@@ -230,25 +261,34 @@ private:
 	void documentUpdated(DocumentData *doc);
 	void changingMsgId(not_null<HistoryItem*> row, MsgId newId);
 
+	QRect contentRect() const;
+	void contentSizeChanged();
+
 	// Radial animation interface.
 	float64 radialProgress() const;
 	bool radialLoading() const;
 	QRect radialRect() const;
 	void radialStart();
-	TimeMs radialTimeShift() const;
+	crl::time radialTimeShift() const;
 
 	void updateHeader();
 	void snapXY();
 
-	void step_state(TimeMs ms, bool timer);
-	void step_radial(TimeMs ms, bool timer);
+	void step_state(crl::time ms);
+	void step_radial(crl::time ms, bool timer);
+	void step_waiting(crl::time ms, bool timer);
 
 	void zoomIn();
 	void zoomOut();
 	void zoomReset();
 	void zoomUpdate(int32 &newZoom);
 
-	void paintDocRadialLoading(Painter &p, bool radial, float64 radialOpacity);
+	void paintRadialLoading(Painter &p, bool radial, float64 radialOpacity);
+	void paintRadialLoadingContent(
+		Painter &p,
+		QRect inner,
+		bool radial,
+		float64 radialOpacity) const;
 	void paintThemePreview(Painter &p, QRect clip);
 
 	void updateOverRect(OverState state);
@@ -260,6 +300,17 @@ private:
 
 	void validatePhotoImage(Image *image, bool blurred);
 	void validatePhotoCurrentImage();
+
+	[[nodiscard]] bool videoShown() const;
+	[[nodiscard]] QSize videoSize() const;
+	[[nodiscard]] bool videoIsGifv() const;
+	[[nodiscard]] QImage videoFrame() const;
+	[[nodiscard]] QImage videoFrameForDirectPaint() const;
+	[[nodiscard]] QImage transformVideoFrame(QImage frame) const;
+	[[nodiscard]] bool documentContentShown() const;
+	[[nodiscard]] bool documentBubbleShown() const;
+	void paintTransformedVideoFrame(Painter &p);
+	void clearStreaming();
 
 	QBrush _transparentBrush;
 
@@ -284,12 +335,12 @@ private:
 	QString _dateText;
 	QString _headerText;
 
-	object_ptr<Media::Clip::Controller> _clipController = { nullptr };
-	DocumentData *_autoplayVideoDocument = nullptr;
+	bool _streamingStartPaused = false;
+	bool _streamingPauseMusic = false;
 	bool _fullScreenVideo = false;
 	int _fullScreenZoomCache = 0;
 
-	std::unique_ptr<Media::View::GroupThumbs> _groupThumbs;
+	std::unique_ptr<GroupThumbs> _groupThumbs;
 	QRect _groupThumbsRect;
 	int _groupThumbsAvailableWidth = 0;
 	int _groupThumbsLeft = 0;
@@ -297,9 +348,8 @@ private:
 	Text _caption;
 	QRect _captionRect;
 
-	TimeMs _animStarted;
-
 	int _width = 0;
+	int _height = 0;
 	int _x = 0, _y = 0, _w = 0, _h = 0;
 	int _xStart = 0, _yStart = 0;
 	int _zoom = 0; // < 0 - out, 0 - none, > 0 - in
@@ -308,21 +358,9 @@ private:
 	bool _pressed = false;
 	int32 _dragging = 0;
 	QPixmap _current;
-	Media::Clip::ReaderPointer _gif;
 	bool _blurred = true;
 
-	// Video without audio stream playback information.
-	bool _videoIsSilent = false;
-	bool _videoPaused = false;
-	bool _videoStopped = false;
-	TimeMs _videoPositionMs = 0;
-	TimeMs _videoDurationMs = 0;
-	int32 _videoFrequencyMs = 1000; // 1000 ms per second.
-
-	bool fileShown() const;
-	bool gifShown() const;
-	bool fileBubbleShown() const;
-	void stopGif();
+	std::unique_ptr<Streamed> _streamed;
 
 	const style::icon *_docIcon = nullptr;
 	style::color _docIconColor;
@@ -336,6 +374,7 @@ private:
 
 	QRect _photoRadialRect;
 	Ui::RadialAnimation _radial;
+	QImage _radialCache;
 
 	History *_migrated = nullptr;
 	History *_history = nullptr; // if conversation photos or files overview
@@ -349,7 +388,8 @@ private:
 	bool _firstOpenedPeerPhoto = false;
 
 	PeerData *_from = nullptr;
-	Text _fromName;
+	QString _fromName;
+	Text _fromNameLabel;
 
 	std::optional<int> _index; // Index in current _sharedMedia data.
 	std::optional<int> _fullIndex; // Index in full shared media.
@@ -365,7 +405,7 @@ private:
 	QPoint _lastAction, _lastMouseMovePos;
 	bool _ignoringDropdown = false;
 
-	BasicAnimation _a_state;
+	Ui::Animations::Basic _a_state;
 
 	enum ControlsState {
 		ControlsShowing,
@@ -374,7 +414,7 @@ private:
 		ControlsHidden,
 	};
 	ControlsState _controlsState = ControlsShown;
-	TimeMs _controlsAnimStarted = 0;
+	crl::time _controlsAnimStarted = 0;
 	QTimer _controlsHideTimer;
 	anim::value a_cOpacity;
 	bool _mousePressed = false;
@@ -397,13 +437,13 @@ private:
 	QPoint _accumScroll;
 
 	QString _saveMsgFilename;
-	TimeMs _saveMsgStarted = 0;
+	crl::time _saveMsgStarted = 0;
 	anim::value _saveMsgOpacity;
 	QRect _saveMsg;
 	QTimer _saveMsgUpdater;
 	Text _saveMsgText;
 
-	typedef QMap<OverState, TimeMs> Showing;
+	typedef QMap<OverState, crl::time> Showing;
 	Showing _animations;
 	typedef QMap<OverState, anim::value> ShowingOpacities;
 	ShowingOpacities _animOpacities;

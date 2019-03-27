@@ -20,7 +20,7 @@ public:
 		not_null<Element*> parent,
 		not_null<DocumentData*> document);
 
-	void draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const override;
+	void draw(Painter &p, const QRect &r, TextSelection selection, crl::time ms) const override;
 	TextState textState(QPoint point, StateRequest request) const override;
 	void updatePressed(QPoint point) override;
 
@@ -61,6 +61,12 @@ protected:
 	bool dataLoaded() const override;
 
 private:
+	struct StateFromPlayback {
+		int statusSize = 0;
+		bool showPause = false;
+		int realDuration = 0;
+	};
+
 	QSize countOptimalSize() override;
 	QSize countCurrentSize(int newWidth) override;
 
@@ -69,6 +75,12 @@ private:
 
 	void setStatusSize(int newSize, qint64 realDuration = 0) const;
 	bool updateStatusText() const; // returns showPause
+
+	[[nodiscard]] bool downloadInCorner() const;
+	void drawCornerDownload(Painter &p, bool selected) const;
+	[[nodiscard]] TextState cornerDownloadTextState(
+		QPoint point,
+		StateRequest request) const;
 
 	not_null<DocumentData*> _data;
 

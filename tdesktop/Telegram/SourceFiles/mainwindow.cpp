@@ -241,7 +241,12 @@ void MainWindow::setupMain() {
 }
 
 void MainWindow::showSettings() {
-	if (isHidden()) showFromTray();
+	if (isHidden()) {
+		showFromTray();
+	}
+	if (_passcodeLock) {
+		return;
+	}
 
 	if (const auto controller = this->controller()) {
 		controller->showSettings();
@@ -253,7 +258,9 @@ void MainWindow::showSettings() {
 void MainWindow::showSpecialLayer(
 		object_ptr<Window::LayerWidget> layer,
 		anim::type animated) {
-	if (_passcodeLock) return;
+	if (_passcodeLock) {
+		return;
+	}
 
 	if (layer) {
 		ensureLayerCreated();
@@ -302,13 +309,18 @@ void MainWindow::destroyLayer() {
 	if (!_layer) {
 		return;
 	}
-	const auto resetFocus = Ui::InFocusChain(_layer);
-	if (resetFocus) setFocus();
-	_layer = nullptr;
+	auto layer = base::take(_layer);
+	const auto resetFocus = Ui::InFocusChain(layer);
+	if (resetFocus) {
+		setFocus();
+	}
+	layer = nullptr;
 	if (controller()) {
 		controller()->disableGifPauseReason(Window::GifPauseReason::Layer);
 	}
-	if (resetFocus) setInnerFocus();
+	if (resetFocus) {
+		setInnerFocus();
+	}
 	InvokeQueued(this, [=] {
 		checkHistoryActivation();
 	});
@@ -484,7 +496,7 @@ bool MainWindow::eventFilter(QObject *object, QEvent *e) {
 
 	case QEvent::MouseMove: {
 		if (_main && _main->isIdle()) {
-			psUserActionDone();
+			Core::App().updateNonIdle();
 			_main->checkIdleFinish();
 		}
 	} break;
@@ -668,13 +680,13 @@ void MainWindow::toggleTray(QSystemTrayIcon::ActivationReason reason) {
 		} else {
 			showFromTray(reason);
 		}
-		_lastTrayClickTime = getms();
+		_lastTrayClickTime = crl::now();
 	}
 }
 
 bool MainWindow::skipTrayClick() const {
 	return (_lastTrayClickTime > 0)
-		&& (getms() - _lastTrayClickTime
+		&& (crl::now() - _lastTrayClickTime
 			< QApplication::doubleClickInterval());
 }
 

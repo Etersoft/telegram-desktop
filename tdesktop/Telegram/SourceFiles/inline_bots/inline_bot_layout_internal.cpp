@@ -15,8 +15,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat_helpers.h"
 #include "styles/style_widgets.h"
 #include "inline_bots/inline_bot_result.h"
-#include "media/media_audio.h"
-#include "media/media_clip_reader.h"
+#include "media/audio/media_audio.h"
+#include "media/clip/media_clip_reader.h"
 #include "media/player/media_player_instance.h"
 #include "history/history_location_manager.h"
 #include "history/view/history_view_cursor_state.h"
@@ -73,12 +73,8 @@ int FileBase::content_height() const {
 
 int FileBase::content_duration() const {
 	if (const auto document = getShownDocument()) {
-		if (document->duration() > 0) {
-			return document->duration();
-		} else if (const auto song = document->song()) {
-			if (song->duration) {
-				return song->duration;
-			}
+		if (document->getDuration() > 0) {
+			return document->getDuration();
 		}
 	}
 	return getResultDuration();
@@ -188,14 +184,14 @@ void Gif::paint(Painter &p, const QRect &clip, const PaintContext *context) cons
 		p.setOpacity(radialOpacity * p.opacity());
 
 		p.setOpacity(radialOpacity);
-		auto icon = ([loaded, radial, loading] {
-			if (loaded && !radial) {
-				return &st::historyFileInPlay;
-			} else if (radial || loading) {
+		auto icon = [&] {
+			if (radial || loading) {
 				return &st::historyFileInCancel;
+			} else if (loaded) {
+				return &st::historyFileInPlay;
 			}
 			return &st::historyFileInDownload;
-		})();
+		}();
 		QRect inner((_width - st::msgFileSize) / 2, (height - st::msgFileSize) / 2, st::msgFileSize, st::msgFileSize);
 		icon->paintInCenter(p, inner);
 		if (radial) {
@@ -329,14 +325,14 @@ void Gif::ensureAnimation() const {
 	}
 }
 
-bool Gif::isRadialAnimation(TimeMs ms) const {
+bool Gif::isRadialAnimation(crl::time ms) const {
 	if (!_animation || !_animation->radial.animating()) return false;
 
 	_animation->radial.step(ms);
 	return _animation && _animation->radial.animating();
 }
 
-void Gif::step_radial(TimeMs ms, bool timer) {
+void Gif::step_radial(crl::time ms, bool timer) {
 	const auto document = getShownDocument();
 	const auto updateRadial = [&] {
 		return _animation->radial.update(
@@ -778,11 +774,11 @@ void File::paint(Painter &p, const QRect &clip, const PaintContext *context) con
 		_animation->radial.draw(p, radialCircle, st::msgFileRadialLine, st::historyFileInRadialFg);
 	}
 
-	auto icon = ([&] {
-		if (showPause) {
-			return &st::historyFileInPause;
-		} else if (radial || _document->loading()) {
+	auto icon = [&] {
+		if (radial || _document->loading()) {
 			return &st::historyFileInCancel;
+		} else if (showPause) {
+			return &st::historyFileInPause;
 		} else if (true || _document->loaded()) {
 			if (_document->isImage()) {
 				return &st::historyFileInImage;
@@ -793,7 +789,7 @@ void File::paint(Painter &p, const QRect &clip, const PaintContext *context) con
 			return &st::historyFileInDocument;
 		}
 		return &st::historyFileInDownload;
-	})();
+	}();
 	icon->paintInCenter(p, inner);
 
 	int titleTop = st::inlineRowMargin + st::inlineRowFileNameTop;
@@ -849,7 +845,7 @@ void File::thumbAnimationCallback() {
 	update();
 }
 
-void File::step_radial(TimeMs ms, bool timer) {
+void File::step_radial(crl::time ms, bool timer) {
 	const auto updateRadial = [&] {
 		return _animation->radial.update(
 			_document->progress(),
@@ -894,32 +890,24 @@ bool File::updateStatusText() const {
 	} else if (_document->loading()) {
 		statusSize = _document->loadOffset();
 	} else if (_document->loaded()) {
-		using State = Media::Player::State;
-		if (_document->isVoiceMessage()) {
-			statusSize = FileStatusSizeLoaded;
-			auto state = Media::Player::mixer()->currentState(AudioMsgId::Type::Voice);
-			if (state.id == AudioMsgId(_document, FullMsgId()) && !Media::Player::IsStoppedOrStopping(state.state)) {
-				statusSize = -1 - (state.position / state.frequency);
-				realDuration = (state.length / state.frequency);
-				showPause = (state.state == State::Playing || state.state == State::Resuming || state.state == State::Starting);
-			}
-		} else if (_document->isAudioFile()) {
-			statusSize = FileStatusSizeLoaded;
-			auto state = Media::Player::mixer()->currentState(AudioMsgId::Type::Song);
-			if (state.id == AudioMsgId(_document, FullMsgId()) && !Media::Player::IsStoppedOrStopping(state.state)) {
-				statusSize = -1 - (state.position / state.frequency);
-				realDuration = (state.length / state.frequency);
-				showPause = (state.state == State::Playing || state.state == State::Resuming || state.state == State::Starting);
-			}
-			if (!showPause && (state.id == AudioMsgId(_document, FullMsgId())) && Media::Player::instance()->isSeeking(AudioMsgId::Type::Song)) {
-				showPause = true;
-			}
-		} else {
-			statusSize = FileStatusSizeLoaded;
-		}
+		statusSize = FileStatusSizeLoaded;
 	} else {
 		statusSize = FileStatusSizeReady;
 	}
+
+	if (_document->isVoiceMessage() || _document->isAudioFile()) {
+		const auto type = _document->isVoiceMessage() ? AudioMsgId::Type::Voice : AudioMsgId::Type::Song;
+		const auto state = Media::Player::instance()->getState(type);
+		if (state.id == AudioMsgId(_document, FullMsgId(), state.id.externalPlayId()) && !Media::Player::IsStoppedOrStopping(state.state)) {
+			statusSize = -1 - (state.position / state.frequency);
+			realDuration = (state.length / state.frequency);
+			showPause = Media::Player::ShowPauseIcon(state.state);
+		}
+		if (!showPause && (state.id == AudioMsgId(_document, FullMsgId(), state.id.externalPlayId())) && Media::Player::instance()->isSeeking(AudioMsgId::Type::Song)) {
+			showPause = true;
+		}
+	}
+
 	if (statusSize != _statusSize) {
 		int32 duration = _document->isSong()
 			? _document->song()->duration
@@ -1372,14 +1360,14 @@ void Game::validateThumbnail(Image *image, QSize size, bool good) const {
 		size.height());
 }
 
-bool Game::isRadialAnimation(TimeMs ms) const {
+bool Game::isRadialAnimation(crl::time ms) const {
 	if (!_radial || !_radial->animating()) return false;
 
 	_radial->step(ms);
 	return _radial && _radial->animating();
 }
 
-void Game::step_radial(TimeMs ms, bool timer) {
+void Game::step_radial(crl::time ms, bool timer) {
 	const auto document = getResultDocument();
 	const auto updateRadial = [&] {
 		return _radial->update(

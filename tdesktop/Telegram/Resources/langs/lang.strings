@@ -359,6 +359,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_settings_calls_peer_to_peer" = "Peer-to-peer in calls";
 "lng_settings_groups_invite" = "Groups";
 "lng_settings_group_privacy_about" = "Change who can add you to groups and channels.";
+"lng_settings_forwards_privacy" = "Forwarded messages";
+"lng_settings_profile_photo_privacy" = "Profile photo";
 "lng_settings_sessions_about" = "Control your sessions on other devices.";
 "lng_settings_passcode_disable" = "Disable passcode";
 "lng_settings_password_disable" = "Disable cloud password";
@@ -436,7 +438,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_local_storage_round#other" = "{count} video messages";
 "lng_local_storage_animation#one" = "{count} animation";
 "lng_local_storage_animation#other" = "{count} animations";
+"lng_local_storage_media" = "Media cache";
 "lng_local_storage_size_limit" = "Total size limit: {size}";
+"lng_local_storage_media_limit" = "Media cache limit: {size}";
 "lng_local_storage_time_limit" = "Clear files older than: {limit}";
 "lng_local_storage_limit_weeks#one" = "{count} week";
 "lng_local_storage_limit_weeks#other" = "{count} weeks";
@@ -638,6 +642,27 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_edit_privacy_calls_p2p_contacts" = "My contacts";
 "lng_edit_privacy_calls_p2p_nobody" = "Nobody";
 
+"lng_edit_privacy_forwards_title" = "Forwarded messages privacy";
+"lng_edit_privacy_forwards_header" = "Who can add link to my account when forwarding my messages";
+"lng_edit_privacy_forwards_warning" = "When forwarded to other chats, messages you send will not link back to your account.";
+"lng_edit_privacy_forwards_always_empty" = "Always allow";
+"lng_edit_privacy_forwards_never_empty" = "Never allow";
+"lng_edit_privacy_forwards_exceptions" = "These settings will override the values above.";
+"lng_edit_privacy_forwards_always_title" = "Always allow";
+"lng_edit_privacy_forwards_never_title" = "Never allow";
+"lng_edit_privacy_forwards_sample_message" = "Reinhardt, we need to find you some new tunes 🎶";
+"lng_edit_privacy_forwards_sample_everyone" = "Link to your account.";
+"lng_edit_privacy_forwards_sample_contacts" = "Link if allowed by settings below.";
+"lng_edit_privacy_forwards_sample_nobody" = "Not a link to your account.";
+
+"lng_edit_privacy_profile_photo_title" = "Profile photo privacy";
+"lng_edit_privacy_profile_photo_header" = "Who can see my profile photo";
+"lng_edit_privacy_profile_photo_always_empty" = "Always allow";
+"lng_edit_privacy_profile_photo_never_empty" = "Never allow";
+"lng_edit_privacy_profile_photo_exceptions" = "These settings will override the values above.";
+"lng_edit_privacy_profile_photo_always_title" = "Always allow";
+"lng_edit_privacy_profile_photo_never_title" = "Never allow";
+
 "lng_self_destruct_title" = "Account self-destruction";
 "lng_self_destruct_description" = "If you don't come online at least once within this period, your account will be deleted along with all groups, messages and contacts.";
 "lng_self_destruct_months#one" = "{count} month";
@@ -801,6 +826,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_manage_peer_exceptions" = "Exceptions";
 "lng_manage_peer_removed_users" = "Removed users";
 "lng_manage_peer_permissions" = "Permissions";
+
+"lng_manage_peer_group_type" = "Group type";
+"lng_manage_peer_channel_type" = "Channel type";
+"lng_manage_private_peer_title" = "Private";
+"lng_manage_public_peer_title" = "Public";
+
 "lng_manage_history_visibility_title" = "Chat history for new members";
 "lng_manage_history_visibility_shown" = "Visible";
 "lng_manage_history_visibility_shown_about" = "New members will see messages that were sent before they joined.";
@@ -814,6 +845,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_report_message_title" = "Report message";
 "lng_report_reason_spam" = "Spam";
 "lng_report_reason_violence" = "Violence";
+"lng_report_reason_child_abuse" = "Child Abuse";
 "lng_report_reason_pornography" = "Pornography";
 "lng_report_reason_other" = "Other";
 "lng_report_reason_description" = "Description";
@@ -857,6 +889,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_create_private_group_title" = "Private Group";
 "lng_create_private_group_about" = "People can only join if they were invited or have an invite link";
 "lng_create_group_skip" = "Skip";
+
+"lng_create_channel_link_about" = "You can use a-z, 0-9 and underscores.\nMinimum length is 5 characters.";
 
 "lng_create_channel_link_invalid" = "This link is invalid";
 "lng_create_channel_link_occupied" = "Sorry, this link is already occupied";
@@ -1000,6 +1034,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_forwarded_via" = "Forwarded from {user} via {inline_bot}";
 "lng_forwarded_channel_via" = "Forwarded from {channel} via {inline_bot}";
 "lng_forwarded_signed" = "{channel} ({user})";
+"lng_forwarded_hidden" = "The account was hidden by the user.";
+"lng_signed_author" = "Author: {user}";
 "lng_in_reply_to" = "In reply to";
 "lng_edited" = "edited";
 "lng_edited_date" = "Edited: {date}";
@@ -1094,6 +1130,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_stickers_count#one" = "{count} sticker";
 "lng_stickers_count#other" = "{count} stickers";
 "lng_stickers_masks_pack" = "This is a pack of mask stickers. You can use them in the photo editor on our mobile apps.";
+"lng_stickers_attached_sets" = "Sets of attached stickers";
 "lng_stickers_group_set" = "Group sticker set";
 "lng_stickers_remove_group_set" = "Remove group sticker set?";
 "lng_stickers_group_from_your" = "Choose from your stickers";
@@ -1255,6 +1292,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_context_copy_text" = "Copy Text";
 "lng_context_open_gif" = "Open GIF";
 "lng_context_save_gif" = "Save GIF";
+"lng_context_attached_stickers" = "Attached Stickers";
 "lng_context_to_msg" = "Go To Message";
 "lng_context_reply_msg" = "Reply";
 "lng_context_edit_msg" = "Edit";
@@ -1353,8 +1391,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_delete_for_me_chat_hint#other" = "This will delete them just for you, not for other participants of the chat.";
 "lng_delete_for_me_hint#one" = "This will delete it just for you.";
 "lng_delete_for_me_hint#other" = "This will delete them just for you.";
+"lng_selected_unsend_about_user_one" = "You can also delete the message you sent from {user}'s inbox by checking \"Unsend my messages\".";
+"lng_selected_unsend_about_user#one" = "You can also delete the {count} message you sent from {user}'s inbox by checking \"Unsend my messages\".";
+"lng_selected_unsend_about_user#other" = "You can also delete the {count} messages you sent from {user}'s inbox by checking \"Unsend my messages\".";
+"lng_selected_unsend_about_group_one" = "You can also delete the message you sent from the inboxes of other group members by checking \"Unsend my messages\".";
+"lng_selected_unsend_about_group#one" = "You can also delete the {count} message you sent from the inboxes of other group members by checking \"Unsend my messages\".";
+"lng_selected_unsend_about_group#other" = "You can also delete the {count} messages you sent from the inboxes of other group members by checking \"Unsend my messages\".";
 "lng_delete_for_everyone_check" = "Delete for everyone";
-"lng_delete_for_other_check" = "Delete for {user}";
+"lng_delete_for_other_check" = "Also delete for {user}";
+"lng_delete_for_other_my" = "Unsend my messages";
 "lng_box_delete" = "Delete";
 "lng_box_leave" = "Leave";
 
@@ -1409,7 +1454,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_menu_formatting_link_edit" = "Edit link";
 "lng_menu_formatting_clear" = "Plain text";
 "lng_formatting_link_create_title" = "Create link";
-"lng_formatting_link_edit_title" = "Create link";
+"lng_formatting_link_edit_title" = "Edit link";
 "lng_formatting_link_text" = "Text";
 "lng_formatting_link_url" = "URL";
 "lng_formatting_link_create" = "Create";
@@ -1487,6 +1532,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_player_message_today" = "Today at {time}";
 "lng_player_message_yesterday" = "Yesterday at {time}";
 "lng_player_message_date" = "{date} at {time}";
+//"lng_player_cant_stream" = "This file can't be played before it is fully downloaded.\n\nWould you like to download it?";
+"lng_player_download" = "Download";
 
 "lng_rights_edit_admin" = "Manage permissions";
 "lng_rights_edit_admin_header" = "What can this admin do?";

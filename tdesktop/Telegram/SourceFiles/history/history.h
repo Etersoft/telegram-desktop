@@ -216,10 +216,10 @@ public:
 	void setHasPendingResizedItems();
 
 	bool mySendActionUpdated(SendAction::Type type, bool doing);
-	bool paintSendAction(Painter &p, int x, int y, int availableWidth, int outerWidth, style::color color, TimeMs ms);
+	bool paintSendAction(Painter &p, int x, int y, int availableWidth, int outerWidth, style::color color, crl::time ms);
 
 	// Interface for Histories
-	bool updateSendActionNeedsAnimating(TimeMs ms, bool force = false);
+	bool updateSendActionNeedsAnimating(crl::time ms, bool force = false);
 	bool updateSendActionNeedsAnimating(
 		not_null<UserData*> user,
 		const MTPSendMessageAction &action);
@@ -257,7 +257,6 @@ public:
 	}
 	void setLocalDraft(std::unique_ptr<Data::Draft> &&draft);
 	void takeLocalDraft(History *from);
-	void createLocalDraftFromCloud();
 	void setCloudDraft(std::unique_ptr<Data::Draft> &&draft);
 	Data::Draft *createCloudDraft(const Data::Draft *fromDraft);
 	bool skipCloudDraft(const QString &text, MsgId replyTo, TimeId date) const;
@@ -266,6 +265,7 @@ public:
 	void setEditDraft(std::unique_ptr<Data::Draft> &&draft);
 	void clearLocalDraft();
 	void clearCloudDraft();
+	void applyCloudDraft();
 	void clearEditDraft();
 	void draftSavedToCloud();
 	Data::Draft *draft() {
@@ -448,6 +448,8 @@ private:
 
 	void viewReplaced(not_null<const Element*> was, Element *now);
 
+	void createLocalDraftFromCloud();
+
 	not_null<Data::Session*> _owner;
 	Flags _flags = 0;
 	bool _mute = false;
@@ -488,14 +490,14 @@ private:
 	TimeId _lastSentDraftTime = 0;
 	MessageIdsList _forwardDraft;
 
-	using TypingUsers = QMap<UserData*, TimeMs>;
+	using TypingUsers = QMap<UserData*, crl::time>;
 	TypingUsers _typing;
 	using SendActionUsers = QMap<UserData*, SendAction>;
 	SendActionUsers _sendActions;
 	QString _sendActionString;
 	Text _sendActionText;
 	Ui::SendActionAnimation _sendActionAnimation;
-	QMap<SendAction::Type, TimeMs> _mySendActions;
+	QMap<SendAction::Type, crl::time> _mySendActions;
 
 	std::weak_ptr<AdminLog::LocalIdManager> _adminLogIdManager;
 

@@ -135,7 +135,7 @@ auto _monitorLastGot = 0LL;
 } // namespace
 
 QRect psDesktopRect() {
-	auto tnow = getms();
+	auto tnow = crl::now();
 	if (tnow > _monitorLastGot + 1000LL || tnow < _monitorLastGot) {
 		_monitorLastGot = tnow;
 		_monitorRect = QApplication::desktop()->availableGeometry(App::wnd());
@@ -191,24 +191,6 @@ bool _removeDirectory(const QString &path) { // from http://stackoverflow.com/qu
 
 void psDeleteDir(const QString &dir) {
 	_removeDirectory(dir);
-}
-
-namespace {
-
-auto _lastUserAction = 0LL;
-
-} // namespace
-
-void psUserActionDone() {
-	_lastUserAction = getms(true);
-}
-
-bool psIdleSupported() {
-	return false;
-}
-
-TimeMs psIdleTime() {
-	return getms(true) - _lastUserAction;
 }
 
 void psActivateProcess(uint64 pid) {
@@ -279,24 +261,22 @@ void finish() {
 }
 
 bool TranslucentWindowsSupported(QPoint globalPosition) {
-	if (auto app = static_cast<QGuiApplication*>(QCoreApplication::instance())) {
-		if (auto native = app->platformNativeInterface()) {
-			if (auto desktop = QApplication::desktop()) {
-				auto index = desktop->screenNumber(globalPosition);
-				auto screens = QGuiApplication::screens();
-				if (auto screen = (index >= 0 && index < screens.size()) ? screens[index] : QGuiApplication::primaryScreen()) {
-					if (native->nativeResourceForScreen(QByteArray("compositingEnabled"), screen)) {
-						return true;
-					}
-
-					static OrderedSet<int> WarnedAbout;
-					if (!WarnedAbout.contains(index)) {
-						WarnedAbout.insert(index);
-						LOG(("WARNING: Compositing is disabled for screen index %1 (for position %2,%3)").arg(index).arg(globalPosition.x()).arg(globalPosition.y()));
-					}
-				} else {
-					LOG(("WARNING: Could not get screen for index %1 (for position %2,%3)").arg(index).arg(globalPosition.x()).arg(globalPosition.y()));
+	if (const auto native = QGuiApplication::platformNativeInterface()) {
+		if (const auto desktop = QApplication::desktop()) {
+			const auto index = desktop->screenNumber(globalPosition);
+			const auto screens = QGuiApplication::screens();
+			if (const auto screen = (index >= 0 && index < screens.size()) ? screens[index] : QGuiApplication::primaryScreen()) {
+				if (native->nativeResourceForScreen(QByteArray("compositingEnabled"), screen)) {
+					return true;
 				}
+
+				static auto WarnedAbout = base::flat_set<int>();
+				if (!WarnedAbout.contains(index)) {
+					WarnedAbout.insert(index);
+					LOG(("WARNING: Compositing is disabled for screen index %1 (for position %2,%3)").arg(index).arg(globalPosition.x()).arg(globalPosition.y()));
+				}
+			} else {
+				LOG(("WARNING: Could not get screen for index %1 (for position %2,%3)").arg(index).arg(globalPosition.x()).arg(globalPosition.y()));
 			}
 		}
 	}

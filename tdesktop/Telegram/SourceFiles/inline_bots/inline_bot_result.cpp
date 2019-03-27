@@ -265,11 +265,9 @@ bool Result::onChoose(Layout::ItemBase *layout) {
 			} else if (_document->loading()) {
 				_document->cancel();
 			} else {
-				DocumentOpenClickHandler::Open(
+				_document->save(
 					Data::FileOriginSavedGifs(),
-					_document,
-					nullptr,
-					ActionOnLoadNone);
+					QString());
 			}
 			return false;
 		}
@@ -319,7 +317,7 @@ bool Result::hasThumbDisplay() const {
 void Result::addToHistory(History *history, MTPDmessage::Flags flags, MsgId msgId, UserId fromId, MTPint mtpDate, UserId viaBotId, MsgId replyToId, const QString &postAuthor) const {
 	flags |= MTPDmessage_ClientFlag::f_from_inline_bot;
 
-	MTPReplyMarkup markup = MTPnullMarkup;
+	auto markup = MTPReplyMarkup();
 	if (_mtpKeyboard) {
 		flags |= MTPDmessage::Flag::f_reply_markup;
 		markup = *_mtpKeyboard;

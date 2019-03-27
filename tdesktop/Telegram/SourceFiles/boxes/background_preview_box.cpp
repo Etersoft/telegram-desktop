@@ -40,7 +40,7 @@ public:
 		int left,
 		int top,
 		int outerWidth,
-		TimeMs ms) override;
+		crl::time ms) override;
 	QImage prepareRippleMask() const override;
 	bool checkRippleStartPosition(QPoint position) const override;
 
@@ -242,7 +242,7 @@ void ServiceCheck::paint(
 		int left,
 		int top,
 		int outerWidth,
-		TimeMs ms) {
+		crl::time ms) {
 	Frames().paintFrame(
 		p,
 		left + _st.margin.left(),
@@ -390,18 +390,22 @@ BackgroundPreviewBox::BackgroundPreviewBox(
 	QWidget*,
 	const Data::WallPaper &paper)
 : _text1(GenerateTextItem(
-	this,
-	Auth().data().history(peerFromUser(ServiceUserId)),
+	delegate(),
+	Auth().data().history(peerFromUser(PeerData::kServiceNotificationsId)),
 	lang(lng_background_text1),
 	false))
 , _text2(GenerateTextItem(
-	this,
-	Auth().data().history(peerFromUser(ServiceUserId)),
+	delegate(),
+	Auth().data().history(peerFromUser(PeerData::kServiceNotificationsId)),
 	lang(lng_background_text2),
 	true))
 , _paper(paper)
 , _radial(animation(this, &BackgroundPreviewBox::step_radial)) {
 	subscribe(Auth().downloaderTaskFinished(), [=] { update(); });
+}
+
+not_null<HistoryView::ElementDelegate*> BackgroundPreviewBox::delegate() {
+	return static_cast<HistoryView::ElementDelegate*>(this);
 }
 
 void BackgroundPreviewBox::prepare() {
@@ -496,7 +500,7 @@ void BackgroundPreviewBox::share() {
 void BackgroundPreviewBox::paintEvent(QPaintEvent *e) {
 	Painter p(this);
 
-	const auto ms = getms();
+	const auto ms = crl::now();
 	const auto color = _paper.backgroundColor();
 	if (color) {
 		p.fillRect(e->rect(), *color);
@@ -516,7 +520,7 @@ void BackgroundPreviewBox::paintEvent(QPaintEvent *e) {
 	paintTexts(p, ms);
 }
 
-void BackgroundPreviewBox::paintImage(Painter &p, TimeMs ms) {
+void BackgroundPreviewBox::paintImage(Painter &p, crl::time ms) {
 	Expects(!_scaled.isNull());
 
 	const auto master = _paper.isPattern()
@@ -544,7 +548,7 @@ void BackgroundPreviewBox::paintImage(Painter &p, TimeMs ms) {
 	checkBlurAnimationStart();
 }
 
-void BackgroundPreviewBox::paintRadial(Painter &p, TimeMs ms) {
+void BackgroundPreviewBox::paintRadial(Painter &p, crl::time ms) {
 	bool radial = false;
 	float64 radialOpacity = 0;
 	if (_radial.animating()) {
@@ -588,7 +592,7 @@ QRect BackgroundPreviewBox::radialRect() const {
 		st::radialSize);
 }
 
-void BackgroundPreviewBox::paintTexts(Painter &p, TimeMs ms) {
+void BackgroundPreviewBox::paintTexts(Painter &p, crl::time ms) {
 	const auto height1 = _text1->height();
 	const auto height2 = _text2->height();
 	p.translate(0, textsTop());
@@ -619,7 +623,7 @@ void BackgroundPreviewBox::paintDate(Painter &p) {
 	p.drawText(bubbleLeft + st::msgServicePadding.left(), bubbleTop + st::msgServicePadding.top() + st::msgServiceFont->ascent, text);
 }
 
-void BackgroundPreviewBox::step_radial(TimeMs ms, bool timer) {
+void BackgroundPreviewBox::step_radial(crl::time ms, bool timer) {
 	Expects(_paper.document() != nullptr);
 
 	const auto document = _paper.document();
@@ -702,7 +706,7 @@ void BackgroundPreviewBox::checkLoadedDocument() {
 	const auto document = _paper.document();
 	if (!_full.isNull()
 		|| !document
-		|| !document->loaded(DocumentData::FilePathResolveChecked)
+		|| !document->loaded(DocumentData::FilePathResolve::Checked)
 		|| _generating) {
 		return;
 	}
@@ -716,22 +720,18 @@ void BackgroundPreviewBox::checkLoadedDocument() {
 			guard = std::move(right)
 		]() mutable {
 			auto scaled = PrepareScaledFromFull(image, patternBackground);
-			const auto ms = getms();
+			const auto ms = crl::now();
 			auto blurred = patternBackground
 				? QImage()
 				: PrepareScaledNonPattern(
 					Data::PrepareBlurredBackground(image),
 					Images::Option(0));
-			crl::on_main([
+			crl::on_main(std::move(guard), [
 				this,
 				image = std::move(image),
 				scaled = std::move(scaled),
-				blurred = std::move(blurred),
-				guard = std::move(guard)
+				blurred = std::move(blurred)
 			]() mutable {
-				if (!guard) {
-					return;
-				}
 				_full = std::move(image);
 				setScaledFromImage(std::move(scaled), std::move(blurred));
 				update();
@@ -769,7 +769,7 @@ HistoryView::Context BackgroundPreviewBox::elementContext() {
 
 std::unique_ptr<HistoryView::Element> BackgroundPreviewBox::elementCreate(
 		not_null<HistoryMessage*> message) {
-	return std::make_unique<HistoryView::Message>(this, message);
+	return std::make_unique<HistoryView::Message>(delegate(), message);
 }
 
 std::unique_ptr<HistoryView::Element> BackgroundPreviewBox::elementCreate(
@@ -786,9 +786,9 @@ void BackgroundPreviewBox::elementAnimationAutoplayAsync(
 	not_null<const Element*> element) {
 }
 
-TimeMs BackgroundPreviewBox::elementHighlightTime(
+crl::time BackgroundPreviewBox::elementHighlightTime(
 		not_null<const Element*> element) {
-	return TimeMs();
+	return crl::time(0);
 }
 
 bool BackgroundPreviewBox::elementInSelectionMode() {

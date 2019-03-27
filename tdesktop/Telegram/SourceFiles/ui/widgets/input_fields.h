@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "ui/rp_widget.h"
+#include "ui/effects/animations.h"
 #include "styles/style_widgets.h"
 
 class UserData;
@@ -110,8 +111,8 @@ private:
 
 	bool _focused = false;
 	bool _placeholderVisible = true;
-	Animation _a_placeholderFocused;
-	Animation _a_placeholderVisible;
+	Animations::Simple _a_placeholderFocused;
+	Animations::Simple _a_placeholderVisible;
 	bool _lastPreEditTextNotEmpty = false;
 
 	const style::FlatInput &_st;
@@ -579,14 +580,14 @@ protected:
 	}
 	void setCorrectedText(QString &now, int &nowCursor, const QString &newText, int newPos);
 
-	virtual void paintAdditionalPlaceholder(Painter &p, TimeMs ms) {
+	virtual void paintAdditionalPlaceholder(Painter &p, crl::time ms) {
 	}
 
 	style::font phFont() {
 		return _st.font;
 	}
 
-	void placeholderAdditionalPrepare(Painter &p, TimeMs ms);
+	void placeholderAdditionalPrepare(Painter &p, crl::time ms);
 	QRect placeholderRect() const;
 
 	void setTextMargins(const QMargins &mrg);
@@ -684,7 +685,7 @@ protected:
 		int wasCursor,
 		QString &now,
 		int &nowCursor) override;
-	void paintAdditionalPlaceholder(Painter &p, TimeMs ms) override;
+	void paintAdditionalPlaceholder(Painter &p, crl::time ms) override;
 
 private:
 	QVector<int> _pattern;
@@ -736,7 +737,7 @@ protected:
 		int wasCursor,
 		QString &now,
 		int &nowCursor) override;
-	void paintAdditionalPlaceholder(Painter &p, TimeMs ms) override;
+	void paintAdditionalPlaceholder(Painter &p, crl::time ms) override;
 
 private:
 	QString _linkPlaceholder;
@@ -757,7 +758,7 @@ protected:
 		int wasCursor,
 		QString &now,
 		int &nowCursor) override;
-	void paintAdditionalPlaceholder(Painter &p, TimeMs ms) override;
+	void paintAdditionalPlaceholder(Painter &p, crl::time ms) override;
 
 private:
 	QVector<int> _pattern;

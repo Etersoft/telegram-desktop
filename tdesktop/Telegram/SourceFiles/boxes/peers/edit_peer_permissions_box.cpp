@@ -18,7 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_icon.h"
 #include "info/profile/info_profile_values.h"
 #include "boxes/peers/edit_participants_box.h"
-#include "boxes/peers/manage_peer_box.h"
+#include "boxes/peers/edit_peer_info_box.h"
 #include "window/window_controller.h"
 #include "mainwindow.h"
 #include "styles/style_boxes.h"
@@ -71,7 +71,8 @@ void ApplyDependencies(
 		return result;
 	};
 
-	while (true) {
+	const auto maxFixesCount = int(checkboxes.size());
+	for (auto i = 0; i != maxFixesCount; ++i) {
 		if (!applySomeDependency()) {
 			break;
 		}
@@ -79,21 +80,24 @@ void ApplyDependencies(
 }
 
 std::vector<std::pair<ChatRestrictions, LangKey>> RestrictionLabels() {
-	using Flag = ChatRestriction;
-
-	return {
-		{ Flag::f_send_messages, lng_rights_chat_send_text },
-		{ Flag::f_send_media, lng_rights_chat_send_media },
-		{ Flag::f_send_stickers
-		| Flag::f_send_gifs
-		| Flag::f_send_games
-		| Flag::f_send_inline, lng_rights_chat_send_stickers },
-		{ Flag::f_embed_links, lng_rights_chat_send_links },
-		{ Flag::f_send_polls, lng_rights_chat_send_polls },
-		{ Flag::f_invite_users, lng_rights_chat_add_members },
-		{ Flag::f_pin_messages, lng_rights_group_pin },
-		{ Flag::f_change_info, lng_rights_group_info },
+	const auto langKeys = {
+		lng_rights_chat_send_text,
+		lng_rights_chat_send_media,
+		lng_rights_chat_send_stickers,
+		lng_rights_chat_send_links,
+		lng_rights_chat_send_polls,
+		lng_rights_chat_add_members,
+		lng_rights_group_pin,
+		lng_rights_group_info,
 	};
+
+	std::vector<std::pair<ChatRestrictions, LangKey>> vector;
+	const auto restrictions = Data::ListOfRestrictions();
+	auto i = 0;
+	for (const auto key : langKeys) {
+		vector.push_back({restrictions[i++], key});
+	}
+	return vector;
 }
 
 std::vector<std::pair<ChatAdminRights, LangKey>> AdminRightLabels(
@@ -142,10 +146,10 @@ auto Dependencies(ChatRestrictions)
 		{ Flag::f_send_stickers, Flag::f_send_inline },
 
 		// stickers -> send_media
-		{ Flag::f_send_stickers, Flag::f_send_media },
+		{ Flag::f_send_stickers, Flag::f_send_messages },
 
 		// embed_links -> send_media
-		{ Flag::f_embed_links, Flag::f_send_media },
+		{ Flag::f_embed_links, Flag::f_send_messages },
 
 		// send_media -> send_messages
 		{ Flag::f_send_media, Flag::f_send_messages },
@@ -220,14 +224,14 @@ ChatAdminRights DisabledByDefaultRestrictions(not_null<PeerData*> peer) {
 	using Flag = ChatAdminRight;
 	using Restriction = ChatRestriction;
 
-	const auto restrictions = [&] {
+	const auto restrictions = FixDependentRestrictions([&] {
 		if (const auto chat = peer->asChat()) {
 			return chat->defaultRestrictions();
 		} else if (const auto channel = peer->asChannel()) {
 			return channel->defaultRestrictions();
 		}
 		Unexpected("User in DisabledByDefaultRestrictions.");
-	}();
+	}());
 	return Flag(0)
 		| ((restrictions & Restriction::f_pin_messages)
 			? Flag(0)
@@ -244,6 +248,32 @@ ChatAdminRights DisabledByDefaultRestrictions(not_null<PeerData*> peer) {
 		| ((restrictions & Restriction::f_change_info)
 			? Flag(0)
 			: Flag::f_change_info);
+}
+
+ChatRestrictions FixDependentRestrictions(ChatRestrictions restrictions) {
+	const auto &dependencies = Dependencies(restrictions);
+
+	// Fix iOS bug of saving send_inline like embed_links.
+	// We copy send_stickers to send_inline.
+	if (restrictions & ChatRestriction::f_send_stickers) {
+		restrictions |= ChatRestriction::f_send_inline;
+	} else {
+		restrictions &= ~ChatRestriction::f_send_inline;
+	}
+
+	// Apply the strictest.
+	const auto fixOne = [&] {
+		for (const auto [first, second] : dependencies) {
+			if ((restrictions & second) && !(restrictions & first)) {
+				restrictions |= first;
+				return true;
+			}
+		}
+		return false;
+	};
+	while (fixOne()) {
+	}
+	return restrictions;
 }
 
 EditPeerPermissionsBox::EditPeerPermissionsBox(
@@ -268,7 +298,7 @@ void EditPeerPermissionsBox::prepare() {
 	using Flags = ChatRestrictions;
 
 	const auto disabledByAdminRights = DisabledByAdminRights(_peer);
-	const auto restrictions = [&] {
+	const auto restrictions = FixDependentRestrictions([&] {
 		if (const auto chat = _peer->asChat()) {
 			return chat->defaultRestrictions()
 				| disabledByAdminRights;
@@ -280,7 +310,7 @@ void EditPeerPermissionsBox::prepare() {
 				| disabledByAdminRights;
 		}
 		Unexpected("User in EditPeerPermissionsBox.");
-	}();
+	}());
 	const auto disabledMessages = [&] {
 		auto result = std::map<Flags, QString>();
 			result.emplace(
@@ -327,7 +357,7 @@ void EditPeerPermissionsBox::addBannedButtons(
 		{ 0, st::infoProfileSkip, 0, st::infoProfileSkip });
 
 	const auto navigation = App::wnd()->controller();
-	ManagePeerBox::CreateButton(
+	EditPeerInfoBox::CreateButton(
 		container,
 		Lang::Viewer(lng_manage_peer_exceptions),
 		(channel
@@ -341,7 +371,7 @@ void EditPeerPermissionsBox::addBannedButtons(
 		},
 		st::peerPermissionsButton);
 	if (channel) {
-		ManagePeerBox::CreateButton(
+		EditPeerInfoBox::CreateButton(
 			container,
 			Lang::Viewer(lng_manage_peer_removed_users),
 			Info::Profile::KickedCountValue(channel)

@@ -9,7 +9,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "apiwrap.h"
 #include "core/application.h"
-#include "core/sandbox.h"
 #include "core/changelogs.h"
 #include "storage/file_download.h"
 #include "storage/file_upload.h"
@@ -32,7 +31,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace {
 
-constexpr auto kAutoLockTimeoutLateMs = TimeMs(3000);
+constexpr auto kAutoLockTimeoutLateMs = crl::time(3000);
 constexpr auto kLegacyCallsPeerToPeerNobody = 4;
 
 } // namespace
@@ -430,8 +429,7 @@ AuthSession::AuthSession(const MTPUser &user)
 }
 
 bool AuthSession::Exists() {
-	return Core::Sandbox::Instance().applicationLaunched()
-		&& (Core::App().authSession() != nullptr);
+	return Core::IsAppLaunched() && (Core::App().authSession() != nullptr);
 }
 
 base::Observable<void> &AuthSession::downloaderTaskFinished() {
@@ -470,25 +468,33 @@ void AuthSession::moveSettingsFrom(AuthSessionSettings &&other) {
 	}
 }
 
-void AuthSession::saveSettingsDelayed(TimeMs delay) {
+void AuthSession::saveSettingsDelayed(crl::time delay) {
 	Expects(this == &Auth());
 
 	_saveDataTimer.callOnce(delay);
 }
 
+void AuthSession::localPasscodeChanged() {
+	_shouldLockAt = 0;
+	_autoLockTimer.cancel();
+	checkAutoLock();
+}
+
 void AuthSession::checkAutoLock() {
 	if (!Global::LocalPasscode()
 		|| Core::App().passcodeLocked()) {
+		_shouldLockAt = 0;
+		_autoLockTimer.cancel();
 		return;
 	}
 
 	Core::App().checkLocalTime();
-	auto now = getms(true);
-	auto shouldLockInMs = Global::AutoLock() * 1000LL;
-	auto idleForMs = psIdleTime();
-	auto notPlayingVideoForMs = now - settings().lastTimeVideoPlayedAt();
-	auto checkTimeMs = qMin(idleForMs, notPlayingVideoForMs);
+	const auto now = crl::now();
+	const auto shouldLockInMs = Global::AutoLock() * 1000LL;
+	const auto checkTimeMs = now - Core::App().lastNonIdleTime();
 	if (checkTimeMs >= shouldLockInMs || (_shouldLockAt > 0 && now > _shouldLockAt + kAutoLockTimeoutLateMs)) {
+		_shouldLockAt = 0;
+		_autoLockTimer.cancel();
 		Core::App().lockByPasscode();
 	} else {
 		_shouldLockAt = now + (shouldLockInMs - checkTimeMs);
@@ -496,7 +502,7 @@ void AuthSession::checkAutoLock() {
 	}
 }
 
-void AuthSession::checkAutoLockIn(TimeMs time) {
+void AuthSession::checkAutoLockIn(crl::time time) {
 	if (_autoLockTimer.isActive()) {
 		auto remain = _autoLockTimer.remainingTime();
 		if (remain > 0 && remain <= time) return;

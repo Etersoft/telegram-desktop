@@ -39,10 +39,10 @@ constexpr auto kDocumentUploadPartSize3 = 256 * 1024;
 constexpr auto kDocumentUploadPartSize4 = 512 * 1024;
 
 // One part each half second, if not uploaded faster.
-constexpr auto kUploadRequestInterval = TimeMs(500);
+constexpr auto kUploadRequestInterval = crl::time(500);
 
 // How much time without upload causes additional session kill.
-constexpr auto kKillSessionTimeout = TimeMs(5000);
+constexpr auto kKillSessionTimeout = crl::time(5000);
 
 } // namespace
 
@@ -201,7 +201,7 @@ void Uploader::upload(
 				std::move(file->thumb));
 		document->uploadingData = std::make_unique<Data::UploadState>(
 			document->size);
-		document->setGoodThumbnail(
+		document->setGoodThumbnailOnUpload(
 			std::move(file->goodThumbnail),
 			std::move(file->goodThumbnailBytes));
 		if (!file->content.isEmpty()) {

@@ -99,9 +99,12 @@ QSize HistoryContact::countOptimalSize() {
 	if (_contact) {
 		_contact->loadUserpic();
 	} else {
+		const auto full = _name.originalText();
 		_photoEmpty = std::make_unique<Ui::EmptyUserpic>(
-			Data::PeerUserpicColor(_userId ? _userId : _parent->data()->id),
-			_name.originalText());
+			Data::PeerUserpicColor(_userId
+				? peerFromUser(_userId)
+				: Data::FakePeerIdForJustName(full)),
+			full);
 	}
 	if (_contact
 		&& _contact->contactStatus() == UserData::ContactStatus::Contact) {
@@ -143,7 +146,7 @@ QSize HistoryContact::countOptimalSize() {
 	return { maxWidth, minHeight };
 }
 
-void HistoryContact::draw(Painter &p, const QRect &r, TextSelection selection, TimeMs ms) const {
+void HistoryContact::draw(Painter &p, const QRect &r, TextSelection selection, crl::time ms) const {
 	if (width() < st::msgPadding.left() + st::msgPadding.right() + 1) return;
 	auto paintx = 0, painty = 0, paintw = width(), painth = height();
 

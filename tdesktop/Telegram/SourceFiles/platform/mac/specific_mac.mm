@@ -52,12 +52,12 @@ _PsEventFilter *_psEventFilter = nullptr;
 namespace {
 
 QRect _monitorRect;
-TimeMs _monitorLastGot = 0;
+crl::time _monitorLastGot = 0;
 
 } // namespace
 
 QRect psDesktopRect() {
-	auto tnow = getms(true);
+	auto tnow = crl::now();
 	if (tnow > _monitorLastGot + 1000 || tnow < _monitorLastGot) {
 		_monitorLastGot = tnow;
 		_monitorRect = QApplication::desktop()->availableGeometry(App::wnd());
@@ -88,25 +88,6 @@ void psWriteDump() {
 
 void psDeleteDir(const QString &dir) {
 	objc_deleteDir(dir);
-}
-
-namespace {
-
-auto _lastUserAction = 0LL;
-
-} // namespace
-
-void psUserActionDone() {
-	_lastUserAction = getms(true);
-}
-
-bool psIdleSupported() {
-	return objc_idleSupported();
-}
-
-TimeMs psIdleTime() {
-	auto idleTime = 0LL;
-	return objc_idleTime(idleTime) ? idleTime : (getms(true) - _lastUserAction);
 }
 
 QStringList psInitLogs() {
@@ -268,6 +249,60 @@ bool OpenSystemSettings(SystemSettingsType type) {
 		break;
 	}
 	return true;
+}
+
+// Taken from https://github.com/trueinteractions/tint/issues/53.
+std::optional<crl::time> LastUserInputTime() {
+	CFMutableDictionaryRef properties = 0;
+	CFTypeRef obj;
+	mach_port_t masterPort;
+	io_iterator_t iter;
+	io_registry_entry_t curObj;
+
+	IOMasterPort(MACH_PORT_NULL, &masterPort);
+
+	/* Get IOHIDSystem */
+	IOServiceGetMatchingServices(masterPort, IOServiceMatching("IOHIDSystem"), &iter);
+	if (iter == 0) {
+		return std::nullopt;
+	} else {
+		curObj = IOIteratorNext(iter);
+	}
+	if (IORegistryEntryCreateCFProperties(curObj, &properties, kCFAllocatorDefault, 0) == KERN_SUCCESS && properties != NULL) {
+		obj = CFDictionaryGetValue(properties, CFSTR("HIDIdleTime"));
+		CFRetain(obj);
+	} else {
+		return std::nullopt;
+	}
+
+	uint64 err = ~0L, idleTime = err;
+	if (obj) {
+		CFTypeID type = CFGetTypeID(obj);
+
+		if (type == CFDataGetTypeID()) {
+			CFDataGetBytes((CFDataRef) obj, CFRangeMake(0, sizeof(idleTime)), (UInt8*)&idleTime);
+		} else if (type == CFNumberGetTypeID()) {
+			CFNumberGetValue((CFNumberRef)obj, kCFNumberSInt64Type, &idleTime);
+		} else {
+			// error
+		}
+
+		CFRelease(obj);
+
+		if (idleTime != err) {
+			idleTime /= 1000000; // return as ms
+		}
+	} else {
+		// error
+	}
+
+	CFRelease((CFTypeRef)properties);
+	IOObjectRelease(curObj);
+	IOObjectRelease(iter);
+	if (idleTime == err) {
+		return std::nullopt;
+	}
+	return (crl::now() - static_cast<crl::time>(idleTime));
 }
 
 } // namespace Platform

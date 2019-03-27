@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text_options.h"
 #include "lang/lang_keys.h"
 #include "support/support_helper.h"
+#include "history/history_item_components.h"
 #include "history/history_item.h"
 #include "history/history.h"
 #include "data/data_channel.h"
@@ -29,6 +30,10 @@ namespace {
 // Show all dates that are in the last 20 hours in time format.
 constexpr int kRecentlyInSeconds = 20 * 3600;
 
+bool ShowUserBotIcon(not_null<UserData*> user) {
+	return user->isBot() && !user->isSupport();
+}
+
 void paintRowTopRight(Painter &p, const QString &text, QRect &rectForName, bool active, bool selected) {
 	const auto width = st::dialogsDateFont->width(text);
 	rectForName.setWidth(rectForName.width() - width - st::dialogsDateSkip);
@@ -38,21 +43,23 @@ void paintRowTopRight(Painter &p, const QString &text, QRect &rectForName, bool 
 }
 
 void paintRowDate(Painter &p, QDateTime date, QRect &rectForName, bool active, bool selected) {
-	auto now = QDateTime::currentDateTime();
-	auto lastTime = date;
-	auto nowDate = now.date();
-	auto lastDate = lastTime.date();
+	const auto now = QDateTime::currentDateTime();
+	const auto &lastTime = date;
+	const auto nowDate = now.date();
+	const auto lastDate = lastTime.date();
 
-	QString dt;
-	bool wasSameDay = (lastDate == nowDate);
-	bool wasRecently = qAbs(lastTime.secsTo(now)) < kRecentlyInSeconds;
-	if (wasSameDay || wasRecently) {
-		dt = lastTime.toString(cTimeFormat());
-	} else if (lastDate.year() == nowDate.year() && lastDate.weekNumber() == nowDate.weekNumber()) {
-		dt = langDayOfWeek(lastDate);
-	} else {
-		dt = lastDate.toString(qsl("d.MM.yy"));
-	}
+	const auto dt = [&] {
+		const auto wasSameDay = (lastDate == nowDate);
+		const auto wasRecently = qAbs(lastTime.secsTo(now)) < kRecentlyInSeconds;
+		if (wasSameDay || wasRecently) {
+			return lastTime.toString(cTimeFormat());
+		} else if (lastDate.year() == nowDate.year()
+			&& lastDate.weekNumber() == nowDate.weekNumber()) {
+			return langDayOfWeek(lastDate);
+		} else {
+			return lastDate.toString(qsl("d.MM.yy"));
+		}
+	}();
 	paintRowTopRight(p, dt, rectForName, active, selected);
 }
 
@@ -169,12 +176,13 @@ void paintRow(
 		not_null<Entry*> entry,
 		Dialogs::Key chat,
 		PeerData *from,
+		const HiddenSenderInfo *hiddenSenderInfo,
 		HistoryItem *item,
 		const Data::Draft *draft,
 		QDateTime date,
 		int fullWidth,
 		base::flags<Flag> flags,
-		TimeMs ms,
+		crl::time ms,
 		PaintItemCallback &&paintItemCallback,
 		PaintCounterCallback &&paintCounterCallback) {
 	const auto supportMode = Auth().supportMode();
@@ -209,6 +217,13 @@ void paintRow(
 			st::dialogsPhotoSize);
 	} else if (from) {
 		from->paintUserpicLeft(
+			p,
+			st::dialogsPadding.x(),
+			st::dialogsPadding.y(),
+			fullWidth,
+			st::dialogsPhotoSize);
+	} else if (hiddenSenderInfo) {
+		hiddenSenderInfo->userpic.paint(
 			p,
 			st::dialogsPadding.x(),
 			st::dialogsPadding.y(),
@@ -376,6 +391,8 @@ void paintRow(
 			icon->paint(p, rectForName.topLeft() + QPoint(qMin(from->dialogName().maxWidth(), rectForName.width()), 0), fullWidth);
 		}
 		from->dialogName().drawElided(p, rectForName.left(), rectForName.top(), rectForName.width());
+	} else if (hiddenSenderInfo) {
+		hiddenSenderInfo->nameText.drawElided(p, rectForName.left(), rectForName.top(), rectForName.width());
 	} else {
 		p.setFont(st::msgNameFont);
 		auto text = entry->chatListName(); // TODO feed name with emoji
@@ -434,7 +451,7 @@ const style::icon *ChatTypeIcon(
 				? st::dialogsChannelIconOver
 				: st::dialogsChannelIcon));
 	} else if (const auto user = peer->asUser()) {
-		if (user->isBot()) {
+		if (ShowUserBotIcon(user)) {
 			return &(active
 				? st::dialogsBotIconActive
 				: (selected
@@ -530,7 +547,7 @@ void RowPainter::paint(
 		bool active,
 		bool selected,
 		bool onlyBackground,
-		TimeMs ms) {
+		crl::time ms) {
 	const auto entry = row->entry();
 	const auto history = row->history();
 	const auto peer = history ? history->peer.get() : nullptr;
@@ -652,6 +669,7 @@ void RowPainter::paint(
 		entry,
 		row->key(),
 		from,
+		nullptr,
 		item,
 		cloudDraft,
 		displayDate,
@@ -669,7 +687,7 @@ void RowPainter::paint(
 		bool active,
 		bool selected,
 		bool onlyBackground,
-		TimeMs ms,
+		crl::time ms,
 		bool displayUnreadInfo) {
 	auto item = row->item();
 	auto history = item->history();
@@ -678,7 +696,7 @@ void RowPainter::paint(
 		if (const auto searchChat = row->searchInChat()) {
 			if (const auto peer = searchChat.peer()) {
 				if (peer->isSelf()) {
-					return item->senderOriginal().get();
+					return item->senderOriginal();
 				} else if (!peer->isChannel() || peer->isMegagroup()) {
 					return item->from().get();
 				}
@@ -687,6 +705,16 @@ void RowPainter::paint(
 		return history->peer->migrateTo()
 			? history->peer->migrateTo()
 			: history->peer.get();
+	}();
+	const auto hiddenSenderInfo = [&]() -> const HiddenSenderInfo* {
+		if (const auto searchChat = row->searchInChat()) {
+			if (const auto peer = searchChat.peer()) {
+				if (peer->isSelf()) {
+					return item->hiddenForwardedInfo();
+				}
+			}
+		}
+		return nullptr;
 	}();
 	const auto drawInDialogWay = [&] {
 		if (const auto searchChat = row->searchInChat()) {
@@ -769,6 +797,7 @@ void RowPainter::paint(
 		history,
 		history,
 		from,
+		hiddenSenderInfo,
 		item,
 		cloudDraft,
 		ItemDateTime(item),

@@ -31,26 +31,26 @@ public:
 	}
 
 	void start(float64 prg);
-	bool update(float64 prg, bool finished, TimeMs ms);
+	bool update(float64 prg, bool finished, crl::time ms);
 	void stop();
 
-	void step(TimeMs ms);
+	void step(crl::time ms);
 	void step() {
-		step(getms());
+		step(crl::now());
 	}
 
 	void draw(
 		Painter &p,
 		const QRect &inner,
 		int32 thickness,
-		style::color color);
+		style::color color) const;
 
-	RadialState computeState();
+	RadialState computeState() const;
 
 private:
-	TimeMs _firstStart = 0;
-	TimeMs _lastStart = 0;
-	TimeMs _lastTime = 0;
+	crl::time _firstStart = 0;
+	crl::time _lastStart = 0;
+	crl::time _lastTime = 0;
 	float64 _opacity = 0.;
 	anim::value a_arcEnd;
 	anim::value a_arcStart;
@@ -69,12 +69,12 @@ public:
 		return _animation.animating();
 	}
 
-	void start(TimeMs skip = 0);
-	void stop();
+	void start(crl::time skip = 0);
+	void stop(anim::type animated = anim::type::normal);
 
-	void step(TimeMs ms);
+	void step(crl::time ms);
 	void step() {
-		step(getms());
+		step(crl::now());
 	}
 
 	void draw(
@@ -91,8 +91,8 @@ public:
 
 private:
 	const style::InfiniteRadialAnimation &_st;
-	TimeMs _workStarted = 0;
-	TimeMs _workFinished = 0;
+	crl::time _workStarted = 0;
+	crl::time _workFinished = 0;
 	BasicAnimation _animation;
 
 };

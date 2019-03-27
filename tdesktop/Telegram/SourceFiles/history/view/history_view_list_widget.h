@@ -177,7 +177,7 @@ public:
 	bool elementUnderCursor(not_null<const Element*> view) override;
 	void elementAnimationAutoplayAsync(
 		not_null<const Element*> view) override;
-	TimeMs elementHighlightTime(not_null<const Element*> element) override;
+	crl::time elementHighlightTime(not_null<const Element*> element) override;
 	bool elementInSelectionMode() override;
 
 	~ListWidget();
@@ -409,6 +409,8 @@ private:
 	template <typename Method>
 	void enumerateDates(Method method);
 
+	ClickHandlerPtr hiddenUserpicLink(FullMsgId id);
+
 	static constexpr auto kMinimalIdsLimit = 24;
 
 	not_null<ListDelegate*> _delegate;
@@ -475,9 +477,9 @@ private:
 	base::unique_qptr<Ui::PopupMenu> _menu;
 
 	QPoint _trippleClickPoint;
-	TimeMs _trippleClickStartTime = 0;
+	crl::time _trippleClickStartTime = 0;
 
-	TimeMs _highlightStart = 0;
+	crl::time _highlightStart = 0;
 	FullMsgId _highlightedMessageId;
 	base::Timer _highlightTimer;
 

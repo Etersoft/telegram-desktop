@@ -140,6 +140,14 @@ void SetupPrivacy(not_null<Ui::VerticalLayout*> container) {
 		Privacy::Key::LastSeen,
 		[] { return std::make_unique<LastSeenPrivacyController>(); });
 	add(
+		lng_settings_forwards_privacy,
+		Privacy::Key::Forwards,
+		[] { return std::make_unique<ForwardsPrivacyController>(); });
+	add(
+		lng_settings_profile_photo_privacy,
+		Privacy::Key::ProfilePhoto,
+		[] { return std::make_unique<ProfilePhotoPrivacyController>(); });
+	add(
 		lng_settings_calls,
 		Privacy::Key::Calls,
 		[] { return std::make_unique<CallsPrivacyController>(); });
@@ -205,7 +213,7 @@ void SetupLocalPasscode(not_null<Ui::VerticalLayout*> container) {
 		Ui::show(Box<PasscodeBox>(true));
 	});
 
-	const auto label = psIdleSupported()
+	const auto label = Platform::LastUserInputTimeSupported()
 		? lng_passcode_autolock_away
 		: lng_passcode_autolock_inactive;
 	auto value = PasscodeChanges(

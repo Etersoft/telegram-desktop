@@ -176,7 +176,7 @@ void GifsListWidget::visibleTopBottomUpdated(
 	auto top = getVisibleTop();
 	Inner::visibleTopBottomUpdated(visibleTop, visibleBottom);
 	if (top != getVisibleTop()) {
-		_lastScrolled = getms();
+		_lastScrolled = crl::now();
 	}
 	checkLoadMore();
 }
@@ -274,7 +274,7 @@ void GifsListWidget::paintInlineItems(Painter &p, QRect clip) {
 		return;
 	}
 	auto gifPaused = controller()->isGifPausedAtLeastFor(Window::GifPauseReason::SavedGifs);
-	InlineBots::Layout::PaintContext context(getms(), false, gifPaused, false);
+	InlineBots::Layout::PaintContext context(crl::now(), false, gifPaused, false);
 
 	auto top = st::stickerPanPadding;
 	auto fromx = rtl() ? (width() - clip.x() - clip.width()) : clip.x();
@@ -363,11 +363,9 @@ void GifsListWidget::selectInlineResult(int row, int column) {
 		} else if (document->loading()) {
 			document->cancel();
 		} else {
-			DocumentOpenClickHandler::Open(
+			document->save(
 				document->stickerOrGifOrigin(),
-				document,
-				nullptr,
-				ActionOnLoadNone);
+				QString());
 		}
 	} else if (const auto inlineResult = item->getResult()) {
 		if (inlineResult->onChoose(item)) {
@@ -751,7 +749,7 @@ void GifsListWidget::inlineItemLayoutChanged(const InlineBots::Layout::ItemBase 
 }
 
 void GifsListWidget::inlineItemRepaint(const InlineBots::Layout::ItemBase *layout) {
-	auto ms = getms();
+	auto ms = crl::now();
 	if (_lastScrolled + 100 <= ms) {
 		update();
 	} else {
@@ -1018,7 +1016,7 @@ void GifsListWidget::showPreview() {
 }
 
 void GifsListWidget::updateInlineItems() {
-	auto ms = getms();
+	auto ms = crl::now();
 	if (_lastScrolled + 100 <= ms) {
 		update();
 	} else {

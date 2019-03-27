@@ -136,11 +136,11 @@ DeclareRefSetting(RecentInlineBots, RecentInlineBots);
 DeclareSetting(bool, PasswordRecovered);
 
 DeclareSetting(int32, PasscodeBadTries);
-DeclareSetting(TimeMs, PasscodeLastTry);
+DeclareSetting(crl::time, PasscodeLastTry);
 
 inline bool passcodeCanTry() {
 	if (cPasscodeBadTries() < 3) return true;
-	auto dt = getms(true) - cPasscodeLastTry();
+	auto dt = crl::now() - cPasscodeLastTry();
 	switch (cPasscodeBadTries()) {
 	case 3: return dt >= 5000;
 	case 4: return dt >= 10000;
@@ -198,6 +198,10 @@ inline T ConvertScale(T value, int scale) {
 template <typename T>
 inline T ConvertScale(T value) {
 	return ConvertScale(value, cScale());
+}
+
+inline QSize ConvertScale(QSize size) {
+	return QSize(ConvertScale(size.width()), ConvertScale(size.height()));
 }
 
 inline void SetScaleChecked(int scale) {

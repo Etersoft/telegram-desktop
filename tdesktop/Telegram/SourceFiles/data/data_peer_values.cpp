@@ -15,8 +15,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Data {
 namespace {
 
-constexpr auto kMinOnlineChangeTimeout = TimeMs(1000);
-constexpr auto kMaxOnlineChangeTimeout = 86400 * TimeMs(1000);
+constexpr auto kMinOnlineChangeTimeout = crl::time(1000);
+constexpr auto kMaxOnlineChangeTimeout = 86400 * crl::time(1000);
 constexpr auto kSecondsInDay = 86400;
 
 int OnlinePhraseChangeInSeconds(TimeId online, TimeId now) {
@@ -43,11 +43,13 @@ int OnlinePhraseChangeInSeconds(TimeId online, TimeId now) {
 }
 
 std::optional<QString> OnlineTextSpecial(not_null<UserData*> user) {
-	if (isNotificationsUser(user->id)) {
+	if (user->isNotificationsUser()) {
 		return lang(lng_status_service_notifications);
-	} else if (user->botInfo) {
+	} else if (user->isSupport()) {
+		return lang(lng_status_support);
+	} else if (user->isBot()) {
 		return lang(lng_status_bot);
-	} else if (isServiceUser(user->id)) {
+	} else if (user->isServiceUser()) {
 		return lang(lng_status_support);
 	}
 	return std::nullopt;
@@ -247,7 +249,7 @@ rpl::producer<bool> CanWriteValue(not_null<PeerData*> peer) {
 }
 
 TimeId SortByOnlineValue(not_null<UserData*> user, TimeId now) {
-	if (isServiceUser(user->id) || user->botInfo) {
+	if (user->isServiceUser() || user->isBot()) {
 		return -1;
 	}
 	const auto online = user->onlineTill;
@@ -273,17 +275,17 @@ TimeId SortByOnlineValue(not_null<UserData*> user, TimeId now) {
 	return online;
 }
 
-TimeMs OnlineChangeTimeout(TimeId online, TimeId now) {
+crl::time OnlineChangeTimeout(TimeId online, TimeId now) {
 	const auto result = OnlinePhraseChangeInSeconds(online, now);
 	Assert(result >= 0);
 	return snap(
-		result * TimeMs(1000),
+		result * crl::time(1000),
 		kMinOnlineChangeTimeout,
 		kMaxOnlineChangeTimeout);
 }
 
-TimeMs OnlineChangeTimeout(not_null<UserData*> user, TimeId now) {
-	if (isServiceUser(user->id) || user->botInfo) {
+crl::time OnlineChangeTimeout(not_null<UserData*> user, TimeId now) {
+	if (user->isServiceUser() || user->botInfo) {
 		return kMaxOnlineChangeTimeout;
 	}
 	return OnlineChangeTimeout(user->onlineTill, now);
@@ -358,7 +360,7 @@ bool OnlineTextActive(TimeId online, TimeId now) {
 }
 
 bool OnlineTextActive(not_null<UserData*> user, TimeId now) {
-	if (isServiceUser(user->id) || user->botInfo) {
+	if (user->isServiceUser() || user->botInfo) {
 		return false;
 	}
 	return OnlineTextActive(user->onlineTill, now);

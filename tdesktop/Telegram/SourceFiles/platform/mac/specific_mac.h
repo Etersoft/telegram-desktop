@@ -50,10 +50,6 @@ void psWriteDump();
 
 void psDeleteDir(const QString &dir);
 
-void psUserActionDone();
-bool psIdleSupported();
-TimeMs psIdleTime();
-
 QStringList psInitLogs();
 void psClearInitLogs();
 

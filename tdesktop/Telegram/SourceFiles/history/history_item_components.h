@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "history/history_item.h"
+#include "ui/empty_userpic.h"
 
 class HistoryDocument;
 struct WebPageData;
@@ -37,6 +38,7 @@ struct HistoryMessageSigned : public RuntimeComponent<HistoryMessageSigned, Hist
 	void refresh(const QString &date);
 	int maxWidth() const;
 
+	bool isElided = false;
 	QString author;
 	Text signature;
 };
@@ -49,11 +51,30 @@ struct HistoryMessageEdited : public RuntimeComponent<HistoryMessageEdited, Hist
 	Text text;
 };
 
+struct HiddenSenderInfo {
+	explicit HiddenSenderInfo(const QString &name);
+
+	QString name;
+	QString firstName;
+	QString lastName;
+	PeerId colorPeerId = 0;
+	Ui::EmptyUserpic userpic;
+	Text nameText;
+
+	inline bool operator==(const HiddenSenderInfo &other) const {
+		return name == other.name;
+	}
+	inline bool operator!=(const HiddenSenderInfo &other) const {
+		return !(*this == other);
+	}
+};
+
 struct HistoryMessageForwarded : public RuntimeComponent<HistoryMessageForwarded, HistoryItem> {
 	void create(const HistoryMessageVia *via) const;
 
 	TimeId originalDate = 0;
 	PeerData *originalSender = nullptr;
+	std::unique_ptr<HiddenSenderInfo> hiddenSenderInfo;
 	QString originalAuthor;
 	MsgId originalId = 0;
 	mutable Text text = { 1 };
@@ -256,7 +277,7 @@ public:
 	private:
 		const style::BotKeyboardButton *_st;
 
-		void paintButton(Painter &p, int outerWidth, const ReplyKeyboard::Button &button, TimeMs ms) const;
+		void paintButton(Painter &p, int outerWidth, const ReplyKeyboard::Button &button, crl::time ms) const;
 		friend class ReplyKeyboard;
 
 	};
@@ -275,7 +296,7 @@ public:
 	int naturalWidth() const;
 	int naturalHeight() const;
 
-	void paint(Painter &p, int outerWidth, const QRect &clip, TimeMs ms) const;
+	void paint(Painter &p, int outerWidth, const QRect &clip, crl::time ms) const;
 	ClickHandlerPtr getLink(QPoint point) const;
 
 	void clickHandlerActiveChanged(const ClickHandlerPtr &p, bool active);
@@ -308,14 +329,14 @@ private:
 
 	ButtonCoords findButtonCoordsByClickHandler(const ClickHandlerPtr &p);
 
-	void step_selected(TimeMs ms, bool timer);
+	void step_selected(crl::time ms, bool timer);
 
 	const not_null<const HistoryItem*> _item;
 	int _width = 0;
 
 	std::vector<std::vector<Button>> _rows;
 
-	base::flat_map<int, TimeMs> _animations;
+	base::flat_map<int, crl::time> _animations;
 	BasicAnimation _a_selected;
 	std::unique_ptr<Style> _st;
 
@@ -339,7 +360,9 @@ struct HistoryMessageLogEntryOriginal
 
 class FileClickHandler;
 struct HistoryDocumentThumbed : public RuntimeComponent<HistoryDocumentThumbed, HistoryDocument> {
-	std::shared_ptr<FileClickHandler> _linksavel, _linkcancell;
+	std::shared_ptr<FileClickHandler> _linksavel;
+	std::shared_ptr<FileClickHandler> _linkopenwithl;
+	std::shared_ptr<FileClickHandler> _linkcancell;
 	int _thumbw = 0;
 
 	mutable int _linkw = 0;

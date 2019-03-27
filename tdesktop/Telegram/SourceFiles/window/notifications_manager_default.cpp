@@ -505,9 +505,7 @@ Notification::Notification(
 	int shift,
 	Direction shiftDirection)
 : Widget(manager, startPosition, shift, shiftDirection)
-#ifdef Q_OS_WIN
-, _started(GetTickCount())
-#endif // Q_OS_WIN
+, _started(crl::now())
 , _history(history)
 , _peer(peer)
 , _author(author)
@@ -588,14 +586,10 @@ void Notification::prepareActionsCache() {
 bool Notification::checkLastInput(bool hasReplyingNotifications) {
 	if (!_waitingForInput) return true;
 
-	auto wasUserInput = true; // TODO
-#ifdef Q_OS_WIN
-	LASTINPUTINFO lii;
-	lii.cbSize = sizeof(LASTINPUTINFO);
-	BOOL res = GetLastInputInfo(&lii);
-	wasUserInput = (!res || lii.dwTime >= _started);
-#endif // Q_OS_WIN
-	if (wasUserInput) {
+	const auto waitForUserInput = Platform::LastUserInputTimeSupported()
+		? (Core::App().lastNonIdleTime() <= _started)
+		: false;
+	if (!waitForUserInput) {
 		_waitingForInput = false;
 		if (!hasReplyingNotifications) {
 			_hideTimer.start(st::notifyWaitLongHide);
@@ -632,7 +626,7 @@ void Notification::paintEvent(QPaintEvent *e) {
 
 	auto buttonsLeft = st::notifyPhotoPos.x() + st::notifyPhotoSize + st::notifyTextLeft;
 	auto buttonsTop = st::notifyTextTop + st::msgNameFont->height;
-	if (a_actionsOpacity.animating(getms())) {
+	if (a_actionsOpacity.animating(crl::now())) {
 		p.setOpacity(a_actionsOpacity.current());
 		p.drawPixmapRight(st::notifyBorderWidth, buttonsTop, width(), _buttonsCache);
 	} else if (_actionsVisible) {

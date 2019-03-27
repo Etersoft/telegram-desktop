@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "observer_peer.h"
 #include "auth_session.h"
 #include "apiwrap.h"
+#include "mainwidget.h"
 #include "core/application.h"
 #include "core/crash_reports.h" // for CrashReports::SetAnnotation
 #include "ui/image/image.h"
@@ -44,7 +45,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Data {
 namespace {
 
-constexpr auto kMaxNotifyCheckDelay = 24 * 3600 * TimeMs(1000);
+constexpr auto kMaxNotifyCheckDelay = 24 * 3600 * crl::time(1000);
 constexpr auto kMaxWallpaperSize = 10 * 1024 * 1024;
 
 using ViewElement = HistoryView::Element;
@@ -145,11 +146,15 @@ Session::Session(not_null<AuthSession*> session)
 , _cache(Core::App().databases().get(
 	Local::cachePath(),
 	Local::cacheSettings()))
+, _bigFileCache(Core::App().databases().get(
+	Local::cacheBigFilePath(),
+	Local::cacheBigFileSettings()))
 , _selfDestructTimer([=] { checkSelfDestructItems(); })
 , _a_sendActions(animation(this, &Session::step_typings))
 , _groups(this)
 , _unmuteByFinishedTimer([=] { unmuteByFinished(); }) {
 	_cache->open(Local::cacheKey());
+	_bigFileCache->open(Local::cacheBigFileKey());
 
 	setupContactViewsViewer();
 	setupChannelLeavingViewer();
@@ -309,11 +314,12 @@ not_null<UserData*> Session::processUser(const MTPUser &data) {
 			const auto nameChanged = (result->firstName != fname)
 				|| (result->lastName != lname);
 
-			auto showPhone = !isServiceUser(result->id)
+			auto showPhone = !result->isServiceUser()
+				&& !data.is_support()
 				&& !data.is_self()
 				&& !data.is_contact()
 				&& !data.is_mutual_contact();
-			auto showPhoneChanged = !isServiceUser(result->id)
+			auto showPhoneChanged = !result->isServiceUser()
 				&& !data.is_self()
 				&& ((showPhone
 					&& result->contactStatus() == UserData::ContactStatus::Contact)
@@ -321,7 +327,7 @@ not_null<UserData*> Session::processUser(const MTPUser &data) {
 						&& result->contactStatus() == UserData::ContactStatus::CanAdd));
 			if (minimal) {
 				showPhoneChanged = false;
-				showPhone = !isServiceUser(result->id)
+				showPhone = !result->isServiceUser()
 					&& (result->id != _session->userPeerId())
 					&& (result->contactStatus() == UserData::ContactStatus::CanAdd);
 			}
@@ -712,6 +718,25 @@ History *Session::historyLoaded(const PeerData *peer) {
 	return peer ? historyLoaded(peer->id) : nullptr;
 }
 
+void Session::deleteConversationLocally(not_null<PeerData*> peer) {
+	const auto history = historyLoaded(peer);
+	if (history) {
+		setPinnedDialog(history, false);
+		App::main()->removeDialog(history);
+		history->clear();
+	}
+	if (const auto channel = peer->asMegagroup()) {
+		channel->addFlags(MTPDchannel::Flag::f_left);
+		if (const auto from = channel->getMigrateFromChat()) {
+			if (const auto migrated = historyLoaded(from)) {
+				migrated->updateChatListExistence();
+			}
+		}
+	} else if (history) {
+		history->markFullyLoaded();
+	}
+}
+
 void Session::registerSendAction(
 		not_null<History*> history,
 		not_null<UserData*> user,
@@ -722,13 +747,13 @@ void Session::registerSendAction(
 
 		const auto i = _sendActions.find(history);
 		if (!_sendActions.contains(history)) {
-			_sendActions.emplace(history, getms());
+			_sendActions.emplace(history, crl::now());
 			_a_sendActions.start();
 		}
 	}
 }
 
-void Session::step_typings(TimeMs ms, bool timer) {
+void Session::step_typings(crl::time ms, bool timer) {
 	for (auto i = begin(_sendActions); i != end(_sendActions);) {
 		if (i->first->updateSendActionNeedsAnimating(ms)) {
 			++i;
@@ -745,6 +770,10 @@ Storage::Cache::Database &Session::cache() {
 	return *_cache;
 }
 
+Storage::Cache::Database &Session::cacheBigFile() {
+	return *_bigFileCache;
+}
+
 void Session::startExport(PeerData *peer) {
 	startExport(peer ? peer->input : MTP_inputPeerEmpty());
 }
@@ -754,7 +783,7 @@ void Session::startExport(const MTPInputPeer &singlePeer) {
 		_exportPanel->activatePanel();
 		return;
 	}
-	_export = std::make_unique<Export::ControllerWrap>(singlePeer);
+	_export = std::make_unique<Export::Controller>(singlePeer);
 	_exportPanel = std::make_unique<Export::View::PanelController>(
 		_export.get());
 
@@ -790,7 +819,7 @@ void Session::suggestStartExport() {
 		: (_exportAvailableAt - now);
 	if (left) {
 		App::CallDelayed(
-			std::min(left + 5, 3600) * TimeMs(1000),
+			std::min(left + 5, 3600) * crl::time(1000),
 			_session,
 			[=] { suggestStartExport(); });
 	} else if (_export) {
@@ -840,7 +869,7 @@ const Passport::SavedCredentials *Session::passportCredentials() const {
 
 void Session::rememberPassportCredentials(
 		Passport::SavedCredentials data,
-		TimeMs rememberFor) {
+		crl::time rememberFor) {
 	Expects(rememberFor > 0);
 
 	static auto generation = 0;
@@ -1359,7 +1388,7 @@ const NotifySettings &Session::defaultNotifySettings(
 
 void Session::updateNotifySettingsLocal(not_null<PeerData*> peer) {
 	const auto history = historyLoaded(peer->id);
-	auto changesIn = TimeMs(0);
+	auto changesIn = crl::time(0);
 	const auto muted = notifyIsMuted(peer, &changesIn);
 	if (history && history->changeMute(muted)) {
 		// Notification already sent.
@@ -1380,7 +1409,7 @@ void Session::updateNotifySettingsLocal(not_null<PeerData*> peer) {
 	}
 }
 
-void Session::unmuteByFinishedDelayed(TimeMs delay) {
+void Session::unmuteByFinishedDelayed(crl::time delay) {
 	accumulate_min(delay, kMaxNotifyCheckDelay);
 	if (!_unmuteByFinishedTimer.isActive()
 		|| _unmuteByFinishedTimer.remainingTime() > delay) {
@@ -1389,10 +1418,10 @@ void Session::unmuteByFinishedDelayed(TimeMs delay) {
 }
 
 void Session::unmuteByFinished() {
-	auto changesInMin = TimeMs(0);
+	auto changesInMin = crl::time(0);
 	for (auto i = begin(_mutedPeers); i != end(_mutedPeers);) {
 		const auto history = historyLoaded((*i)->id);
-		auto changesIn = TimeMs(0);
+		auto changesIn = crl::time(0);
 		const auto muted = notifyIsMuted(*i, &changesIn);
 		if (muted) {
 			if (history) {
@@ -1571,7 +1600,7 @@ void Session::unreadEntriesChanged(
 	}
 }
 
-void Session::selfDestructIn(not_null<HistoryItem*> item, TimeMs delay) {
+void Session::selfDestructIn(not_null<HistoryItem*> item, crl::time delay) {
 	_selfDestructItems.push_back(item->fullId());
 	if (!_selfDestructTimer.isActive()
 		|| _selfDestructTimer.remainingTime() > delay) {
@@ -1580,8 +1609,8 @@ void Session::selfDestructIn(not_null<HistoryItem*> item, TimeMs delay) {
 }
 
 void Session::checkSelfDestructItems() {
-	auto now = getms(true);
-	auto nextDestructIn = TimeMs(0);
+	auto now = crl::now();
+	auto nextDestructIn = crl::time(0);
 	for (auto i = _selfDestructItems.begin(); i != _selfDestructItems.cend();) {
 		if (auto item = App::histItemById(*i)) {
 			if (auto destructIn = item->getSelfDestructIn(now)) {
@@ -1661,6 +1690,7 @@ not_null<PhotoData*> Session::processPhoto(
 			data.vaccess_hash.v,
 			data.vfile_reference.v,
 			data.vdate.v,
+			data.is_has_stickers(),
 			thumbnailInline,
 			thumbnailSmall,
 			thumbnail,
@@ -1675,6 +1705,7 @@ not_null<PhotoData*> Session::photo(
 		const uint64 &access,
 		const QByteArray &fileReference,
 		TimeId date,
+		bool hasSticker,
 		const ImagePtr &thumbnailInline,
 		const ImagePtr &thumbnailSmall,
 		const ImagePtr &thumbnail,
@@ -1685,6 +1716,7 @@ not_null<PhotoData*> Session::photo(
 		access,
 		fileReference,
 		date,
+		hasSticker,
 		thumbnailInline,
 		thumbnailSmall,
 		thumbnail,
@@ -1720,26 +1752,27 @@ void Session::photoConvert(
 
 PhotoData *Session::photoFromWeb(
 		const MTPWebDocument &data,
-		ImagePtr thumbnailSmall,
+		ImagePtr thumbnail,
 		bool willBecomeNormal) {
 	const auto large = Images::Create(data);
 	const auto thumbnailInline = ImagePtr();
 	if (large->isNull()) {
 		return nullptr;
 	}
-	auto thumbnail = large;
+	auto thumbnailSmall = large;
 	if (willBecomeNormal) {
 		const auto width = large->width();
 		const auto height = large->height();
-		if (thumbnailSmall->isNull()) {
-			auto thumbsize = shrinkToKeepAspect(width, height, 100, 100);
-			thumbnailSmall = Images::Create(thumbsize.width(), thumbsize.height());
-		}
 
-		auto mediumsize = shrinkToKeepAspect(width, height, 320, 320);
-		thumbnail = Images::Create(mediumsize.width(), mediumsize.height());
-	} else if (thumbnailSmall->isNull()) {
-		thumbnailSmall = large;
+		auto thumbsize = shrinkToKeepAspect(width, height, 100, 100);
+		thumbnailSmall = Images::Create(thumbsize.width(), thumbsize.height());
+
+		if (thumbnail->isNull()) {
+			auto mediumsize = shrinkToKeepAspect(width, height, 320, 320);
+			thumbnail = Images::Create(mediumsize.width(), mediumsize.height());
+		}
+	} else if (thumbnail->isNull()) {
+		thumbnail = large;
 	}
 
 	return photo(
@@ -1747,6 +1780,7 @@ PhotoData *Session::photoFromWeb(
 		uint64(0),
 		QByteArray(),
 		unixtime(),
+		false,
 		thumbnailInline,
 		thumbnailSmall,
 		thumbnail,
@@ -1796,6 +1830,7 @@ void Session::photoApplyFields(
 			data.vaccess_hash.v,
 			data.vfile_reference.v,
 			data.vdate.v,
+			data.is_has_stickers(),
 			thumbnailInline,
 			thumbnailSmall,
 			thumbnail,
@@ -1808,6 +1843,7 @@ void Session::photoApplyFields(
 		const uint64 &access,
 		const QByteArray &fileReference,
 		TimeId date,
+		bool hasSticker,
 		const ImagePtr &thumbnailInline,
 		const ImagePtr &thumbnailSmall,
 		const ImagePtr &thumbnail,
@@ -1818,6 +1854,7 @@ void Session::photoApplyFields(
 	photo->access = access;
 	photo->fileReference = fileReference;
 	photo->date = date;
+	photo->hasSticker = hasSticker;
 	photo->updateImages(
 		thumbnailInline,
 		thumbnailSmall,
@@ -2863,13 +2900,13 @@ void Session::updateNotifySettings(
 
 bool Session::notifyIsMuted(
 		not_null<const PeerData*> peer,
-		TimeMs *changesIn) const {
+		crl::time *changesIn) const {
 	const auto resultFromUntil = [&](TimeId until) {
 		const auto now = unixtime();
 		const auto result = (until > now) ? (until - now) : 0;
 		if (changesIn) {
 			*changesIn = (result > 0)
-				? std::min(result * TimeMs(1000), kMaxNotifyCheckDelay)
+				? std::min(result * crl::time(1000), kMaxNotifyCheckDelay)
 				: kMaxNotifyCheckDelay;
 		}
 		return (result > 0);
@@ -2943,14 +2980,14 @@ void Session::serviceNotification(
 		const TextWithEntities &message,
 		const MTPMessageMedia &media) {
 	const auto date = unixtime();
-	if (!userLoaded(ServiceUserId)) {
+	if (!peerLoaded(PeerData::kServiceNotificationsId)) {
 		processUser(MTP_user(
 			MTP_flags(
 				MTPDuser::Flag::f_first_name
 				| MTPDuser::Flag::f_phone
 				| MTPDuser::Flag::f_status
 				| MTPDuser::Flag::f_verified),
-			MTP_int(ServiceUserId),
+			MTP_int(peerToUser(PeerData::kServiceNotificationsId)),
 			MTPlong(),
 			MTP_string("Telegram"),
 			MTPstring(),
@@ -2963,7 +3000,7 @@ void Session::serviceNotification(
 			MTPstring(),
 			MTPstring()));
 	}
-	const auto history = this->history(peerFromUser(ServiceUserId));
+	const auto history = this->history(PeerData::kServiceNotificationsId);
 	if (!history->lastMessageKnown()) {
 		_session->api().requestDialogEntry(history, [=] {
 			insertCheckedServiceNotification(message, media, date);
@@ -2985,7 +3022,7 @@ void Session::insertCheckedServiceNotification(
 		const TextWithEntities &message,
 		const MTPMessageMedia &media,
 		TimeId date) {
-	const auto history = this->history(peerFromUser(ServiceUserId));
+	const auto history = this->history(PeerData::kServiceNotificationsId);
 	if (!history->isReadyFor(ShowAtUnreadMsgId)) {
 		history->setUnreadCount(0);
 		history->getReadyFor(ShowAtTheEndMsgId);
@@ -3000,15 +3037,15 @@ void Session::insertCheckedServiceNotification(
 			MTP_message(
 				MTP_flags(flags),
 				MTP_int(clientMsgId()),
-				MTP_int(ServiceUserId),
+				MTP_int(peerToUser(PeerData::kServiceNotificationsId)),
 				MTP_peerUser(MTP_int(_session->userId())),
-				MTPnullFwdHeader,
+				MTPMessageFwdHeader(),
 				MTPint(),
 				MTPint(),
 				MTP_int(date),
 				MTP_string(sending.text),
 				media,
-				MTPnullMarkup,
+				MTPReplyMarkup(),
 				TextUtilities::EntitiesToMTP(sending.entities),
 				MTPint(),
 				MTPint(),

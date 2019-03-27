@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_user.h"
 #include "base/timer.h"
+#include "base/concurrent_timer.h"
 #include "core/update_checker.h"
 #include "core/shortcuts.h"
 #include "core/sandbox.h"
@@ -35,9 +36,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/view/media_view_overlay_widget.h"
 #include "mtproto/dc_options.h"
 #include "mtproto/mtp_instance.h"
+#include "media/audio/media_audio.h"
+#include "media/audio/media_audio_track.h"
 #include "media/player/media_player_instance.h"
-#include "media/media_audio.h"
-#include "media/media_audio_track.h"
 #include "window/notifications_manager.h"
 #include "window/themes/window_theme.h"
 #include "window/window_lock_widgets.h"
@@ -46,6 +47,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image.h"
 #include "ui/text_options.h"
 #include "ui/emoji_config.h"
+#include "ui/effects/animations.h"
 #include "storage/serialize_common.h"
 #include "window/window_controller.h"
 #include "base/qthelp_regex.h"
@@ -62,6 +64,8 @@ constexpr auto kQuitPreventTimeoutMs = 1500;
 
 } // namespace
 
+Application *Application::Instance = nullptr;
+
 struct Application::Private {
 	UserId authSessionUserId = 0;
 	QByteArray authSessionUserSerialized;
@@ -77,12 +81,16 @@ Application::Application(not_null<Launcher*> launcher)
 , _launcher(launcher)
 , _private(std::make_unique<Private>())
 , _databases(std::make_unique<Storage::Databases>())
+, _animationsManager(std::make_unique<Ui::Animations::Manager>())
 , _langpack(std::make_unique<Lang::Instance>())
 , _audio(std::make_unique<Media::Audio::Instance>())
 , _logo(Window::LoadLogo())
 , _logoNoMargin(Window::LoadLogoNoMargin()) {
 	Expects(!_logo.isNull());
 	Expects(!_logoNoMargin.isNull());
+	Expects(Instance == nullptr);
+
+	Instance = this;
 }
 
 void Application::run() {
@@ -163,7 +171,7 @@ void Application::run() {
 	DEBUG_LOG(("Application Info: showing."));
 	_window->firstShow();
 
-	if (cStartToSettings()) {
+	if (!locked() && cStartToSettings()) {
 		_window->showSettings();
 	}
 
@@ -208,7 +216,9 @@ void Application::showPhoto(
 }
 
 void Application::showDocument(not_null<DocumentData*> document, HistoryItem *item) {
-	if (cUseExternalVideoPlayer() && document->isVideoFile()) {
+	if (cUseExternalVideoPlayer()
+		&& document->isVideoFile()
+		&& document->loaded()) {
 		QDesktopServices::openUrl(QUrl("file:///" + document->location(false).fname));
 	} else {
 		_mediaView->showDocument(document, item);
@@ -232,7 +242,7 @@ bool Application::eventFilter(QObject *object, QEvent *e) {
 	case QEvent::MouseButtonPress:
 	case QEvent::TouchBegin:
 	case QEvent::Wheel: {
-		psUserActionDone();
+		updateNonIdle();
 	} break;
 
 	case QEvent::ShortcutOverride: {
@@ -251,7 +261,7 @@ bool Application::eventFilter(QObject *object, QEvent *e) {
 
 	case QEvent::ApplicationActivate: {
 		if (object == QCoreApplication::instance()) {
-			psUserActionDone();
+			updateNonIdle();
 		}
 	} break;
 
@@ -630,8 +640,13 @@ void Application::forceLogOut(const TextWithEntities &explanation) {
 }
 
 void Application::checkLocalTime() {
-	const auto updated = checkms();
-	if (App::main()) App::main()->checkLastUpdate(updated);
+	if (crl::adjust_time()) {
+		base::Timer::Adjust();
+		base::ConcurrentTimerEnvironment::Adjust();
+		if (App::main()) App::main()->checkLastUpdate(true);
+	} else {
+		if (App::main()) App::main()->checkLastUpdate(false);
+	}
 }
 
 void Application::stateChanged(Qt::ApplicationState state) {
@@ -732,6 +747,11 @@ void Application::authSessionDestroy() {
 	if (_authSession) {
 		unlockTerms();
 		_mtproto->clearGlobalHandlers();
+
+		// Must be called before Auth().data() is destroyed,
+		// because streaming media holds pointers to it.
+		Media::Player::instance()->handleLogout();
+
 		_authSession = nullptr;
 		authSessionChanged().notify(true);
 		Notify::unreadCounterUpdated();
@@ -833,6 +853,16 @@ void Application::clearPasscodeLock() {
 
 bool Application::passcodeLocked() const {
 	return _passcodeLock.current();
+}
+
+void Application::updateNonIdle() {
+	_lastNonIdleTime = crl::now();
+}
+
+crl::time Application::lastNonIdleTime() const {
+	return std::max(
+		Platform::LastUserInputTime().value_or(0),
+		_lastNonIdleTime);
 }
 
 rpl::producer<bool> Application::passcodeLockChanges() const {
@@ -1136,10 +1166,18 @@ Application::~Application() {
 	Local::finish();
 	Global::finish();
 	ThirdParty::finish();
+
+	Instance = nullptr;
+}
+
+bool IsAppLaunched() {
+	return (Application::Instance != nullptr);
 }
 
 Application &App() {
-	return Sandbox::Instance().application();
+	Expects(Application::Instance != nullptr);
+
+	return *Application::Instance;
 }
 
 } // namespace Core

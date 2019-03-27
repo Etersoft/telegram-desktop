@@ -35,7 +35,7 @@ class Reader;
 } // namespace Media
 
 namespace Export {
-class ControllerWrap;
+class Controller;
 namespace View {
 class PanelController;
 } // namespace View
@@ -60,7 +60,7 @@ public:
 	explicit Session(not_null<AuthSession*> session);
 	~Session();
 
-	AuthSession &session() const {
+	[[nodiscard]] AuthSession &session() const {
 		return *_session;
 	}
 
@@ -70,18 +70,21 @@ public:
 	void startExport(const MTPInputPeer &singlePeer);
 	void suggestStartExport(TimeId availableAt);
 	void clearExportSuggestion();
-	rpl::producer<Export::View::PanelController*> currentExportView() const;
+	[[nodiscard]] auto currentExportView() const
+	-> rpl::producer<Export::View::PanelController*>;
 	bool exportInProgress() const;
 	void stopExportWithConfirmation(FnMut<void()> callback);
 	void stopExport();
 
-	const Passport::SavedCredentials *passportCredentials() const;
+	[[nodiscard]] auto passportCredentials() const
+	-> const Passport::SavedCredentials*;
 	void rememberPassportCredentials(
 		Passport::SavedCredentials data,
-		TimeMs rememberFor);
+		crl::time rememberFor);
 	void forgetPassportCredentials();
 
-	Storage::Cache::Database &cache();
+	[[nodiscard]] Storage::Cache::Database &cache();
+	[[nodiscard]] Storage::Cache::Database &cacheBigFile();
 
 	[[nodiscard]] not_null<PeerData*> peer(PeerId id);
 	[[nodiscard]] not_null<PeerData*> peer(UserId id) = delete;
@@ -121,6 +124,8 @@ public:
 	[[nodiscard]] History *historyLoaded(UserId userId) const = delete;
 	[[nodiscard]] not_null<History*> history(not_null<const PeerData*> peer);
 	[[nodiscard]] History *historyLoaded(const PeerData *peer);
+
+	void deleteConversationLocally(not_null<PeerData*> peer);
 
 	void registerSendAction(
 		not_null<History*> history,
@@ -205,34 +210,34 @@ public:
 	void notifySavedGifsUpdated();
 	[[nodiscard]] rpl::producer<> savedGifsUpdated() const;
 
-	bool stickersUpdateNeeded(TimeMs now) const {
+	bool stickersUpdateNeeded(crl::time now) const {
 		return stickersUpdateNeeded(_lastStickersUpdate, now);
 	}
-	void setLastStickersUpdate(TimeMs update) {
+	void setLastStickersUpdate(crl::time update) {
 		_lastStickersUpdate = update;
 	}
-	bool recentStickersUpdateNeeded(TimeMs now) const {
+	bool recentStickersUpdateNeeded(crl::time now) const {
 		return stickersUpdateNeeded(_lastRecentStickersUpdate, now);
 	}
-	void setLastRecentStickersUpdate(TimeMs update) {
+	void setLastRecentStickersUpdate(crl::time update) {
 		_lastRecentStickersUpdate = update;
 	}
-	bool favedStickersUpdateNeeded(TimeMs now) const {
+	bool favedStickersUpdateNeeded(crl::time now) const {
 		return stickersUpdateNeeded(_lastFavedStickersUpdate, now);
 	}
-	void setLastFavedStickersUpdate(TimeMs update) {
+	void setLastFavedStickersUpdate(crl::time update) {
 		_lastFavedStickersUpdate = update;
 	}
-	bool featuredStickersUpdateNeeded(TimeMs now) const {
+	bool featuredStickersUpdateNeeded(crl::time now) const {
 		return stickersUpdateNeeded(_lastFeaturedStickersUpdate, now);
 	}
-	void setLastFeaturedStickersUpdate(TimeMs update) {
+	void setLastFeaturedStickersUpdate(crl::time update) {
 		_lastFeaturedStickersUpdate = update;
 	}
-	bool savedGifsUpdateNeeded(TimeMs now) const {
+	bool savedGifsUpdateNeeded(crl::time now) const {
 		return stickersUpdateNeeded(_lastSavedGifsUpdate, now);
 	}
-	void setLastSavedGifsUpdate(TimeMs update) {
+	void setLastSavedGifsUpdate(crl::time update) {
 		_lastSavedGifsUpdate = update;
 	}
 	int featuredStickerSetsUnreadCount() const {
@@ -329,7 +334,7 @@ public:
 		int withUnreadDelta,
 		int mutedWithUnreadDelta);
 
-	void selfDestructIn(not_null<HistoryItem*> item, TimeMs delay);
+	void selfDestructIn(not_null<HistoryItem*> item, crl::time delay);
 
 	[[nodiscard]] not_null<PhotoData*> photo(PhotoId id);
 	not_null<PhotoData*> processPhoto(const MTPPhoto &data);
@@ -342,6 +347,7 @@ public:
 		const uint64 &access,
 		const QByteArray &fileReference,
 		TimeId date,
+		bool hasSticker,
 		const ImagePtr &thumbnailInline,
 		const ImagePtr &thumbnailSmall,
 		const ImagePtr &thumbnail,
@@ -351,7 +357,7 @@ public:
 		const MTPPhoto &data);
 	[[nodiscard]] PhotoData *photoFromWeb(
 		const MTPWebDocument &data,
-		ImagePtr thumbnailSmall = ImagePtr(),
+		ImagePtr thumbnail = ImagePtr(),
 		bool willBecomeNormal = false);
 
 	[[nodiscard]] not_null<DocumentData*> document(DocumentId id);
@@ -508,7 +514,7 @@ public:
 		std::optional<bool> silentPosts = std::nullopt);
 	bool notifyIsMuted(
 		not_null<const PeerData*> peer,
-		TimeMs *changesIn = nullptr) const;
+		crl::time *changesIn = nullptr) const;
 	bool notifySilentPosts(not_null<const PeerData*> peer) const;
 	bool notifyMuteUnknown(not_null<const PeerData*> peer) const;
 	bool notifySilentPostsUnknown(not_null<const PeerData*> peer) const;
@@ -574,6 +580,7 @@ private:
 		const uint64 &access,
 		const QByteArray &fileReference,
 		TimeId date,
+		bool hasSticker,
 		const ImagePtr &thumbnailInline,
 		const ImagePtr &thumbnailSmall,
 		const ImagePtr &thumbnail,
@@ -634,8 +641,8 @@ private:
 		PhotoData *photo,
 		DocumentData *document);
 
-	bool stickersUpdateNeeded(TimeMs lastUpdate, TimeMs now) const {
-		constexpr auto kStickersUpdateTimeout = TimeMs(3600'000);
+	bool stickersUpdateNeeded(crl::time lastUpdate, crl::time now) const {
+		constexpr auto kStickersUpdateTimeout = crl::time(3600'000);
 		return (lastUpdate == 0)
 			|| (now >= lastUpdate + kStickersUpdateTimeout);
 	}
@@ -648,7 +655,7 @@ private:
 	const NotifySettings &defaultNotifySettings(
 		not_null<const PeerData*> peer) const;
 	void unmuteByFinished();
-	void unmuteByFinishedDelayed(TimeMs delay);
+	void unmuteByFinishedDelayed(crl::time delay);
 	void updateNotifySettingsLocal(not_null<PeerData*> peer);
 
 	template <typename Method>
@@ -661,15 +668,16 @@ private:
 		const MTPMessageMedia &media,
 		TimeId date);
 
-	void step_typings(TimeMs ms, bool timer);
+	void step_typings(crl::time ms, bool timer);
 
 	void setWallpapers(const QVector<MTPWallPaper> &data, int32 hash);
 
 	not_null<AuthSession*> _session;
 
 	Storage::DatabasePointer _cache;
+	Storage::DatabasePointer _bigFileCache;
 
-	std::unique_ptr<Export::ControllerWrap> _export;
+	std::unique_ptr<Export::Controller> _export;
 	std::unique_ptr<Export::View::PanelController> _exportPanel;
 	rpl::event_stream<Export::View::PanelController*> _exportViewChanges;
 	TimeId _exportAvailableAt = 0;
@@ -701,11 +709,11 @@ private:
 
 	rpl::event_stream<> _stickersUpdated;
 	rpl::event_stream<> _savedGifsUpdated;
-	TimeMs _lastStickersUpdate = 0;
-	TimeMs _lastRecentStickersUpdate = 0;
-	TimeMs _lastFavedStickersUpdate = 0;
-	TimeMs _lastFeaturedStickersUpdate = 0;
-	TimeMs _lastSavedGifsUpdate = 0;
+	crl::time _lastStickersUpdate = 0;
+	crl::time _lastRecentStickersUpdate = 0;
+	crl::time _lastFavedStickersUpdate = 0;
+	crl::time _lastFeaturedStickersUpdate = 0;
+	crl::time _lastSavedGifsUpdate = 0;
 	rpl::variable<int> _featuredStickerSetsUnreadCount = 0;
 	Stickers::Sets _stickerSets;
 	Stickers::Order _stickerSetsOrder;
@@ -722,7 +730,7 @@ private:
 	std::vector<FullMsgId> _selfDestructItems;
 
 	// When typing in this history started.
-	base::flat_map<not_null<History*>, TimeMs> _sendActions;
+	base::flat_map<not_null<History*>, crl::time> _sendActions;
 	BasicAnimation _a_sendActions;
 
 	std::unordered_map<

@@ -14,7 +14,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_components.h"
 #include "history/history_inner_widget.h"
 #include "dialogs/dialogs_indexed_list.h"
-#include "styles/style_dialogs.h"
 #include "data/data_drafts.h"
 #include "data/data_session.h"
 #include "data/data_media_types.h"
@@ -22,14 +21,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "apiwrap.h"
 #include "mainwidget.h"
 #include "mainwindow.h"
-#include "storage/localstorage.h"
 #include "observer_peer.h"
 #include "auth_session.h"
 #include "window/notifications_manager.h"
 #include "calls/calls_instance.h"
+#include "storage/localstorage.h"
 #include "storage/storage_facade.h"
 #include "storage/storage_shared_media.h"
 #include "storage/storage_feed_messages.h"
+#include "support/support_helper.h"
 #include "data/data_channel_admins.h"
 #include "data/data_feed.h"
 #include "data/data_photo.h"
@@ -39,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image.h"
 #include "ui/text_options.h"
 #include "core/crash_reports.h"
+#include "styles/style_dialogs.h"
 
 namespace {
 
@@ -199,10 +200,11 @@ void History::takeLocalDraft(History *from) {
 }
 
 void History::createLocalDraftFromCloud() {
-	auto draft = cloudDraft();
-	if (Data::draftIsNull(draft)
-		|| !draft->date
-		|| session().supportMode()) {
+	const auto draft = cloudDraft();
+	if (!draft) {
+		clearLocalDraft();
+		return;
+	} else if (Data::draftIsNull(draft) || !draft->date) {
 		return;
 	}
 
@@ -303,6 +305,19 @@ void History::clearCloudDraft() {
 	}
 }
 
+void History::applyCloudDraft() {
+	if (session().supportMode()) {
+		updateChatListEntry();
+		session().supportHelper().cloudDraftChanged(this);
+	} else {
+		createLocalDraftFromCloud();
+		updateChatListSortPosition();
+		if (const auto main = App::main()) {
+			main->applyCloudDraft(this);
+		}
+	}
+}
+
 void History::clearEditDraft() {
 	_editDraft = nullptr;
 }
@@ -337,7 +352,7 @@ bool History::updateSendActionNeedsAnimating(
 		return false;
 	}
 
-	auto ms = getms();
+	auto ms = crl::now();
 	switch (action.type()) {
 	case mtpc_sendMessageTypingAction: _typing.insert(user, ms + kStatusShowClientsideTyping); break;
 	case mtpc_sendMessageRecordVideoAction: _sendActions.insert(user, { Type::RecordVideo, ms + kStatusShowClientsideRecordVideo }); break;
@@ -362,7 +377,7 @@ bool History::updateSendActionNeedsAnimating(
 }
 
 bool History::mySendActionUpdated(SendAction::Type type, bool doing) {
-	auto ms = getms(true);
+	auto ms = crl::now();
 	auto i = _mySendActions.find(type);
 	if (doing) {
 		if (i == _mySendActions.cend()) {
@@ -391,7 +406,7 @@ bool History::paintSendAction(
 		int availableWidth,
 		int outerWidth,
 		style::color color,
-		TimeMs ms) {
+		crl::time ms) {
 	if (_sendActionAnimation) {
 		_sendActionAnimation.paint(
 			p,
@@ -410,7 +425,7 @@ bool History::paintSendAction(
 	return false;
 }
 
-bool History::updateSendActionNeedsAnimating(TimeMs ms, bool force) {
+bool History::updateSendActionNeedsAnimating(crl::time ms, bool force) {
 	auto changed = force;
 	for (auto i = _typing.begin(), e = _typing.end(); i != e;) {
 		if (ms >= i.value()) {
@@ -1111,15 +1126,15 @@ void History::applyServiceChanges(
 }
 
 void History::clearSendAction(not_null<UserData*> from) {
-	auto updateAtMs = TimeMs(0);
+	auto updateAtMs = crl::time(0);
 	auto i = _typing.find(from);
 	if (i != _typing.cend()) {
-		updateAtMs = getms();
+		updateAtMs = crl::now();
 		i.value() = updateAtMs;
 	}
 	auto j = _sendActions.find(from);
 	if (j != _sendActions.cend()) {
-		if (!updateAtMs) updateAtMs = getms();
+		if (!updateAtMs) updateAtMs = crl::now();
 		j.value().until = updateAtMs;
 	}
 	if (updateAtMs) {
@@ -2314,7 +2329,8 @@ bool History::shouldBeInChatList() const {
 			|| !lastMessageKnown()
 			|| (lastMessage() != nullptr);
 	}
-	return true;
+	return !lastMessageKnown()
+		|| (lastMessage() != nullptr);
 }
 
 bool History::toImportant() const {
@@ -2395,7 +2411,7 @@ void History::dialogEntryApplied() {
 				}
 			}
 		} else {
-			App::main()->deleteConversation(peer, false);
+			clear();
 		}
 		return;
 	}
@@ -2427,7 +2443,7 @@ bool History::clearUnreadOnClientSide() const {
 }
 
 bool History::skipUnreadUpdateForClientSideUnread() const {
-	if (peer->id != peerFromUser(ServiceUserId)) {
+	if (peer->id != PeerData::kServiceNotificationsId) {
 		return false;
 	} else if (!_unreadCount || !*_unreadCount) {
 		return false;
@@ -2881,7 +2897,13 @@ void History::clearBlocks(bool leaveItems) {
 	if (leaveItems) {
 		_owner->notifyHistoryUnloaded(this);
 	} else {
-		setLastMessage(nullptr);
+		if (peer->isChannel()) {
+			// We left the channel.
+			_lastMessage = std::nullopt;
+		} else {
+			// History was deleted.
+			setLastMessage(nullptr);
+		}
 		notifies.clear();
 		_owner->notifyHistoryCleared(this);
 	}
@@ -2893,7 +2915,7 @@ void History::clearBlocks(bool leaveItems) {
 		if (auto channel = peer->asChannel()) {
 			channel->clearPinnedMessage();
 			if (const auto feed = channel->feed()) {
-				// Should be after setLastMessage(nullptr);
+				// Should be after resetting the _lastMessage.
 				feed->historyCleared(this);
 			}
 		}

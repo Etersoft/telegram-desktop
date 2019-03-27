@@ -20,7 +20,7 @@ class Checkbox;
 
 class BackgroundPreviewBox
 	: public BoxContent
-	, public HistoryView::ElementDelegate {
+	, private HistoryView::ElementDelegate {
 public:
 	BackgroundPreviewBox(QWidget*, const Data::WallPaper &paper);
 
@@ -28,7 +28,14 @@ public:
 		const QString &slug,
 		const QMap<QString, QString> &params);
 
+protected:
+	void prepare() override;
+
+	void paintEvent(QPaintEvent *e) override;
+
+private:
 	using Element = HistoryView::Element;
+	not_null<HistoryView::ElementDelegate*> delegate();
 	HistoryView::Context elementContext() override;
 	std::unique_ptr<Element> elementCreate(
 		not_null<HistoryMessage*> message) override;
@@ -37,19 +44,13 @@ public:
 	bool elementUnderCursor(not_null<const Element*> view) override;
 	void elementAnimationAutoplayAsync(
 		not_null<const Element*> element) override;
-	TimeMs elementHighlightTime(
+	crl::time elementHighlightTime(
 		not_null<const Element*> element) override;
 	bool elementInSelectionMode() override;
 
-protected:
-	void prepare() override;
-
-	void paintEvent(QPaintEvent *e) override;
-
-private:
 	void apply();
 	void share();
-	void step_radial(TimeMs ms, bool timer);
+	void step_radial(crl::time ms, bool timer);
 	QRect radialRect() const;
 
 	void checkLoadedDocument();
@@ -57,9 +58,9 @@ private:
 	void setScaledFromImage(QImage &&image, QImage &&blurred);
 	void updateServiceBg(std::optional<QColor> background);
 	std::optional<QColor> patternBackgroundColor() const;
-	void paintImage(Painter &p, TimeMs ms);
-	void paintRadial(Painter &p, TimeMs ms);
-	void paintTexts(Painter &p, TimeMs ms);
+	void paintImage(Painter &p, crl::time ms);
+	void paintRadial(Painter &p, crl::time ms);
+	void paintTexts(Painter &p, crl::time ms);
 	void paintDate(Painter &p);
 	void createBlurCheckbox();
 	int textsTop() const;
