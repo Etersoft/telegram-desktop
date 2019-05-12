@@ -230,7 +230,7 @@ bool Application::hideMediaView() {
 }
 
 void Application::showPhoto(not_null<const PhotoOpenClickHandler*> link) {
-	const auto item = App::histItemById(link->context());
+	const auto item = Auth().data().message(link->context());
 	const auto peer = link->peer();
 	return (!item && peer)
 		? showPhoto(link->photo(), peer)
@@ -593,7 +593,7 @@ void Application::allKeysDestroyed() {
 }
 
 void Application::suggestMainDcId(MTP::DcId mainDcId) {
-	Assert(_mtproto != nullptr);
+	Expects(_mtproto != nullptr);
 
 	_mtproto->suggestMainDcId(mainDcId);
 	if (_private->mtpConfig.mainDcId != MTP::Instance::Config::kNotSetMainDc) {
@@ -602,7 +602,7 @@ void Application::suggestMainDcId(MTP::DcId mainDcId) {
 }
 
 void Application::destroyStaleAuthorizationKeys() {
-	Assert(_mtproto != nullptr);
+	Expects(_mtproto != nullptr);
 
 	for (const auto &key : _mtproto->getKeysForWrite()) {
 		// Disable this for now.
@@ -614,6 +614,14 @@ void Application::destroyStaleAuthorizationKeys() {
 			return;
 		}
 	}
+}
+
+void Application::configUpdated() {
+	_configUpdates.fire({});
+}
+
+rpl::producer<> Application::configUpdates() const {
+	return _configUpdates.events();
 }
 
 void Application::resetAuthorizationKeys() {

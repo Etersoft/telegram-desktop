@@ -56,6 +56,8 @@ public:
 	void setPlaceholder(Fn<QString()> placeholderFactory);
 	QRect placeholderRect() const;
 
+	void finishAnimations();
+
 	void setTextMrg(const QMargins &textMrg);
 	QRect getTextRect() const;
 
@@ -129,6 +131,7 @@ class InputField : public RpWidget, private base::Subscriber {
 public:
 	enum class Mode {
 		SingleLine,
+		NoNewlines,
 		MultiLine,
 	};
 	using TagList = TextWithTags::Tags;
