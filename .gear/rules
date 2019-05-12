@@ -1,3 +1,4 @@
 tar: tdesktop name=@name@-@version@
 copy: patches/*.patch
 copy: CMakeLists.txt
+copy: gen_source_list.sh

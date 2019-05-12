@@ -1,3 +1,6 @@
+# cmake file for ALT Sisyphus
+# see also https://github.com/Francesco149/loli-overlay/blob/master/net-im/telegram-desktop/files/Telegram.cmake
+
 cmake_minimum_required(VERSION 3.4)
 
 project(TelegramDesktop)
@@ -76,6 +79,9 @@ include(PrecompiledHeader)
 include(TelegramCodegenTools)
 include(TelegramCodegen)
 
+# use list of source files generated from Telegram/gyp/telegram_sources.txt
+include(TelegramSourceFiles)
+
 # add precompiled header after tool build
 set(CMAKE_AUTOMOC_MOC_OPTIONS ${CMAKE_AUTOMOC_MOC_OPTIONS} "-b" "Telegram_pch/stdafx.h")
 
@@ -102,53 +108,31 @@ set(QRC_FILES
     #Resources/qrc/telegram_linux.qrc
 )
 
-file(GLOB FLAT_SOURCE_FILES SourceFiles/*.cpp SourceFiles/*.h)
 # We do not want to include Qt plugins statically
-list(REMOVE_ITEM FLAT_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/qt_static_plugins.cpp)
+list(REMOVE_ITEM SOURCE_FILES SourceFiles/qt_static_plugins.cpp)
+list(APPEND SOURCE_FILES SourceFiles/qt_functions.cpp)
 
-file(GLOB_RECURSE SUBDIRS_SOURCE_FILES
-    #SourceFiles/qt_functions.cpp
+# lib_base, lib_export, lib_storage
+file(GLOB_RECURSE LIB_SOURCE_FILES
     SourceFiles/base/*.cpp SourceFiles/base/*.h
-    SourceFiles/boxes/*.cpp SourceFiles/boxes/*h
-    SourceFiles/calls/*.cpp SourceFiles/calls/*.h
-    SourceFiles/chat_helpers/*.cpp SourceFiles/chat_helpers/*.h
-    SourceFiles/core/*.cpp SourceFiles/core/*.h
-    SourceFiles/data/*.cpp SourceFiles/data/*.h
     SourceFiles/export/*.cpp SourceFiles/export/*.h
-    SourceFiles/dialogs/*.cpp SourceFiles/dialogs/*.h
-    SourceFiles/history/*.cpp SourceFiles/history/*.h
-    SourceFiles/info/*.cpp SourceFiles/info/*.h
-    SourceFiles/inline_bots/*.cpp SourceFiles/inline_bots/*.h
-    SourceFiles/intro/*.cpp SourceFiles/intro/*.h
-    SourceFiles/lang/*.cpp SourceFiles/lang/*.h
-    SourceFiles/media/*.cpp SourceFiles/media/*.h
-    SourceFiles/mtproto/*.cpp SourceFiles/mtproto/*.h
-    SourceFiles/overview/*.cpp SourceFiles/overview/*.h
-    SourceFiles/passport/*.cpp SourceFiles/passport/*.h
-    SourceFiles/platform/linux/*.cpp SourceFiles/platform/linux/*.h
-    SourceFiles/rpl/*.cpp SourceFiles/rpl/*.h
-    SourceFiles/profile/*.cpp SourceFiles/profile/*.h
-    SourceFiles/settings/*.cpp SourceFiles/settings/*.h
     SourceFiles/storage/*.cpp SourceFiles/storage/*.h
-    SourceFiles/support/*.cpp SourceFiles/support/*.h
-    SourceFiles/ui/*.cpp SourceFiles/ui/*.h
-    SourceFiles/window/*.cpp SourceFiles/window/*.h
-    ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.cpp ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.h
 )
+
 # No unit-tests in non-CI builds plz
 file(GLOB_RECURSE NO_TESTS SourceFiles/*/*tests*.cpp)
-list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${NO_TESTS})
+list(REMOVE_ITEM LIB_SOURCE_FILES ${NO_TESTS})
 
-# drop unused sources
-list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/passport/passport_form_row.cpp)
-list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/passport/passport_edit_identity_box.cpp)
+list(REMOVE_ITEM LIB_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/storage/storage_feed_messages.h)
+list(REMOVE_ITEM LIB_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/storage/storage_feed_messages.cpp)
+list(REMOVE_ITEM LIB_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/storage/storage_clear_legacy_win.cpp)
+list(REMOVE_ITEM LIB_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/storage/storage_file_lock_win.cpp)
 
-list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/storage/storage_clear_legacy_win.cpp)
-list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/storage/storage_file_lock_win.cpp)
+file(GLOB_RECURSE EMOJI_SOURCE_FILES
+    ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.cpp ${EMOJI_SUGGESTIONS_INCLUDE_DIR}/*.h
+)
 
-#list(REMOVE_ITEM SUBDIRS_SOURCE_FILES ${CMAKE_SOURCE_DIR}/SourceFiles/stdafx.cpp)
-
-add_executable(Telegram WIN32 ${QRC_FILES} ${FLAT_SOURCE_FILES} ${SUBDIRS_SOURCE_FILES})
+add_executable(Telegram WIN32 ${QRC_FILES} ${LIB_SOURCE_FILES} ${SOURCE_FILES} ${EMOJI_SOURCE_FILES})
 
 # TODO: improve (need just pkg-config --static)
 if(FFMPEG_STATIC_LIBRARY_DIRS)
