@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/localstorage.h"
 #include "media/audio/media_audio.h"
 #include "media/player/media_player_instance.h"
+#include "platform/mac/mac_touchbar.h"
 #include "platform/mac/mac_utilities.h"
 #include "lang/lang_keys.h"
 #include "base/timer.h"
@@ -214,14 +215,14 @@ bool IsApplicationActive() {
 }
 
 void SetApplicationIcon(const QIcon &icon) {
-    NSImage *image = nil;
-    if (!icon.isNull()) {
-        auto pixmap = icon.pixmap(1024, 1024);
+	NSImage *image = nil;
+	if (!icon.isNull()) {
+		auto pixmap = icon.pixmap(1024, 1024);
 		pixmap.setDevicePixelRatio(cRetinaFactor());
-        image = static_cast<NSImage*>(qt_mac_create_nsimage(pixmap));
-    }
-    [[NSApplication sharedApplication] setApplicationIconImage:image];
-    [image release];
+		image = static_cast<NSImage*>(qt_mac_create_nsimage(pixmap));
+	}
+	[[NSApplication sharedApplication] setApplicationIconImage:image];
+	[image release];
 }
 
 void InitOnTopPanel(QWidget *panel) {

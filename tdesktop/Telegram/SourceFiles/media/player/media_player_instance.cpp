@@ -65,6 +65,7 @@ struct Instance::Streamed {
 	Streaming::Player player;
 	Streaming::Information info;
 	View::PlaybackProgress progress;
+	bool clearing = false;
 };
 
 Instance::Streamed::Streamed(
@@ -164,9 +165,10 @@ void Instance::setCurrent(const AudioMsgId &audioId) {
 }
 
 void Instance::clearStreamed(not_null<Data*> data) {
-	if (!data->streamed) {
+	if (!data->streamed || data->streamed->clearing) {
 		return;
 	}
+	data->streamed->clearing = true;
 	data->streamed->player.stop();
 	data->isPlaying = false;
 	requestRoundVideoResize();
@@ -614,7 +616,7 @@ void Instance::emitUpdate(AudioMsgId::Type type, CheckCallback check) {
 		if (data->streamed && !data->streamed->info.video.size.isEmpty()) {
 			data->streamed->progress.updateState(state);
 		}
-		_updatedNotifier.notify(state, true);
+		_updatedNotifier.fire_copy({state});
 		if (data->isPlaying && state.state == State::StoppedAtEnd) {
 			if (data->repeatEnabled) {
 				play(data->current);
@@ -716,7 +718,6 @@ HistoryItem *Instance::roundVideoItem() const {
 		&& !data->streamed->info.video.size.isEmpty())
 		? Auth().data().message(data->streamed->id.contextId())
 		: nullptr;
-
 }
 
 void Instance::requestRoundVideoResize() const {

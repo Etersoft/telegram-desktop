@@ -73,7 +73,7 @@ void PeerListBox::createMultiSelect() {
 			_controller->itemDeselectedHook(peer);
 		}
 	});
-	_select->resizeToWidth(st::boxWideWidth);
+	_select->resizeToWidth(_controller->contentWidth());
 	_select->moveToLeft(0, 0);
 }
 
@@ -101,11 +101,11 @@ void PeerListBox::prepare() {
 			_controller.get(),
 			st::peerListBox),
 		st::boxLayerScroll));
-	content()->resizeToWidth(st::boxWideWidth);
+	content()->resizeToWidth(_controller->contentWidth());
 
 	_controller->setDelegate(this);
 
-	setDimensions(st::boxWideWidth, st::boxMaxListHeight);
+	setDimensions(_controller->contentWidth(), st::boxMaxListHeight);
 	if (_select) {
 		_select->finishAnimating();
 		Ui::SendPendingMoveResizeEvents(_select);
@@ -281,6 +281,10 @@ void PeerListController::restoreState(
 	delegate()->peerListRestoreState(std::move(state));
 }
 
+int PeerListController::contentWidth() const {
+	return st::boxWideWidth;
+}
+
 void PeerListBox::addSelectItem(not_null<PeerData*> peer, PeerListRow::SetStyle style) {
 	if (!_select) {
 		createMultiSelect();
@@ -382,7 +386,7 @@ void PeerListRow::refreshStatus() {
 		if (!chat->amIn()) {
 			setStatusText(lang(lng_chat_status_unaccessible));
 		} else if (chat->count > 0) {
-			setStatusText(lng_chat_status_members(lt_count, chat->count));
+			setStatusText(lng_chat_status_members(lt_count_decimal, chat->count));
 		} else {
 			setStatusText(lang(lng_group_status));
 		}
@@ -825,10 +829,17 @@ void PeerListContent::setSearchNoResults(object_ptr<Ui::FlatLabel> noResults) {
 	}
 }
 
-void PeerListContent::setAboveWidget(object_ptr<TWidget> aboveWidget) {
-	_aboveWidget = std::move(aboveWidget);
+void PeerListContent::setAboveWidget(object_ptr<TWidget> widget) {
+	_aboveWidget = std::move(widget);
 	if (_aboveWidget) {
 		_aboveWidget->setParent(this);
+	}
+}
+
+void PeerListContent::setBelowWidget(object_ptr<TWidget> widget) {
+	_belowWidget = std::move(widget);
+	if (_belowWidget) {
+		_belowWidget->setParent(this);
 	}
 }
 
@@ -937,9 +948,9 @@ int PeerListContent::resizeGetHeight(int newWidth) {
 			_aboveHeight = _aboveWidget->height();
 		}
 	}
-	auto rowsCount = shownRowsCount();
-	auto labelTop = rowsTop() + qMax(1, shownRowsCount()) * _rowHeight;
-	auto labelWidth = newWidth - 2 * st::contactsPadding.left();
+	const auto rowsCount = shownRowsCount();
+	const auto labelTop = rowsTop() + qMax(1, shownRowsCount()) * _rowHeight;
+	const auto labelWidth = newWidth - 2 * st::contactsPadding.left();
 	if (_description) {
 		_description->resizeToWidth(labelWidth);
 		_description->moveToLeft(st::contactsPadding.left(), labelTop + st::membersAboutLimitPadding.top(), newWidth);
@@ -955,9 +966,22 @@ int PeerListContent::resizeGetHeight(int newWidth) {
 		_searchLoading->moveToLeft(st::contactsPadding.left(), labelTop + st::membersAboutLimitPadding.top(), newWidth);
 		_searchLoading->setVisible(showingSearch() && _filterResults.empty() && _controller->isSearchLoading());
 	}
-	auto label = labelHeight();
-	return ((label > 0 || rowsCount > 0) ? (labelTop + label) : 0)
-		+ _st.padding.bottom();
+	const auto label = labelHeight();
+	const auto belowTop = (label > 0 || rowsCount > 0)
+		? (labelTop + label + _st.padding.bottom())
+		: _aboveHeight;
+	_belowHeight = 0;
+	if (_belowWidget) {
+		_belowWidget->resizeToWidth(newWidth);
+		_belowWidget->moveToLeft(0, belowTop, newWidth);
+		if (showingSearch()) {
+			_belowWidget->hide();
+		} else {
+			_belowWidget->show();
+			_belowHeight = _belowWidget->height();
+		}
+	}
+	return belowTop + _belowHeight;
 }
 
 void PeerListContent::enterEventHook(QEvent *e) {

@@ -186,7 +186,6 @@ public:
 
 	void enqueueMessageHighlight(not_null<HistoryView::Element*> view);
 	crl::time highlightStartTime(not_null<const HistoryItem*> item) const;
-	bool inSelectionMode() const;
 
 	MessageIdsList getSelectedItems() const;
 	void itemEdited(HistoryItem *item);
@@ -303,23 +302,13 @@ signals:
 	void cancelled();
 
 public slots:
-	void onPinnedHide();
-	void onFieldBarCancel();
-
 	void onReportSpamClicked();
 	void onReportSpamHide();
 	void onReportSpamClear();
 
 	void onScroll();
 
-	void onUnblock();
-	void onBotStart();
-	void onJoinChannel();
-	void onMuteUnmute();
 	void onBroadcastSilentChange();
-
-	void onKbToggle(bool manual = true);
-	void onCmdStart();
 
 	void activate();
 	void onTextChange();
@@ -377,6 +366,19 @@ private:
 	void handleHistoryChange(not_null<const History*> history);
 	void refreshAboutProxyPromotion();
 	void unreadCountUpdated();
+
+	[[nodiscard]] int computeMaxFieldHeight() const;
+	void toggleMuteUnmute();
+	void toggleKeyboard(bool manual = true);
+	void startBotCommand();
+	void hidePinnedMessage();
+	void cancelFieldAreaState();
+	void unblockUser();
+	void sendBotStartCommand();
+	void joinChannel();
+	void goToDiscussionGroup();
+
+	[[nodiscard]] bool hasDiscussionGroup() const;
 
 	void supportInitAutocomplete();
 	void supportInsertText(const QString &text);
@@ -754,6 +756,7 @@ private:
 	object_ptr<Ui::FlatButton> _botStart;
 	object_ptr<Ui::FlatButton> _joinChannel;
 	object_ptr<Ui::FlatButton> _muteUnmute;
+	object_ptr<Ui::FlatButton> _discuss;
 	object_ptr<Ui::RpWidget> _aboutProxyPromotion = { nullptr };
 	mtpRequestId _reportSpamRequest = 0;
 	object_ptr<Ui::IconButton> _attachToggle;

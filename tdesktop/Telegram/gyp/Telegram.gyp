@@ -81,6 +81,7 @@
       'lib_base.gyp:lib_base',
       'lib_export.gyp:lib_export',
       'lib_storage.gyp:lib_storage',
+      'lib_lottie.gyp:lib_lottie',
     ],
 
     'defines': [
@@ -129,6 +130,7 @@
       [ '"<(official_build_target)" != ""', {
         'defines': [
           'TDESKTOP_OFFICIAL_TARGET=<(official_build_target)',
+          'TDESKTOP_FORCE_GTK_FILE_DIALOG',
         ],
         'dependencies': [
           'utils.gyp:Packer',
