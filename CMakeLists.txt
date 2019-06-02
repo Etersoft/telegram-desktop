@@ -62,6 +62,7 @@ set(VARIANT_INCLUDE_DIR /usr/include/libvariant)
 set(RANGEV3_INCLUDE_DIR /usr/include/range-v3)
 
 set(EMOJI_SUGGESTIONS_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/ThirdParty/emoji_suggestions)
+set(QTLOTTIE_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/ThirdParty/qtlottie/src/bodymovin ${CMAKE_SOURCE_DIR}/ThirdParty/qtlottie/src/imports)
 
 set(TELEGRAM_SOURCES_DIR ${CMAKE_SOURCE_DIR}/SourceFiles)
 set(TELEGRAM_RESOURCES_DIR ${CMAKE_SOURCE_DIR}/Resources)
@@ -183,6 +184,7 @@ target_include_directories(Telegram PUBLIC
     ${APPINDICATOR_INCLUDE_DIRS}
     ${DEE_INCLUDE_DIRS}
     ${LIBLZMA_INCLUDE_DIRS}
+    ${QTLOTTIE_INCLUDE_DIR}
     ${GENERATED_DIR})
 
 target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
