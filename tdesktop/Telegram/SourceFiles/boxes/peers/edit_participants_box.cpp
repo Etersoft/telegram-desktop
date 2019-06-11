@@ -24,7 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_chat.h"
 #include "data/data_user.h"
 #include "ui/widgets/popup_menu.h"
-#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "history/history.h"
 
 namespace {
@@ -131,24 +131,7 @@ void SaveChannelAdmin(
 			onDone();
 		}
 	}).fail([=](const RPCError &error) {
-		if (error.type() == qstr("USER_NOT_MUTUAL_CONTACT")) {
-			Ui::show(
-				Box<InformBox>(PeerFloodErrorText(
-					channel->isMegagroup()
-					? PeerFloodType::InviteGroup
-					: PeerFloodType::InviteChannel)),
-				LayerOption::KeepOther);
-		} else if (error.type() == qstr("BOT_GROUPS_BLOCKED")) {
-			Ui::show(
-				Box<InformBox>(lang(lng_error_cant_add_bot)),
-				LayerOption::KeepOther);
-		} else if (error.type() == qstr("ADMINS_TOO_MUCH")) {
-			Ui::show(
-				Box<InformBox>(lang(channel->isMegagroup()
-					? lng_error_admin_limit
-					: lng_error_admin_limit_channel)),
-				LayerOption::KeepOther);
-		}
+		ShowAddParticipantsError(error.type(), channel, { 1, user });
 		if (onFail) {
 			onFail();
 		}
@@ -723,7 +706,7 @@ ParticipantsBoxController::SavedState::SavedState(
 }
 
 ParticipantsBoxController::ParticipantsBoxController(
-	not_null<Window::Navigation*> navigation,
+	not_null<Window::SessionNavigation*> navigation,
 	not_null<PeerData*> peer,
 	Role role)
 : PeerListController(CreateSearchController(peer, role, &_additional))
@@ -792,7 +775,7 @@ auto ParticipantsBoxController::CreateSearchController(
 }
 
 void ParticipantsBoxController::Start(
-		not_null<Window::Navigation*> navigation,
+		not_null<Window::SessionNavigation*> navigation,
 		not_null<PeerData*> peer,
 		Role role) {
 	auto controller = std::make_unique<ParticipantsBoxController>(
@@ -1339,7 +1322,7 @@ void ParticipantsBoxController::rowClicked(not_null<PeerListRow*> row) {
 	const auto user = row->peer()->asUser();
 	if (_role == Role::Admins) {
 		showAdmin(user);
-	} else if ((_role == Role::Restricted || _role == Role::Kicked)
+	} else if (_role == Role::Restricted
 		&& (_peer->isChat() || _peer->isMegagroup())) {
 		showRestricted(user);
 	} else {

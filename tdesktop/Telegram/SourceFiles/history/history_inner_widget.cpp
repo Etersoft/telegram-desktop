@@ -26,7 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/image/image.h"
 #include "ui/toast/toast.h"
 #include "ui/text_options.h"
-#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "window/window_peer_menu.h"
 #include "boxes/confirm_box.h"
 #include "boxes/report_box.h"
@@ -40,6 +40,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "auth_session.h"
 #include "core/application.h"
 #include "apiwrap.h"
+#include "platform/platform_info.h"
 #include "lang/lang_keys.h"
 #include "data/data_session.h"
 #include "data/data_media_types.h"
@@ -118,7 +119,7 @@ void HistoryInner::BotAbout::clickHandlerPressedChanged(
 
 HistoryInner::HistoryInner(
 	not_null<HistoryWidget*> historyWidget,
-	not_null<Window::Controller*> controller,
+	not_null<Window::SessionController*> controller,
 	Ui::ScrollArea *scroll,
 	not_null<History*> history)
 : RpWidget(nullptr)
@@ -1558,7 +1559,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			});
 		}
 		if (!document->filepath(DocumentData::FilePathResolve::Checked).isEmpty()) {
-			_menu->addAction(lang((cPlatform() == dbipMac || cPlatform() == dbipMacOld) ? lng_context_show_in_finder : lng_context_show_in_folder), [=] {
+			_menu->addAction(lang(Platform::IsMac() ? lng_context_show_in_finder : lng_context_show_in_folder), [=] {
 				showContextInFolder(document);
 			});
 		}

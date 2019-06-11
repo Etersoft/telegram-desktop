@@ -40,7 +40,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/sticker_set_box.h"
 #include "window/notifications_manager.h"
 #include "window/window_lock_widgets.h"
-#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "window/themes/window_theme.h"
 #include "inline_bots/inline_bot_result.h"
 #include "chat_helpers/message_field.h"
@@ -442,7 +442,7 @@ void ApiWrap::importChatInvite(const QString &hash) {
 				return PeerId(0);
 			});
 			if (const auto peer = _session->data().peerLoaded(peerId)) {
-				App::wnd()->controller()->showPeerHistory(
+				App::wnd()->sessionController()->showPeerHistory(
 					peer,
 					Window::SectionShow::Way::Forward);
 			}
@@ -2439,9 +2439,27 @@ int ApiWrap::OnlineTillFromStatus(
 void ApiWrap::clearHistory(not_null<PeerData*> peer, bool revoke) {
 	auto deleteTillId = MsgId(0);
 	if (const auto history = _session->data().historyLoaded(peer)) {
-		if (const auto last = history->lastMessage()) {
-			deleteTillId = last->id;
+		while (history->lastMessageKnown()) {
+			const auto last = history->lastMessage();
+			if (!last) {
+				// History is empty.
+				return;
+			} else if (!IsServerMsgId(last->id)) {
+				// Destroy client-side message locally.
+				last->destroy();
+			} else {
+				break;
+			}
 		}
+		if (!history->lastMessageKnown()) {
+			requestDialogEntry(history, [=] {
+				Expects(history->lastMessageKnown());
+
+				clearHistory(peer, revoke);
+			});
+			return;
+		}
+		deleteTillId = history->lastMessage()->id;
 		history->clear(History::ClearType::ClearHistory);
 	}
 	if (const auto channel = peer->asChannel()) {
@@ -3885,7 +3903,7 @@ void ApiWrap::jumpToHistoryDate(not_null<PeerData*> peer, const QDate &date) {
 //void ApiWrap::jumpToFeedDate(not_null<Data::Feed*> feed, const QDate &date) {
 //	requestMessageAfterDate(feed, date, [=](Data::MessagePosition result) {
 //		Ui::hideLayer();
-//		App::wnd()->controller()->showSection(
+//		App::wnd()->sessionController()->showSection(
 //			HistoryFeed::Memento(feed, result));
 //	});
 //}

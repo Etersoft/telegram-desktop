@@ -33,23 +33,6 @@ namespace {
 
 QStringList _initLogs;
 
-class _PsEventFilter : public QAbstractNativeEventFilter {
-public:
-	_PsEventFilter() {
-	}
-
-	bool nativeEventFilter(const QByteArray &eventType, void *message, long *result) {
-		return Core::Sandbox::Instance().customEnterFromEventLoop([&] {
-			auto wnd = App::wnd();
-			if (!wnd) return false;
-
-			return wnd->psFilterNativeEvent(message);
-		});
-	}
-};
-
-_PsEventFilter *_psEventFilter = nullptr;
-
 };
 
 namespace {
@@ -74,12 +57,6 @@ void psShowOverAll(QWidget *w, bool canFocus) {
 
 void psBringToBack(QWidget *w) {
 	objc_bringToBack(w->winId());
-}
-
-QAbstractNativeEventFilter *psNativeEventFilter() {
-	delete _psEventFilter;
-	_psEventFilter = new _PsEventFilter();
-	return _psEventFilter;
 }
 
 void psWriteDump() {
@@ -139,9 +116,6 @@ void start() {
 }
 
 void finish() {
-	delete _psEventFilter;
-	_psEventFilter = nullptr;
-
 	objc_finish();
 }
 
@@ -151,27 +125,6 @@ void StartTranslucentPaint(QPainter &p, QPaintEvent *e) {
 	p.fillRect(e->rect(), Qt::transparent);
 	p.setCompositionMode(QPainter::CompositionMode_SourceOver);
 #endif // OS_MAC_OLD
-}
-
-QString SystemCountry() {
-	NSLocale *currentLocale = [NSLocale currentLocale];  // get the current locale.
-	NSString *countryCode = [currentLocale objectForKey:NSLocaleCountryCode];
-	return countryCode ? NS2QString(countryCode) : QString();
-}
-
-QString SystemLanguage() {
-	if (auto currentLocale = [NSLocale currentLocale]) { // get the current locale.
-		if (NSString *collator = [currentLocale objectForKey:NSLocaleCollatorIdentifier]) {
-			return NS2QString(collator);
-		}
-		if (NSString *identifier = [currentLocale objectForKey:NSLocaleIdentifier]) {
-			return NS2QString(identifier);
-		}
-		if (NSString *language = [currentLocale objectForKey:NSLocaleLanguageCode]) {
-			return NS2QString(language);
-		}
-	}
-	return QString();
 }
 
 QString CurrentExecutablePath(int argc, char *argv[]) {

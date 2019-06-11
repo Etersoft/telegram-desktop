@@ -21,12 +21,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_cursor_state.h"
 #include "chat_helpers/message_field.h"
 #include "boxes/sticker_set_box.h"
+#include "platform/platform_info.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "core/application.h"
 #include "apiwrap.h"
 #include "layout.h"
-#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "auth_session.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/image/image.h"
@@ -211,7 +212,7 @@ void InnerWidget::enumerateDates(Method method) {
 
 InnerWidget::InnerWidget(
 	QWidget *parent,
-	not_null<Window::Controller*> controller,
+	not_null<Window::SessionController*> controller,
 	not_null<ChannelData*> channel)
 : RpWidget(parent)
 , _controller(controller)
@@ -1023,7 +1024,7 @@ void InnerWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					}
 				}
 				if (!document->filepath(DocumentData::FilePathResolve::Checked).isEmpty()) {
-					_menu->addAction(lang((cPlatform() == dbipMac || cPlatform() == dbipMacOld) ? lng_context_show_in_finder : lng_context_show_in_folder), [=] {
+					_menu->addAction(lang(Platform::IsMac() ? lng_context_show_in_finder : lng_context_show_in_folder), [=] {
 						showContextInFolder(document);
 					});
 				}

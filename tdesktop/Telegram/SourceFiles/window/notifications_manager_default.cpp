@@ -55,8 +55,8 @@ std::unique_ptr<Manager> Create(System *system) {
 Manager::Manager(System *system)
 : Notifications::Manager(system)
 , _inputCheckTimer([=] { checkLastInput(); }) {
-	subscribe(system->authSession()->downloader().taskFinished(), [this] {
-		for_const (auto &notification, _notifications) {
+	subscribe(system->session().downloader().taskFinished(), [this] {
+		for (const auto &notification : _notifications) {
 			notification->updatePeerPhoto();
 		}
 	});
@@ -666,7 +666,7 @@ void Notification::updateNotifyDisplay() {
 		p.fillRect(0, st::notifyBorderWidth, st::notifyBorderWidth, h - st::notifyBorderWidth, st::notifyBorder);
 
 		if (!options.hideNameAndPhoto) {
-			_history->peer->loadUserpic(true, true);
+			_history->peer->loadUserpic();
 			_history->peer->paintUserpicLeft(p, st::notifyPhotoPos.x(), st::notifyPhotoPos.y(), width(), st::notifyPhotoSize);
 		} else {
 			p.drawPixmap(st::notifyPhotoPos.x(), st::notifyPhotoPos.y(), manager()->hiddenUserpicPlaceholder());

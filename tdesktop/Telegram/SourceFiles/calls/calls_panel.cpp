@@ -306,7 +306,7 @@ Panel::Panel(not_null<Call*> call)
 	_cancel->setDuration(st::callPanelDuration);
 
 	setMouseTracking(true);
-	setWindowIcon(Window::CreateIcon());
+	setWindowIcon(Window::CreateIcon(&_user->account()));
 	initControls();
 	initLayout();
 	showAndActivate();
@@ -499,13 +499,13 @@ void Panel::hideAndDestroy() {
 
 void Panel::processUserPhoto() {
 	if (!_user->userpicLoaded()) {
-		_user->loadUserpic(true);
+		_user->loadUserpic();
 	}
 	const auto photo = _user->userpicPhotoId()
 		? _user->owner().photo(_user->userpicPhotoId()).get()
 		: nullptr;
 	if (isGoodUserPhoto(photo)) {
-		photo->large()->load(_user->userpicPhotoOrigin(), true);
+		photo->large()->load(_user->userpicPhotoOrigin());
 	} else if (_user->userpicPhotoUnknown() || (photo && !photo->date)) {
 		_user->session().api().requestFullPeer(_user);
 	}

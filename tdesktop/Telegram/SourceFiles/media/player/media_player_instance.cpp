@@ -12,16 +12,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/audio/media_audio.h"
 #include "media/audio/media_audio_capture.h"
 #include "media/streaming/media_streaming_player.h"
-#include "media/streaming/media_streaming_loader.h"
+#include "media/streaming/media_streaming_reader.h"
 #include "media/view/media_view_playback_progress.h"
 #include "calls/calls_instance.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "data/data_media_types.h"
 #include "data/data_file_origin.h"
-#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "core/shortcuts.h"
 #include "core/application.h"
+#include "main/main_account.h" // Account::sessionValue.
 #include "mainwindow.h"
 #include "auth_session.h"
 
@@ -59,7 +60,7 @@ struct Instance::Streamed {
 	Streamed(
 		AudioMsgId id,
 		not_null<::Data::Session*> owner,
-		std::unique_ptr<Streaming::Loader> loader);
+		std::shared_ptr<Streaming::Reader> reader);
 
 	AudioMsgId id;
 	Streaming::Player player;
@@ -71,9 +72,9 @@ struct Instance::Streamed {
 Instance::Streamed::Streamed(
 	AudioMsgId id,
 	not_null<::Data::Session*> owner,
-	std::unique_ptr<Streaming::Loader> loader)
+	std::shared_ptr<Streaming::Reader> reader)
 : id(id)
-, player(owner, std::move(loader)) {
+, player(owner, std::move(reader)) {
 }
 
 Instance::Data::Data(AudioMsgId::Type type, SharedMediaType overview)
@@ -93,9 +94,10 @@ Instance::Instance()
 	});
 
 	// While we have one Media::Player::Instance for all authsessions we have to do this.
-	const auto handleAuthSessionChange = [=] {
-		if (AuthSession::Exists()) {
-			subscribe(Auth().calls().currentCallChanged(), [=](Calls::Call *call) {
+	Core::App().activeAccount().sessionValue(
+	) | rpl::start_with_next([=](AuthSession *session) {
+		if (session) {
+			subscribe(session->calls().currentCallChanged(), [=](Calls::Call *call) {
 				if (call) {
 					pauseOnCall(AudioMsgId::Type::Voice);
 					pauseOnCall(AudioMsgId::Type::Song);
@@ -104,12 +106,15 @@ Instance::Instance()
 					resumeOnCall(AudioMsgId::Type::Song);
 				}
 			});
+		} else {
+			const auto reset = [&](AudioMsgId::Type type) {
+				const auto data = getData(type);
+				*data = Data(type, data->overview);
+			};
+			reset(AudioMsgId::Type::Voice);
+			reset(AudioMsgId::Type::Song);
 		}
-	};
-	subscribe(
-		Core::App().authSessionChanged(),
-		handleAuthSessionChange);
-	handleAuthSessionChange();
+	}, _lifetime);
 
 	setupShortcuts();
 }
@@ -174,7 +179,7 @@ void Instance::clearStreamed(not_null<Data*> data) {
 	requestRoundVideoResize();
 	emitUpdate(data->type);
 	data->streamed = nullptr;
-	App::wnd()->controller()->disableGifPauseReason(
+	App::wnd()->sessionController()->disableGifPauseReason(
 		Window::GifPauseReason::RoundPlaying);
 }
 
@@ -355,11 +360,13 @@ void Instance::play(const AudioMsgId &audioId) {
 	if (document->isAudioFile()
 		|| document->isVoiceMessage()
 		|| document->isVideoMessage()) {
-		auto loader = document->createStreamingLoader(audioId.contextId());
-		if (!loader) {
+		auto reader = document->owner().documentStreamedReader(
+			document,
+			audioId.contextId());
+		if (!reader) {
 			return;
 		}
-		playStreamed(audioId, std::move(loader));
+		playStreamed(audioId, std::move(reader));
 	}
 	if (document->isVoiceMessage() || document->isVideoMessage()) {
 		document->owner().markMediaRead(document);
@@ -378,7 +385,7 @@ void Instance::playPause(const AudioMsgId &audioId) {
 
 void Instance::playStreamed(
 		const AudioMsgId &audioId,
-		std::unique_ptr<Streaming::Loader> loader) {
+		std::shared_ptr<Streaming::Reader> reader) {
 	Expects(audioId.audio() != nullptr);
 
 	const auto data = getData(audioId.type());
@@ -388,13 +395,19 @@ void Instance::playStreamed(
 	data->streamed = std::make_unique<Streamed>(
 		audioId,
 		&audioId.audio()->owner(),
-		std::move(loader));
+		std::move(reader));
 
 	data->streamed->player.updates(
 	) | rpl::start_with_next_error([=](Streaming::Update &&update) {
 		handleStreamingUpdate(data, std::move(update));
-	}, [=](Streaming::Error && error) {
+	}, [=](Streaming::Error &&error) {
 		handleStreamingError(data, std::move(error));
+	}, data->streamed->player.lifetime());
+
+	data->streamed->player.fullInCache(
+	) | rpl::start_with_next([=](bool fullInCache) {
+		const auto document = data->streamed->id.audio();
+		document->setLoadedInMediaCache(fullInCache);
 	}, data->streamed->player.lifetime());
 
 	data->streamed->player.play(streamingOptions(audioId));
@@ -628,15 +641,6 @@ void Instance::emitUpdate(AudioMsgId::Type type, CheckCallback check) {
 	}
 }
 
-void Instance::handleLogout() {
-	const auto reset = [&](AudioMsgId::Type type) {
-		const auto data = getData(type);
-		*data = Data(type, data->overview);
-	};
-	reset(AudioMsgId::Type::Voice);
-	reset(AudioMsgId::Type::Song);
-}
-
 void Instance::setupShortcuts() {
 	Shortcuts::Requests(
 	) | rpl::start_with_next([=](not_null<Shortcuts::Request*> request) {
@@ -681,7 +685,7 @@ void Instance::handleStreamingUpdate(
 					float64) {
 				requestRoundVideoRepaint();
 			});
-			App::wnd()->controller()->enableGifPauseReason(
+			App::wnd()->sessionController()->enableGifPauseReason(
 				Window::GifPauseReason::RoundPlaying);
 			requestRoundVideoResize();
 		}

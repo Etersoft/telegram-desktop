@@ -21,7 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "auth_session.h"
-#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "layout.h"
 #include "styles/style_widgets.h"
 #include "styles/style_history.h"
@@ -88,7 +88,8 @@ void KeyboardStyle::paintButtonIcon(
 	using Type = HistoryMessageMarkupButton::Type;
 	const auto getIcon = [](Type type) -> const style::icon* {
 		switch (type) {
-		case Type::Url: return &st::msgBotKbUrlIcon;
+		case Type::Url:
+		case Type::Auth: return &st::msgBotKbUrlIcon;
 		case Type::SwitchInlineSame:
 		case Type::SwitchInline: return &st::msgBotKbSwitchPmIcon;
 		}
@@ -109,12 +110,12 @@ int KeyboardStyle::minButtonWidth(
 	using Type = HistoryMessageMarkupButton::Type;
 	int result = 2 * buttonPadding(), iconWidth = 0;
 	switch (type) {
-	case Type::Url: iconWidth = st::msgBotKbUrlIcon.width(); break;
+	case Type::Url:
+	case Type::Auth: iconWidth = st::msgBotKbUrlIcon.width(); break;
 	case Type::SwitchInlineSame:
 	case Type::SwitchInline: iconWidth = st::msgBotKbSwitchPmIcon.width(); break;
 	case Type::Callback:
-	case Type::Game:
-	case Type::Auth: iconWidth = st::historySendingInvertedIcon.width(); break;
+	case Type::Game: iconWidth = st::historySendingInvertedIcon.width(); break;
 	}
 	if (iconWidth > 0) {
 		result = std::max(result, 2 * iconWidth + 4 * int(st::msgBotKbIconPadding));
@@ -1465,7 +1466,7 @@ ClickHandlerPtr Message::rightActionLink() const {
 		_rightActionLink = std::make_shared<LambdaClickHandler>([=] {
 			if (const auto item = Auth().data().message(itemId)) {
 				if (savedFromPeer && savedFromMsgId) {
-					App::wnd()->controller()->showPeerHistory(
+					App::wnd()->sessionController()->showPeerHistory(
 						savedFromPeer,
 						Window::SectionShow::Way::Forward,
 						savedFromMsgId);

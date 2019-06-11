@@ -8,6 +8,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/message_field.h"
 
 #include "history/history_widget.h"
+#include "history/history.h" // History::session
+#include "history/history_item.h" // HistoryItem::originalText
 #include "base/qthelp_regex.h"
 #include "base/qthelp_url.h"
 #include "boxes/abstract_box.h"
@@ -15,7 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_user.h"
 #include "chat_helpers/emoji_suggestions_widget.h"
-#include "window/window_controller.h"
+#include "window/window_session_controller.h"
 #include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "auth_session.h"
@@ -172,6 +174,32 @@ void EditLinkBox::prepare() {
 	};
 }
 
+TextWithEntities StripSupportHashtag(TextWithEntities &&text) {
+	static const auto expression = QRegularExpression(
+		qsl("\\n?#tsf[a-z0-9_-]*[\\s#a-z0-9_-]*$"),
+		QRegularExpression::CaseInsensitiveOption);
+	const auto match = expression.match(text.text);
+	if (!match.hasMatch()) {
+		return std::move(text);
+	}
+	text.text.chop(match.capturedLength());
+	const auto length = text.text.size();
+	if (!length) {
+		return TextWithEntities();
+	}
+	for (auto i = text.entities.begin(); i != text.entities.end();) {
+		auto &entity = *i;
+		if (entity.offset() >= length) {
+			i = text.entities.erase(i);
+			continue;
+		} else if (entity.offset() + entity.length() > length) {
+			entity.shrinkFromRight(length - entity.offset());
+		}
+		++i;
+	}
+	return std::move(text);
+}
+
 } // namespace
 
 QString ConvertTagToMimeTag(const QString &tagId) {
@@ -286,6 +314,16 @@ void SetClipboardText(
 	}
 }
 
+TextWithTags PrepareEditText(not_null<HistoryItem*> item) {
+	const auto original = item->history()->session().supportMode()
+		? StripSupportHashtag(item->originalText())
+		: item->originalText();
+	return TextWithTags{
+		original.text,
+		ConvertEntitiesToTextTags(original.entities)
+	};
+}
+
 Fn<bool(
 	Ui::InputField::EditLinkSelection selection,
 	QString text,
@@ -313,9 +351,8 @@ Fn<bool(
 	};
 }
 
-
 void InitMessageField(
-		not_null<Window::Controller*> controller,
+		not_null<Window::SessionController*> controller,
 		not_null<Ui::InputField*> field) {
 	field->setMinHeight(st::historySendSize.height() - 2 * st::historySendPadding);
 	field->setMaxHeight(st::historyComposeFieldMaxHeight);

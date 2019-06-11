@@ -11,8 +11,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/timer.h"
 
 class HistoryWidget;
+
 namespace Window {
-class Controller;
+class SessionController;
 } // namespace Window
 
 QString ConvertTagToMimeTag(const QString &tagId);
@@ -25,6 +26,7 @@ std::unique_ptr<QMimeData> MimeDataFromText(const TextForMimeData &text);
 void SetClipboardText(
 	const TextForMimeData &text,
 	QClipboard::Mode mode = QClipboard::Clipboard);
+TextWithTags PrepareEditText(not_null<HistoryItem*> item);
 
 Fn<bool(
 	Ui::InputField::EditLinkSelection selection,
@@ -33,7 +35,7 @@ Fn<bool(
 	Ui::InputField::EditLinkAction action)> DefaultEditLinkCallback(
 		not_null<Ui::InputField*> field);
 void InitMessageField(
-	not_null<Window::Controller*> controller,
+	not_null<Window::SessionController*> controller,
 	not_null<Ui::InputField*> field);
 bool HasSendText(not_null<const Ui::InputField*> field);
 
