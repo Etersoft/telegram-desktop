@@ -1,17 +1,17 @@
-diff --git a/tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp b/tdesktop/Telegram/SourceFiles/platform/linux/specific_linux.cpp
-index 20f20a5..a6dfb7e 100644
---- a/Telegram/SourceFiles/platform/linux/specific_linux.cpp
-+++ b/Telegram/SourceFiles/platform/linux/specific_linux.cpp
-@@ -35,6 +35,8 @@ Copyright (c) 2014-2017 John Preston, https://desktop.telegram.org
- 
- #include <iostream>
+diff --git a/tdesktop/Telegram/SourceFiles/platform/linux/info_linux.cpp b/tdesktop/Telegram/SourceFiles/platform/linux/info_linux.cpp
+index 2e2d2af..121f174 100644
+--- a/Telegram/SourceFiles/platform/linux/info_linux.cpp
++++ b/Telegram/SourceFiles/platform/linux/info_linux.cpp
+@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
+ */
+ #include "platform/linux/info_linux.h"
  
 +#include <QLocale>
 +
- #include <qpa/qplatformnativeinterface.h>
+ namespace Platform {
  
- using namespace Platform;
-@@ -393,11 +393,13 @@ bool TranslucentWindowsSupported(QPoint globalPosition) {
+ QString DeviceModelPretty() {
+@@ -25,11 +27,13 @@ QString SystemVersionPretty() {
  }
  
  QString SystemCountry() {
@@ -23,7 +23,7 @@ index 20f20a5..a6dfb7e 100644
  QString SystemLanguage() {
 -	return QString();
 +	QLocale locale;
-+	return locale.name();;
++	return locale.name();
  }
  
- namespace ThirdParty {
+ QDate WhenSystemBecomesOutdated() {
