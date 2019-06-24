@@ -23,7 +23,6 @@ struct SendingAlbum;
 enum class SendMediaType;
 enum class CompressConfirm;
 class MessageLinksParser;
-enum LangKey : int;
 
 namespace InlineBots {
 namespace Layout {
@@ -78,6 +77,7 @@ struct UploadedThumbDocument;
 
 namespace HistoryView {
 class TopBarWidget;
+class ContactStatus;
 } // namespace HistoryView
 
 class DragArea;
@@ -86,30 +86,6 @@ class BotKeyboard;
 class MessageField;
 class HistoryInner;
 struct HistoryMessageMarkupButton;
-
-class ReportSpamPanel : public TWidget {
-	Q_OBJECT
-
-public:
-	ReportSpamPanel(QWidget *parent);
-
-	void setReported(bool reported, PeerData *onPeer);
-
-signals:
-	void hideClicked();
-	void reportClicked();
-	void clearClicked();
-
-protected:
-	void resizeEvent(QResizeEvent *e) override;
-	void paintEvent(QPaintEvent *e) override;
-
-private:
-	object_ptr<Ui::FlatButton> _report;
-	object_ptr<Ui::FlatButton> _hide;
-	object_ptr<Ui::LinkButton> _clear;
-
-};
 
 class HistoryWidget final : public Window::AbstractSectionWidget, public RPCSender {
 	Q_OBJECT
@@ -302,10 +278,6 @@ signals:
 	void cancelled();
 
 public slots:
-	void onReportSpamClicked();
-	void onReportSpamHide();
-	void onReportSpamClear();
-
 	void onScroll();
 
 	void onBroadcastSilentChange();
@@ -358,7 +330,6 @@ private:
 	void toggleTabbedSelectorMode();
 	void returnTabbedSelector(object_ptr<TabbedSelector> selector);
 	void recountChatWidth();
-	void setReportSpamStatus(DBIPeerReportSpamStatus status);
 	void historyDownClicked();
 	void showNextUnreadMention();
 	void handlePeerUpdate();
@@ -481,7 +452,7 @@ private:
 	void checkTabbedSelectorToggleTooltip();
 
 	bool canWriteMessage() const;
-	std::optional<LangKey> writeRestrictionKey() const;
+	std::optional<QString> writeRestriction() const;
 	void orderWidgets();
 
 	void clearInlineBot();
@@ -514,17 +485,17 @@ private:
 	void handlePeerMigration();
 
 	MsgId _replyToId = 0;
-	Text _replyToName;
+	Ui::Text::String _replyToName;
 	int _replyToNameVersion = 0;
 
 	HistoryItemsList _toForward;
-	Text _toForwardFrom, _toForwardText;
+	Ui::Text::String _toForwardFrom, _toForwardText;
 	int _toForwardNameVersion = 0;
 
 	MsgId _editMsgId = 0;
 
 	HistoryItem *_replyEditMsg = nullptr;
-	Text _replyEditMsgText;
+	Ui::Text::String _replyEditMsgText;
 	mutable base::Timer _updateEditTimeLeftDisplay;
 
 	object_ptr<Ui::IconButton> _fieldBarCancel;
@@ -537,7 +508,7 @@ private:
 
 		MsgId msgId = 0;
 		HistoryItem *msg = nullptr;
-		Text text;
+		Ui::Text::String text;
 		object_ptr<Ui::IconButton> cancel;
 		object_ptr<Ui::PlainShadow> shadow;
 	};
@@ -572,18 +543,9 @@ private:
 	void saveEditMsgDone(History *history, const MTPUpdates &updates, mtpRequestId req);
 	bool saveEditMsgFail(History *history, const RPCError &error, mtpRequestId req);
 
-	void updateReportSpamStatus();
-	void requestReportSpamSetting();
-	void reportSpamSettingDone(const MTPPeerSettings &result, mtpRequestId req);
-	bool reportSpamSettingFail(const RPCError &error, mtpRequestId req);
-
 	void checkPreview();
 	void requestPreview();
 	void gotPreview(QString links, const MTPMessageMedia &media, mtpRequestId req);
-
-	static const mtpRequestId ReportSpamRequestNeeded = -1;
-	DBIPeerReportSpamStatus _reportSpamStatus = dbiprsUnknown;
-	mtpRequestId _reportSpamSettingRequestId = ReportSpamRequestNeeded;
 
 	QStringList _parsedLinks;
 	QString _previewLinks;
@@ -591,8 +553,8 @@ private:
 	typedef QMap<QString, WebPageId> PreviewCache;
 	PreviewCache _previewCache;
 	mtpRequestId _previewRequest = 0;
-	Text _previewTitle;
-	Text _previewDescription;
+	Ui::Text::String _previewTitle;
+	Ui::Text::String _previewDescription;
 	base::Timer _previewTimer;
 	bool _previewCancelled = false;
 
@@ -644,9 +606,6 @@ private:
 	// Used to distinguish between user scrolls and syntetic scrolls.
 	// This one is syntetic.
 	void synteticScrollToY(int y);
-
-	void reportSpamDone(PeerData *peer, const MTPBool &result, mtpRequestId request);
-	bool reportSpamFail(const RPCError &error, mtpRequestId request);
 
 	void countHistoryShowFrom();
 
@@ -749,7 +708,7 @@ private:
 	bool showInlineBotCancel() const;
 	void refreshSilentToggle();
 
-	object_ptr<ReportSpamPanel> _reportSpamPanel = { nullptr };
+	std::unique_ptr<HistoryView::ContactStatus> _contactStatus;
 
 	object_ptr<Ui::SendButton> _send;
 	object_ptr<Ui::FlatButton> _unblock;
@@ -758,7 +717,6 @@ private:
 	object_ptr<Ui::FlatButton> _muteUnmute;
 	object_ptr<Ui::FlatButton> _discuss;
 	object_ptr<Ui::RpWidget> _aboutProxyPromotion = { nullptr };
-	mtpRequestId _reportSpamRequest = 0;
 	object_ptr<Ui::IconButton> _attachToggle;
 	object_ptr<Ui::EmojiButton> _tabbedSelectorToggle;
 	object_ptr<Ui::ImportantTooltip> _tabbedSelectorToggleTooltip = { nullptr };
