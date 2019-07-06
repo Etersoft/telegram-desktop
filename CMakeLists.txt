@@ -40,6 +40,7 @@ pkg_check_modules(LIBCRL REQUIRED libcrl)
 pkg_check_modules(LIBDRM REQUIRED libdrm)
 pkg_check_modules(LIBVA REQUIRED libva-x11 libva-drm libva)
 pkg_check_modules(MINIZIP REQUIRED minizip)
+pkg_check_modules(LIBLZ4 REQUIRED liblz4)
 
 if(GTK)
   pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
@@ -56,6 +57,7 @@ find_package(OpenAL REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(LibLZMA REQUIRED)
 find_package(X11 REQUIRED)
+find_package(rlottie REQUIRED)
 
 set(GSL_INCLUDE_DIR /usr/include/libmicrosoft-gsl)
 set(VARIANT_INCLUDE_DIR /usr/include/libvariant)
@@ -163,6 +165,8 @@ target_link_libraries(Telegram
     ${APPINDICATOR_LIBRARIES}
     ${DEE_LIBRARIES}
     ${LIBLZMA_LIBRARIES}
+    ${rlottie_LIBRARIES}
+    ${LIBLZ4_LIBRARIES}
     ${X11_X11_LIB}
     )
 
@@ -185,6 +189,7 @@ target_include_directories(Telegram PUBLIC
     ${DEE_INCLUDE_DIRS}
     ${LIBLZMA_INCLUDE_DIRS}
     ${QTLOTTIE_INCLUDE_DIR}
+    ${LIBLZ4_INCLUDE_DIRS}
     ${GENERATED_DIR})
 
 target_sources(Telegram PRIVATE ${TELEGRAM_GENERATED_SOURCES})
