@@ -228,16 +228,18 @@ void GifsListWidget::inlineResultsDone(const MTPmessages_BotResults &result) {
 	auto adding = (it != _inlineCache.cend());
 	if (result.type() == mtpc_messages_botResults) {
 		auto &d = result.c_messages_botResults();
-		Auth().data().processUsers(d.vusers);
+		Auth().data().processUsers(d.vusers());
 
-		auto &v = d.vresults.v;
-		auto queryId = d.vquery_id.v;
+		auto &v = d.vresults().v;
+		auto queryId = d.vquery_id().v;
 
 		if (it == _inlineCache.cend()) {
-			it = _inlineCache.emplace(_inlineQuery, std::make_unique<InlineCacheEntry>()).first;
+			it = _inlineCache.emplace(
+				_inlineQuery,
+				std::make_unique<InlineCacheEntry>()).first;
 		}
 		auto entry = it->second.get();
-		entry->nextOffset = qs(d.vnext_offset);
+		entry->nextOffset = qs(d.vnext_offset().value_or_empty());
 		if (auto count = v.size()) {
 			entry->results.reserve(entry->results.size() + count);
 		}
@@ -853,9 +855,9 @@ void GifsListWidget::searchForGifs(const QString &query) {
 			Expects(result.type() == mtpc_contacts_resolvedPeer);
 
 			auto &data = result.c_contacts_resolvedPeer();
-			Auth().data().processUsers(data.vusers);
-			Auth().data().processChats(data.vchats);
-			if (auto peer = Auth().data().peerLoaded(peerFromMTP(data.vpeer))) {
+			Auth().data().processUsers(data.vusers());
+			Auth().data().processChats(data.vchats());
+			if (auto peer = Auth().data().peerLoaded(peerFromMTP(data.vpeer()))) {
 				if (auto user = peer->asUser()) {
 					_searchBot = user;
 				}
@@ -985,14 +987,16 @@ void GifsListWidget::updateSelected() {
 			_pressed = _selected;
 			if (row >= 0 && col >= 0) {
 				auto layout = _rows[row].items[col];
-				if (const auto previewDocument = layout->getPreviewDocument()) {
-					Ui::showMediaPreview(
-						Data::FileOriginSavedGifs(),
-						previewDocument);
-				} else if (const auto previewPhoto = layout->getPreviewPhoto()) {
-					Ui::showMediaPreview(
-						Data::FileOrigin(),
-						previewPhoto);
+				if (const auto w = App::wnd()) {
+					if (const auto previewDocument = layout->getPreviewDocument()) {
+						w->showMediaPreview(
+							Data::FileOriginSavedGifs(),
+							previewDocument);
+					} else if (const auto previewPhoto = layout->getPreviewPhoto()) {
+						w->showMediaPreview(
+							Data::FileOrigin(),
+							previewPhoto);
+					}
 				}
 			}
 		}
@@ -1009,16 +1013,18 @@ void GifsListWidget::showPreview() {
 	int row = _pressed / MatrixRowShift, col = _pressed % MatrixRowShift;
 	if (row < _rows.size() && col < _rows[row].items.size()) {
 		auto layout = _rows[row].items[col];
-		if (const auto previewDocument = layout->getPreviewDocument()) {
-			Ui::showMediaPreview(
-				Data::FileOriginSavedGifs(),
-				previewDocument);
-			_previewShown = true;
-		} else if (const auto previewPhoto = layout->getPreviewPhoto()) {
-			Ui::showMediaPreview(
-				Data::FileOrigin(),
-				previewPhoto);
-			_previewShown = true;
+		if (const auto w = App::wnd()) {
+			if (const auto previewDocument = layout->getPreviewDocument()) {
+				w->showMediaPreview(
+					Data::FileOriginSavedGifs(),
+					previewDocument);
+				_previewShown = true;
+			} else if (const auto previewPhoto = layout->getPreviewPhoto()) {
+				w->showMediaPreview(
+					Data::FileOrigin(),
+					previewPhoto);
+				_previewShown = true;
+			}
 		}
 	}
 }

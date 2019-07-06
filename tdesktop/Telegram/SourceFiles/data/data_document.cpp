@@ -428,7 +428,7 @@ void DocumentOpenWithClickHandler::onClickImpl() const {
 Data::FileOrigin StickerData::setOrigin() const {
 	return set.match([&](const MTPDinputStickerSetID &data) {
 		return Data::FileOrigin(
-			Data::FileOriginStickerSet(data.vid.v, data.vaccess_hash.v));
+			Data::FileOriginStickerSet(data.vid().v, data.vaccess_hash().v));
 	}, [&](const auto &) {
 		return Data::FileOrigin();
 	});
@@ -461,38 +461,41 @@ void DocumentData::setattributes(
 		const QVector<MTPDocumentAttribute> &attributes) {
 	_flags &= ~(Flag::ImageType | kStreamingSupportedMask);
 	_flags |= kStreamingSupportedUnknown;
+
+	validateLottieSticker();
+
 	for (const auto &attribute : attributes) {
-		attribute.match([&](const MTPDdocumentAttributeImageSize & data) {
-			dimensions = QSize(data.vw.v, data.vh.v);
-		}, [&](const MTPDdocumentAttributeAnimated & data) {
+		attribute.match([&](const MTPDdocumentAttributeImageSize &data) {
+			dimensions = QSize(data.vw().v, data.vh().v);
+		}, [&](const MTPDdocumentAttributeAnimated &data) {
 			if (type == FileDocument
 				|| type == StickerDocument
 				|| type == VideoDocument) {
 				type = AnimatedDocument;
 				_additional = nullptr;
 			}
-		}, [&](const MTPDdocumentAttributeSticker & data) {
+		}, [&](const MTPDdocumentAttributeSticker &data) {
 			if (type == FileDocument) {
 				type = StickerDocument;
 				_additional = std::make_unique<StickerData>();
 			}
 			if (sticker()) {
-				sticker()->alt = qs(data.valt);
+				sticker()->alt = qs(data.valt());
 				if (sticker()->set.type() != mtpc_inputStickerSetID
-					|| data.vstickerset.type() == mtpc_inputStickerSetID) {
-					sticker()->set = data.vstickerset;
+					|| data.vstickerset().type() == mtpc_inputStickerSetID) {
+					sticker()->set = data.vstickerset();
 				}
 			}
-		}, [&](const MTPDdocumentAttributeVideo & data) {
+		}, [&](const MTPDdocumentAttributeVideo &data) {
 			if (type == FileDocument) {
 				type = data.is_round_message()
 					? RoundVideoDocument
 					: VideoDocument;
 			}
-			_duration = data.vduration.v;
+			_duration = data.vduration().v;
 			setMaybeSupportsStreaming(data.is_supports_streaming());
-			dimensions = QSize(data.vw.v, data.vh.v);
-		}, [&](const MTPDdocumentAttributeAudio & data) {
+			dimensions = QSize(data.vw().v, data.vh().v);
+		}, [&](const MTPDdocumentAttributeAudio &data) {
 			if (type == FileDocument) {
 				if (data.is_voice()) {
 					type = VoiceDocument;
@@ -503,19 +506,19 @@ void DocumentData::setattributes(
 				}
 			}
 			if (const auto voiceData = voice()) {
-				voiceData->duration = data.vduration.v;
+				voiceData->duration = data.vduration().v;
 				voiceData->waveform = documentWaveformDecode(
-					qba(data.vwaveform));
+					data.vwaveform().value_or_empty());
 				voiceData->wavemax = voiceData->waveform.empty()
 					? uchar(0)
 					: *ranges::max_element(voiceData->waveform);
 			} else if (const auto songData = song()) {
-				songData->duration = data.vduration.v;
-				songData->title = qs(data.vtitle);
-				songData->performer = qs(data.vperformer);
+				songData->duration = data.vduration().v;
+				songData->title = qs(data.vtitle().value_or_empty());
+				songData->performer = qs(data.vperformer().value_or_empty());
 			}
-		}, [&](const MTPDdocumentAttributeFilename & data) {
-			_filename = qs(data.vfile_name);
+		}, [&](const MTPDdocumentAttributeFilename &data) {
+			_filename = qs(data.vfile_name());
 
 			// We don't want LTR/RTL mark/embedding/override/isolate chars
 			// in filenames, because they introduce a security issue, when
@@ -536,7 +539,6 @@ void DocumentData::setattributes(
 		}, [&](const MTPDdocumentAttributeHasStickers &data) {
 		});
 	}
-	validateLottieSticker();
 	if (type == StickerDocument) {
 		if (dimensions.width() <= 0
 			|| dimensions.height() <= 0
@@ -557,7 +559,6 @@ void DocumentData::setattributes(
 
 void DocumentData::validateLottieSticker() {
 	if (type == FileDocument
-		&& _filename.endsWith(qstr(".tgs"))
 		&& _mimeString == qstr("application/x-tgsticker")
 		&& _thumbnail) {
 		type = StickerDocument;
@@ -635,7 +636,10 @@ Image *DocumentData::goodThumbnail() const {
 }
 
 void DocumentData::validateGoodThumbnail() {
-	if (!isVideoFile() && !isAnimation() && !isWallPaper()) {
+	if (!isVideoFile()
+		&& !isAnimation()
+		&& !isWallPaper()
+		&& (!sticker() || !sticker()->animated)) {
 		_goodThumbnail = nullptr;
 	} else if (!_goodThumbnail && hasRemoteLocation()) {
 		_goodThumbnail = std::make_unique<Image>(
@@ -664,7 +668,25 @@ void DocumentData::setGoodThumbnailOnUpload(
 	}
 	_goodThumbnail = std::make_unique<Image>(
 		std::make_unique<Images::LocalFileSource>(
-			QString(), std::move(bytes), "JPG", std::move(image)));
+			QString(),
+			std::move(bytes),
+			sticker() ? "WEBP" : "JPG",
+			std::move(image)));
+}
+
+auto DocumentData::bigFileBaseCacheKey() const
+-> std::optional<Storage::Cache::Key> {
+	if (hasRemoteLocation()) {
+		return StorageFileLocation(
+			_dc,
+			session().userId(),
+			MTP_inputDocumentFileLocation(
+				MTP_long(id),
+				MTP_long(_access),
+				MTP_bytes(_fileReference),
+				MTP_string())).bigFileBaseCacheKey();
+	}
+	return std::nullopt;
 }
 
 bool DocumentData::saveToCache() const {
@@ -890,9 +912,9 @@ void DocumentData::save(
 	if (_loader) {
 		if (!_loader->setFileName(toFile)) {
 			cancel();
-			_flags &= ~Flag::DownloadCancelled;
 		}
 	}
+	_flags &= ~Flag::DownloadCancelled;
 
 	if (_loader) {
 		if (fromCloud == LoadFromCloudOrLocal) {
@@ -939,7 +961,7 @@ void DocumentData::save(
 						MTP_long(id),
 						MTP_long(_access),
 						MTP_bytes(_fileReference),
-						MTP_string(QString()))),
+						MTP_string())),
 				origin,
 				locationType(),
 				toFile,
@@ -1097,12 +1119,12 @@ bool DocumentData::isStickerSetInstalled() const {
 
 	const auto &sets = _owner->stickerSets();
 	return sticker()->set.match([&](const MTPDinputStickerSetID &data) {
-		const auto i = sets.constFind(data.vid.v);
+		const auto i = sets.constFind(data.vid().v);
 		return (i != sets.cend())
 			&& !(i->flags & MTPDstickerSet::Flag::f_archived)
 			&& (i->flags & MTPDstickerSet::Flag::f_installed_date);
 	}, [&](const MTPDinputStickerSetShortName &data) {
-		const auto name = qs(data.vshort_name).toLower();
+		const auto name = qs(data.vshort_name()).toLower();
 		for (const auto &set : sets) {
 			if (set.shortName.toLower() == name) {
 				return !(set.flags & MTPDstickerSet::Flag::f_archived)
@@ -1179,8 +1201,12 @@ void DocumentData::checkStickerLarge() {
 }
 
 void DocumentData::checkStickerSmall() {
-	if (thumbnailEnoughForSticker()) {
+	const auto data = sticker();
+	if ((data && data->animated) || thumbnailEnoughForSticker()) {
 		_thumbnail->load(stickerSetOrigin());
+		if (data && data->animated) {
+			automaticLoad(stickerSetOrigin(), nullptr);
+		}
 	} else {
 		checkStickerLarge();
 	}
@@ -1195,9 +1221,10 @@ Image *DocumentData::getStickerLarge() {
 }
 
 Image *DocumentData::getStickerSmall() {
-	if (thumbnailEnoughForSticker()) {
+	const auto data = sticker();
+	if ((data && data->animated) || thumbnailEnoughForSticker()) {
 		return _thumbnail->isNull() ? nullptr : _thumbnail.get();
-	} else if (const auto data = sticker()) {
+	} else if (data) {
 		return data->image.get();
 	}
 	return nullptr;
@@ -1299,7 +1326,7 @@ auto DocumentData::createStreamingLoader(
 					MTP_long(id),
 					MTP_long(_access),
 					MTP_bytes(_fileReference),
-					MTP_string(QString()))),
+					MTP_string())),
 			size,
 			origin)
 		: nullptr;

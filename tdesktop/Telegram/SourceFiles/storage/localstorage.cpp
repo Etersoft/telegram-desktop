@@ -841,17 +841,11 @@ void _readLocations() {
 }
 
 struct ReadSettingsContext {
-	int legacyLanguageId = Lang::kLegacyLanguageNone;
-	QString legacyLanguageFile;
 	MTP::DcOptions dcOptions;
 };
 
 void applyReadContext(ReadSettingsContext &&context) {
 	Core::App().dcOptions()->addFromOther(std::move(context.dcOptions));
-	if (context.legacyLanguageId != Lang::kLegacyLanguageNone) {
-		Lang::Current().fillFromLegacy(context.legacyLanguageId, context.legacyLanguageFile);
-		writeLangPack();
-	}
 }
 
 QByteArray serializeCallSettings(){
@@ -1478,16 +1472,12 @@ bool _readSetting(quint32 blockId, QDataStream &stream, int version, ReadSetting
 		qint32 v;
 		stream >> v;
 		if (!_checkStreamStatus(stream)) return false;
-
-		context.legacyLanguageId = v;
 	} break;
 
 	case dbiLangFileOld: {
 		QString v;
 		stream >> v;
 		if (!_checkStreamStatus(stream)) return false;
-
-		context.legacyLanguageFile = v;
 	} break;
 
 	case dbiWindowPosition: {
@@ -3516,7 +3506,7 @@ void _readStickerSets(FileKey &stickersKey, Stickers::Order *outOrder = nullptr,
 				setHash,
 				MTPDstickerSet::Flags(setFlags),
 				setInstallDate,
-				Images::Create(setThumbnail)));
+				Images::CreateStickerSetThumbnail(setThumbnail)));
 		}
 		auto &set = it.value();
 		auto inputSet = MTP_inputStickerSetID(MTP_long(set.id), MTP_long(set.access));
@@ -4677,15 +4667,15 @@ void WriteExportSettings(const Export::Settings &settings) {
 		settings.singlePeer.match([&](const MTPDinputPeerUser & user) {
 			data.stream
 				<< kSinglePeerTypeUser
-				<< qint32(user.vuser_id.v)
-				<< quint64(user.vaccess_hash.v);
+				<< qint32(user.vuser_id().v)
+				<< quint64(user.vaccess_hash().v);
 		}, [&](const MTPDinputPeerChat & chat) {
-			data.stream << kSinglePeerTypeChat << qint32(chat.vchat_id.v);
+			data.stream << kSinglePeerTypeChat << qint32(chat.vchat_id().v);
 		}, [&](const MTPDinputPeerChannel & channel) {
 			data.stream
 				<< kSinglePeerTypeChannel
-				<< qint32(channel.vchannel_id.v)
-				<< quint64(channel.vaccess_hash.v);
+				<< qint32(channel.vchannel_id().v)
+				<< quint64(channel.vaccess_hash().v);
 		}, [&](const MTPDinputPeerSelf &) {
 			data.stream << kSinglePeerTypeSelf;
 		}, [&](const MTPDinputPeerEmpty &) {

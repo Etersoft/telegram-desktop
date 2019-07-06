@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/cache/storage_cache_database.h"
 #include "data/data_session.h"
 #include "data/data_file_origin.h"
+#include "chat_helpers/stickers.h"
 #include "auth_session.h"
 
 using namespace Images;
@@ -161,7 +162,11 @@ ImagePtr Create(int width, int height) {
 		height)));
 }
 
-ImagePtr Create(const StorageImageLocation &location, int size) {
+template <typename SourceType>
+ImagePtr Create(
+		const StorageImageLocation &location,
+		int size,
+		const QByteArray &bytes) {
 	if (!location.valid()) {
 		return ImagePtr();
 	}
@@ -173,57 +178,79 @@ ImagePtr Create(const StorageImageLocation &location, int size) {
 		: StorageImages.emplace(
 			key,
 			std::make_unique<Image>(
-				std::make_unique<StorageSource>(location, size))
+				std::make_unique<SourceType>(location, size))
 		).first->second.get();
 	if (found) {
 		image->refreshFileReference(location.fileReference());
 	}
+	if (!bytes.isEmpty()) {
+		image->setImageBytes(bytes);
+	}
 	return ImagePtr(image);
+
+}
+
+ImagePtr Create(const StorageImageLocation &location, int size) {
+	return Create<StorageSource>(location, size, QByteArray());
 }
 
 ImagePtr Create(
 		const StorageImageLocation &location,
 		const QByteArray &bytes) {
-	const auto key = inMemoryKey(location);
-	const auto i = StorageImages.find(key);
-	const auto found = (i != end(StorageImages));
-	const auto image = found
-		? i->second.get()
-		: StorageImages.emplace(
-			key,
-			std::make_unique<Image>(
-				std::make_unique<StorageSource>(location, bytes.size()))
-		).first->second.get();
-	if (found) {
-		image->refreshFileReference(location.fileReference());
-	}
-	image->setImageBytes(bytes);
-	return ImagePtr(image);
+	return Create<StorageSource>(location, bytes.size(), bytes);
 }
 
-template <typename CreateLocation>
+struct CreateStorageImage {
+	ImagePtr operator()(
+			const StorageImageLocation &location,
+			int size) {
+		return Create(location, size);
+	}
+	ImagePtr operator()(
+			const StorageImageLocation &location,
+			const QByteArray &bytes) {
+		return Create(location, bytes);
+	}
+};
+
+struct CreateSetThumbnail {
+	using Source = Stickers::ThumbnailSource;
+	ImagePtr operator()(
+			const StorageImageLocation &location,
+			int size) {
+		return Create<Source>(location, size, QByteArray());
+	}
+	ImagePtr operator()(
+			const StorageImageLocation &location,
+			const QByteArray &bytes) {
+		return Create<Source>(location, bytes.size(), bytes);
+	}
+};
+
+template <typename CreateLocation, typename Method = CreateStorageImage>
 ImagePtr CreateFromPhotoSize(
 		CreateLocation &&createLocation,
-		const MTPPhotoSize &size) {
+		const MTPPhotoSize &size,
+		Method method = Method()) {
 	return size.match([&](const MTPDphotoSize &data) {
-		const auto &location = data.vlocation.c_fileLocationToBeDeprecated();
-		return Create(
+		const auto &location = data.vlocation().c_fileLocationToBeDeprecated();
+		return method(
 			StorageImageLocation(
-				createLocation(data.vtype, location),
-				data.vw.v,
-				data.vh.v),
-			data.vsize.v);
+				createLocation(data.vtype(), location),
+				data.vw().v,
+				data.vh().v),
+			data.vsize().v);
 	}, [&](const MTPDphotoCachedSize &data) {
-		const auto bytes = qba(data.vbytes);
-		const auto &location = data.vlocation.c_fileLocationToBeDeprecated();
-		return Create(
+		const auto bytes = qba(data.vbytes());
+		const auto &location = data.vlocation().c_fileLocationToBeDeprecated();
+		return method(
 			StorageImageLocation(
-				createLocation(data.vtype, location),
-				data.vw.v,
-				data.vh.v),
+				createLocation(data.vtype(), location),
+				data.vw().v,
+				data.vh().v),
 			bytes);
 	}, [&](const MTPDphotoStrippedSize &data) {
-		const auto bytes = qba(data.vbytes);
+		const auto bytes = qba(data.vbytes());
 		if (bytes.size() < 3 || bytes[0] != '\x01') {
 			return ImagePtr();
 		}
@@ -280,18 +307,25 @@ ImagePtr CreateFromPhotoSize(
 }
 
 ImagePtr Create(const MTPDstickerSet &set, const MTPPhotoSize &size) {
+	const auto thumbDcId = set.vthumb_dc_id();
 	const auto create = [&](
 			const MTPstring &thumbSize,
 			const MTPDfileLocationToBeDeprecated &location) {
 		return StorageFileLocation(
-			set.vthumb_dc_id.v,
+			thumbDcId->v,
 			Auth().userId(),
 			MTP_inputStickerSetThumb(
-				MTP_inputStickerSetID(set.vid, set.vaccess_hash),
-				location.vvolume_id,
-				location.vlocal_id));
+				MTP_inputStickerSetID(set.vid(), set.vaccess_hash()),
+				location.vvolume_id(),
+				location.vlocal_id()));
 	};
-	return CreateFromPhotoSize(create, size);
+	return thumbDcId
+		? CreateFromPhotoSize(create, size, CreateSetThumbnail())
+		: ImagePtr();
+}
+
+ImagePtr CreateStickerSetThumbnail(const StorageImageLocation &location) {
+	return CreateSetThumbnail()(location, 0);
 }
 
 ImagePtr Create(const MTPDphoto &photo, const MTPPhotoSize &size) {
@@ -299,12 +333,12 @@ ImagePtr Create(const MTPDphoto &photo, const MTPPhotoSize &size) {
 			const MTPstring &thumbSize,
 			const MTPDfileLocationToBeDeprecated &location) {
 		return StorageFileLocation(
-			photo.vdc_id.v,
+			photo.vdc_id().v,
 			Auth().userId(),
 			MTP_inputPhotoFileLocation(
-				photo.vid,
-				photo.vaccess_hash,
-				photo.vfile_reference,
+				photo.vid(),
+				photo.vaccess_hash(),
+				photo.vfile_reference(),
 				thumbSize));
 	};
 	return CreateFromPhotoSize(create, size);
@@ -315,12 +349,12 @@ ImagePtr Create(const MTPDdocument &document, const MTPPhotoSize &size) {
 			const MTPstring &thumbSize,
 			const MTPDfileLocationToBeDeprecated &location) {
 		return StorageFileLocation(
-			document.vdc_id.v,
+			document.vdc_id().v,
 			Auth().userId(),
 			MTP_inputDocumentFileLocation(
-				document.vid,
-				document.vaccess_hash,
-				document.vfile_reference,
+				document.vid(),
+				document.vaccess_hash(),
+				document.vfile_reference(),
 				thumbSize));
 	};
 	return CreateFromPhotoSize(create, size);
@@ -330,63 +364,63 @@ QSize getImageSize(const QVector<MTPDocumentAttribute> &attributes) {
 	for (const auto &attribute : attributes) {
 		if (attribute.type() == mtpc_documentAttributeImageSize) {
 			auto &size = attribute.c_documentAttributeImageSize();
-			return QSize(size.vw.v, size.vh.v);
+			return QSize(size.vw().v, size.vh().v);
 		}
 	}
 	return QSize();
 }
 
 ImagePtr Create(const MTPDwebDocument &document) {
-	const auto size = getImageSize(document.vattributes.v);
+	const auto size = getImageSize(document.vattributes().v);
 	if (size.isEmpty()) {
 		return ImagePtr();
 	}
 
 	// We don't use size from WebDocument, because it is not reliable.
 	// It can be > 0 and different from the real size that we get in upload.WebFile result.
-	auto filesize = 0; // document.vsize.v;
+	auto filesize = 0; // document.vsize().v;
 	return Create(
 		WebFileLocation(
-			document.vurl.v,
-			document.vaccess_hash.v),
+			document.vurl().v,
+			document.vaccess_hash().v),
 		size.width(),
 		size.height(),
 		filesize);
 }
 
 ImagePtr Create(const MTPDwebDocumentNoProxy &document) {
-	const auto size = getImageSize(document.vattributes.v);
+	const auto size = getImageSize(document.vattributes().v);
 	if (size.isEmpty()) {
 		return ImagePtr();
 	}
 
-	return Create(qs(document.vurl), size.width(), size.height());
+	return Create(qs(document.vurl()), size.width(), size.height());
 }
 
 ImagePtr Create(const MTPDwebDocument &document, QSize box) {
-	//const auto size = getImageSize(document.vattributes.v);
+	//const auto size = getImageSize(document.vattributes().v);
 	//if (size.isEmpty()) {
 	//	return ImagePtr();
 	//}
 
 	// We don't use size from WebDocument, because it is not reliable.
 	// It can be > 0 and different from the real size that we get in upload.WebFile result.
-	auto filesize = 0; // document.vsize.v;
+	auto filesize = 0; // document.vsize().v;
 	return Create(
 		WebFileLocation(
-			document.vurl.v,
-			document.vaccess_hash.v),
+			document.vurl().v,
+			document.vaccess_hash().v),
 		box,
 		filesize);
 }
 
 ImagePtr Create(const MTPDwebDocumentNoProxy &document, QSize box) {
-	//const auto size = getImageSize(document.vattributes.v);
+	//const auto size = getImageSize(document.vattributes().v);
 	//if (size.isEmpty()) {
 	//	return ImagePtr();
 	//}
 
-	return Create(qs(document.vurl), box);
+	return Create(qs(document.vurl()), box);
 }
 
 ImagePtr Create(const MTPWebDocument &document) {

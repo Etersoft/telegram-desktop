@@ -502,15 +502,11 @@ bool Sandbox::notify(QObject *receiver, QEvent *e) {
 	const auto wrap = createEventNestingLevel();
 	const auto type = e->type();
 	if (type == QEvent::UpdateRequest) {
+		const auto weak = make_weak(receiver);
 		_widgetUpdateRequests.fire({});
-		// Profiling.
-		//const auto time = crl::now();
-		//LOG(("[%1] UPDATE STARTED").arg(time));
-		//const auto guard = gsl::finally([&] {
-		//	const auto now = crl::now();
-		//	LOG(("[%1] UPDATE FINISHED (%2)").arg(now).arg(now - time));
-		//});
-		//return QApplication::notify(receiver, e);
+		if (!weak) {
+			return true;
+		}
 	}
 	return QApplication::notify(receiver, e);
 }

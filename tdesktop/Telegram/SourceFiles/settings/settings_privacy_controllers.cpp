@@ -137,7 +137,7 @@ AdminLog::OwnedItem GenerateForwardedItem(
 		MTP_string(text),
 		MTPMessageMedia(),
 		MTPReplyMarkup(),
-		MTPnullEntities,
+		MTPVector<MTPMessageEntity>(),
 		MTPint(), // views
 		MTPint(), // edit_date
 		MTPstring(), // post_author
@@ -193,8 +193,8 @@ void BlockedBoxController::loadMoreRows() {
 		_loadRequestId = 0;
 
 		auto handleContactsBlocked = [](auto &list) {
-			Auth().data().processUsers(list.vusers);
-			return list.vblocked.v;
+			Auth().data().processUsers(list.vusers());
+			return list.vblocked().v;
 		};
 		switch (result.type()) {
 		case mtpc_contacts_blockedSlice: {
@@ -232,7 +232,7 @@ void BlockedBoxController::receivedUsers(const QVector<MTPContactBlocked> &resul
 	_offset += result.size();
 	for (const auto &item : result) {
 		item.match([&](const MTPDcontactBlocked &data) {
-			if (const auto user = Auth().data().userLoaded(data.vuser_id.v)) {
+			if (const auto user = Auth().data().userLoaded(data.vuser_id().v)) {
 				appendRow(user);
 				user->setIsBlocked(true);
 			}
@@ -286,9 +286,7 @@ bool BlockedBoxController::prependRow(not_null<UserData*> user) {
 std::unique_ptr<PeerListRow> BlockedBoxController::createRow(
 		not_null<UserData*> user) const {
 	auto row = std::make_unique<PeerListRowWithLink>(user);
-	row->setActionLink((user->isBot() && !user->isSupport())
-		? tr::lng_blocked_list_restart(tr::now)
-		: tr::lng_blocked_list_unblock(tr::now));
+	row->setActionLink(tr::lng_blocked_list_unblock(tr::now));
 	const auto status = [&] {
 		if (!user->phone().isEmpty()) {
 			return App::formatPhone(user->phone());

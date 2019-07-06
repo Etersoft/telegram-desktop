@@ -344,7 +344,7 @@ void Filler::addBlockUser(not_null<UserData*> user) {
 	};
 	const auto blockAction = _addAction(blockText(user), [=] {
 		if (user->isBlocked()) {
-			user->session().api().unblockUser(user);
+			PeerMenuUnblockUserWithBotRestart(user);
 		} else if (user->isBot()) {
 			user->session().api().blockUser(user);
 		} else {
@@ -778,6 +778,14 @@ void PeerMenuBlockUserBox(
 	});
 }
 
+void PeerMenuUnblockUserWithBotRestart(not_null<UserData*> user) {
+	user->session().api().unblockUser(user, [=] {
+		if (user->isBot() && !user->isSupport()) {
+			user->session().api().sendBotStart(user);
+		}
+	});
+}
+
 QPointer<Ui::RpWidget> ShowForwardMessagesBox(
 		MessageIdsList &&items,
 		FnMut<void()> &&successCallback) {
@@ -833,7 +841,7 @@ void PeerMenuAddChannelMembers(not_null<ChannelData*> channel) {
 				list
 			) | ranges::view::transform([](const MTPChannelParticipant &p) {
 				return p.match([](const auto &data) {
-					return data.vuser_id.v;
+					return data.vuser_id().v;
 				});
 			}) | ranges::view::transform([](UserId userId) {
 				return Auth().data().userLoaded(userId);

@@ -45,9 +45,15 @@ std::map<int, const char*> BetaLogs() {
 
 		"\xE2\x80\xA2 Apply formatting to selected text parts "
 		"from the MacBook Pro TouchBar."
+	},
+	{
+		1007011,
+		"\xE2\x80\xA2 Use strikethrough and underline formatting.\n"
+
+		"\xE2\x80\xA2 Bug fixes and other minor improvements."
 	}
 	};
-}
+};
 
 QString FormatVersionDisplay(int version) {
 	return QString::number(version / 1000000)
@@ -98,10 +104,10 @@ void Changelogs::requestCloudLogs() {
 			resultEmpty = false;
 			break;
 		case mtpc_updatesCombined:
-			resultEmpty = result.c_updatesCombined().vupdates.v.isEmpty();
+			resultEmpty = result.c_updatesCombined().vupdates().v.isEmpty();
 			break;
 		case mtpc_updates:
-			resultEmpty = result.c_updates().vupdates.v.isEmpty();
+			resultEmpty = result.c_updates().vupdates().v.isEmpty();
 			break;
 		case mtpc_updatesTooLong:
 		case mtpc_updateShortSentMessage:
