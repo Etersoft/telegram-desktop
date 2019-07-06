@@ -1,5 +1,4 @@
 tar: tdesktop name=@name@-@version@
-tar: qtlottie name=qtlottie base=Telegram/ThirdParty/qtlottie
 copy: patches/*.patch
 copy: CMakeLists.txt
 copy: gen_source_list.sh

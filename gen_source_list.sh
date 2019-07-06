@@ -17,11 +17,6 @@ grep "<(src_loc)" Telegram/gyp/lib_lottie.gyp | \
     grep -v "pch_" | grep "\." | \
     sed -e "s|.*<(src_loc)\(.*\)',.*|    SourceFiles\1|g" >> $OFILE
 
-grep "<(lottie_loc)" Telegram/gyp/lib_lottie.gyp | \
-    grep -v "platform/mac" | grep -v "platform/win" | \
-    grep -v "pch_" | grep "\." | \
-    sed -e "s|.*<(lottie_loc)\(.*\)',.*|    ThirdParty/qtlottie/src\1|g" >> $OFILE
-
 cat <<EOF >>$OFILE
 )
 EOF
